@@ -138,7 +138,10 @@ enum SpotifyMapping {
                      artistId: a.artists?.first?.id.flatMap { $0.isEmpty ? nil : $0 },
                      created: addedAt,
                      songCount: a.totalTracks,
-                     durationSec: mapped.isEmpty ? nil : mapped.map(\.durationSec).reduce(0, +))
+                     durationSec: mapped.isEmpty ? nil : mapped.map(\.durationSec).reduce(0, +),
+                     recordLabels: a.label.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                         .flatMap { $0.isEmpty ? nil : [$0] } ?? [],
+                     releaseDate: ReleaseDateISO.parse(a.releaseDate, precision: a.releaseDatePrecision))
     }
 
     static func albumItem(_ a: Album) -> LibraryItem {

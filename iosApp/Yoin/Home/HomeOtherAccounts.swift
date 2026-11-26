@@ -128,10 +128,40 @@ struct OtherAccountsShelf: View {
     @Environment(\.homeScheme) private var scheme
     @Environment(\.homeMargin) private var margin
     var items: [OtherAccountItem]
+    /// Two columns: the cell it lays out in (a unit's row of cards a unit tall, paged in a half); nil in one column.
+    var cell: HomeCell? = nil
     /// The first tap ever asks before switching (the notice All Memories shares).
     @State private var switchGate = AccountSwitchGate()
 
     var body: some View {
+        if let cell, let units = cell.units {
+            let rows = min(max(units, 1), 2)
+            let stacks = stride(from: 0, to: items.count, by: rows).map { Array(items[$0..<min($0 + rows, items.count)]) }
+            HomeGridShelf(title: HomeSection.otherProfiles.title, cell: cell, cardWidth: HomeGrid.cover, cards: stacks.count) { _ in
+                ForEach(Array(stacks.enumerated()), id: \.offset) { _, stack in
+                    VStack(alignment: .leading, spacing: HomeGrid.gap) {
+                        ForEach(stack) { item in button(item, size: HomeGrid.cover).frame(height: HomeGrid.unit, alignment: .top) }
+                    }
+                }
+            }
+        } else {
+            column
+        }
+    }
+
+    private func button(_ item: OtherAccountItem, size: CGFloat) -> some View {
+        Button {
+            homeTap(edit) {
+                switchGate.request(from: item.id, account: item.profileName, subject: item.title, opensAlbum: false) {
+                    model.play(otherAccount: item)
+                }
+            }
+        } label: { card(item, size: size) }
+        .buttonStyle(PressScale())
+        .accountSwitchNotice(switchGate, anchor: item.id)
+    }
+
+    private var column: some View {
         VStack(alignment: .leading, spacing: 12) {
             HomeSectionTitle(HomeSection.otherProfiles.title)
             ScrollView(.horizontal) {
@@ -156,9 +186,8 @@ struct OtherAccountsShelf: View {
         }
     }
 
-    private func card(_ item: OtherAccountItem) -> some View {
-        let size = Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg
-        return VStack(alignment: .leading, spacing: 6) {
+    private func card(_ item: OtherAccountItem, size: CGFloat = Tokens.home.RECENTLY_ADDED_ALBUM_COVER.cg) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             EntityBackdrop(entity: item.entity == .playlist ? .playlist : .album, palette: item.palette,
                            seed: item.entityId.count, size: size, stroke: scheme?.primary ?? Yoin.ink)
             VStack(alignment: .leading, spacing: 0) {

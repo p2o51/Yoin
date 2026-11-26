@@ -62,11 +62,11 @@ enum ScrapStickyRules {
 }
 
 extension CoverScheme {
-    /// The sticky's folded corner (Android stickyFold): its paper with a third of the secondary ink.
-    var stickyFold: Color { secondaryContainer.mix(with: secondary, by: 0.32, in: .perceptual) }
+    /// The sticky's folded corner (Android stickyFold): its paper with a third of the primary ink (primary since 51, 2026-11-25: the listener's words are one family).
+    var stickyFold: Color { primaryContainer.mix(with: primary, by: 0.32, in: .perceptual) }
 }
 
-/// One album note (Android Sticky): secondaryContainer paper with a folded corner, its words drawn from the
+/// One album note (Android Sticky): primaryContainer paper with a folded corner, its words drawn from the
 /// stored text (NoteMarkupText; SwiftUI never parses it). The caller lays the tilt on and takes the tap.
 struct ScrapStickyCard: View {
     var text: String
@@ -75,15 +75,15 @@ struct ScrapStickyCard: View {
     var onToggleChecklist: ((Int) -> Void)? = nil
 
     var body: some View {
-        NoteMarkupText(text: text, size: 14.5, mentionColor: scheme.onSecondaryContainer, glyphColor: scheme.primary,
+        NoteMarkupText(text: text, size: 14.5, mentionColor: scheme.onPrimaryContainer, glyphColor: scheme.onPrimaryContainer,
                        onToggleChecklist: onToggleChecklist)
             // userTextStyle at 14.5: line 1.5 em.
             .lineSpacing(YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5))
-            .foregroundStyle(scheme.onSecondaryContainer)
+            .foregroundStyle(scheme.onPrimaryContainer)
             .multilineTextAlignment(.leading)
             .padding(.leading, 18).padding(.trailing, 18).padding(.top, 14).padding(.bottom, 18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { StickyNote(fill: scheme.secondaryContainer, flap: scheme.stickyFold) }
+            .background { StickyNote(fill: scheme.primaryContainer, flap: scheme.stickyFold) }
             .contentShape(StickyOutline())
     }
 }
@@ -122,8 +122,8 @@ struct ScrapStickyEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             NoteMarkupEditor(model: editor, text: $text,
-                             prompt: Text("Write about the whole album").foregroundStyle(scheme.onSecondaryContainer.opacity(0.6)),
-                             size: 14.5, textColor: scheme.onSecondaryContainer, mentionColor: scheme.onSecondaryContainer,
+                             prompt: Text("Write about the whole album").foregroundStyle(scheme.onPrimaryContainer.opacity(0.6)),
+                             size: 14.5, textColor: scheme.onPrimaryContainer, mentionColor: scheme.onPrimaryContainer,
                              tint: scheme.primary, scheme: scheme, lines: 3...10,
                              lineSpacing: YoinType.lineSpacing(size: 14.5, lineHeight: 14.5 * 1.5), focused: $focused)
                 .accessibilityLabel(Text("Write about the whole album"))
@@ -135,7 +135,7 @@ struct ScrapStickyEditor: View {
                 Spacer(minLength: 0)
                 Button(action: onCancel) {
                     Text("Cancel").yoinRole(Tokens.type.labelLarge).lineLimit(1)
-                        .foregroundStyle(scheme.primary)
+                        .foregroundStyle(scheme.onPrimaryContainer)
                         .padding(.horizontal, 12)
                         .frame(minHeight: 40)
                         .contentShape(.capsule)
@@ -144,7 +144,7 @@ struct ScrapStickyEditor: View {
                 Button(action: onSave) {
                     // Android FilledTonalButton; the tone is the fold's, so it reads on the sticky's own paper.
                     Text("Save").yoinRole(Tokens.type.labelLarge).lineLimit(1)
-                        .foregroundStyle(scheme.onSecondaryContainer)
+                        .foregroundStyle(scheme.onPrimaryContainer)
                         .padding(.horizontal, 16)
                         .frame(minHeight: 40)
                         .background(scheme.stickyFold, in: .capsule)
@@ -154,7 +154,7 @@ struct ScrapStickyEditor: View {
         }
         .padding(.leading, 14).padding(.trailing, 14).padding(.top, 12).padding(.bottom, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background { StickyNote(fill: scheme.secondaryContainer, flap: scheme.stickyFold) }
+        .background { StickyNote(fill: scheme.primaryContainer, flap: scheme.stickyFold) }
         .onAppear { if autoFocus { focused = true } }
     }
 }

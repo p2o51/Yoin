@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.home
 
 import com.gpo.yoin.data.home.HomeSectionPref
+import com.gpo.yoin.shared.home.HomeFeedRow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals

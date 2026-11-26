@@ -28,7 +28,8 @@ struct TipIllustration: View {
             case "LyricHighlight": LyricHighlightDemo(playing: playing, scheme: scheme)
             case "AccountQuickSwitch": AccountQuickSwitchDemo(playing: playing, scheme: scheme)
             case "Downloads": DownloadsDemo(playing: playing, scheme: scheme)
-            case "EditHome": EditHomeDemo(playing: playing, scheme: scheme)
+            // iPad and Mac: the tablet in two columns, with the drop beside; an iPhone's Home never has two.
+            case "EditHome": EditHomeDemo(playing: playing, scheme: scheme, wide: Tips.largeScreen)
             case "FocusCover": FocusCoverDemo(playing: playing, scheme: scheme)
             case "CoverMenu": CoverMenuDemo(playing: playing, scheme: scheme, keepScreenOn: false)
             case "SongMenu": SongMenuDemo(playing: playing, scheme: scheme)

@@ -15,6 +15,7 @@ import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.shared.albumabout.AlbumAboutContent
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -229,7 +230,7 @@ class RoomAlbumScrapbookSource(
         // The album's own About is keyed by its identity, not the track metadata the song rows use.
         val albumAbout = albumAboutDao
             ?.observe(query.albumId.provider, query.albumId.rawId)
-            ?.map(AlbumAboutContent::from)
+            ?.map(::albumAboutContent)
             ?: flowOf(AlbumAboutContent.None)
         val aboutBoth = combine(about, albumAbout) { byTrack, album -> byTrack to album }
         return combine(

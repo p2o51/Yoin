@@ -146,6 +146,8 @@ targets:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: Yoin streams music from servers on your local network.
+        # The share sheet's Save (NowPlaying/Share/ShareExport.swift): add-only access to the photo library.
+        NSPhotoLibraryAddUsageDescription: Yoin saves your lyric, About, and note images to your photo library.
         # MusicKit's authorization prompt (Apple Music library, catalog and playback).
         NSAppleMusicUsageDescription: Yoin plays and shows your Apple Music library.
         # Cloud sync's Google sign-in (Config/GoogleSignIn.xcconfig).

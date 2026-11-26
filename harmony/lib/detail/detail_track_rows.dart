@@ -73,6 +73,34 @@ class DiscHeading extends StatelessWidget {
   );
 }
 
+/// The album's release date under its last track, in the language's own words ("2023年10月27日",
+/// "October 27, 2023"; a month or a year alone when that is all the service gives). Quiet like the
+/// track-count line above track 1 (AlbumReleaseDateLine).
+class AlbumReleaseDateLine extends StatelessWidget {
+  const AlbumReleaseDateLine(this.date, {super.key});
+
+  final ReleaseDate date;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.labelMedium;
+    final text = DetailStrings.of(context).releaseDateText(date.iso);
+    if (text == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(8, 14, 8, 6),
+      child: SeamFade(
+        fontSize: style?.fontSize ?? 12,
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: style?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+      ),
+    );
+  }
+}
+
 /// AlbumTrackRow: [index / equalizer][title + artist][duration][heart].
 class AlbumTrackRow extends ConsumerWidget {
   const AlbumTrackRow({

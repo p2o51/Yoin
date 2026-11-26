@@ -566,12 +566,15 @@ struct AlbumDetailView: View {
                                                                  onSurface: app.onSurface))
                     }
                     // DetailMetaLine in bodyMedium, groups 12 apart, no separators:
-                    // album [artist] [Album] [year]; playlist [owner] [Playlist].
+                    // album [artist] [Album] [date]; playlist [owner] [Playlist].
                     // The kind is Medium in primary. The white twin over the bar:
                     // onSurface white, primary white @ 0.88.
                     let plain: Color = white ? .white : app.onSurface
                     let kind: Color = white ? .white.opacity(0.88) : app.primary
-                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                    // On one baseline, not centred (Android MetaLine, 2026-11-24): GSF has no Han glyphs, so a
+                    // group in Chinese takes the CJK fallback's taller line and, centred in the role's line box,
+                    // its baseline sat apart from a digits-only group's ("专辑" vs "22.6.12").
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
                         if let playlist {
                             Text(playlist.owner).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             Text("Playlist").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
@@ -581,7 +584,10 @@ struct AlbumDetailView: View {
                             }
                             .buttonStyle(.plain).pointerHighlight()
                             Text("Album").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
-                            Text(String(album.year)).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
+                            // The release date as precisely as the service dates it: "22.6.12" / "22.6" / "2022".
+                            if let date = AlbumReleaseDateText.header(album.releaseDate, year: album.year) {
+                                Text(verbatim: date).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
+                            }
                         }
                     }
                     .lineLimit(1)
@@ -755,9 +761,10 @@ struct AlbumDetailView: View {
         } else if mins > 0 {
             groups.append(("\(mins)", String(localized: "min")))
         }
-        return HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+        // Numbers and units on one baseline (Android Stat / MetaLine: "29" sat above "分钟" when centred).
+        return HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(groups, id: \.1) { value, unit in
-                HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
+                HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.INNER_GAP.cg) {
                     Text(value).monospacedDigit().yoinRole(Tokens.type.labelMedium, weight: .medium)
                     Text(unit).yoinRole(Tokens.type.labelMedium, weight: .regular).opacity(Tokens.metaLine.MUTED_ALPHA)
                 }
@@ -978,6 +985,20 @@ struct AlbumDetailView: View {
                                         if t.notStreamed { toggleNotStreamedReason(i) } else { playAlbum(from: i) }
                                     }
                             }
+                        }
+                        // The release date closes the list, as precisely as the service dates it (Android
+                        // AlbumReleaseDateLine, like Spotify): just the date in the app's language, no label.
+                        if !tracks.isEmpty,
+                           let date = AlbumReleaseDateText.full(album.releaseDate, locale: AlbumCredits.appLocale) {
+                            Text(verbatim: date)
+                                .lineLimit(1)
+                                .yoinRole(Tokens.type.labelMedium)
+                                .foregroundStyle(app.onSurfaceVariant)
+                                .padding(.horizontal, 8)
+                                .padding(.top, 14)
+                                .padding(.bottom, 6)
+                                .modifier(rowBlur)
+                                .accessibilityIdentifier("album.releaseDate")
                         }
                         if !overview, demo == nil {
                             linerNotes(album: album, plays: plays, bun: bun, review: review, lastPlay: lastPlay)

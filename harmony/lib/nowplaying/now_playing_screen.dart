@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
+import '../data/ai/ai_settings.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
@@ -29,6 +30,7 @@ import '../theme/motion.dart';
 import '../theme/playback_theme.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/ai_service_scope.dart';
 import '../ui/component/artwork_swap.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
@@ -54,6 +56,8 @@ import 'lyric_tools.dart';
 import 'lyrics_logic.dart';
 import 'lyrics_selection.dart';
 import 'lyrics_share.dart';
+import 'share_content.dart';
+import 'share_sheet.dart';
 import 'lyrics_sheets.dart';
 import 'lyrics_view.dart';
 import 'marquee.dart';
@@ -376,6 +380,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       lyricsPageSelected: lyricsPage,
       toolsOnScreen: toolsOnScreen,
       selectingLines: _tools.selection.active,
+      screenReader: MediaQuery.accessibleNavigationOf(context),
     );
     if (eligible == _toolsIdleEligible) return;
     _toolsIdleEligible = eligible;
@@ -458,7 +463,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
       case LyricsTranslateAlreadyIn(:final language):
         _say(strings.msgAlreadyLanguage(language));
       case LyricsTranslateKeyMissing():
-        _say(strings.msgApiKeyMissing);
+        _say(strings.aiKeyMissing(AiServiceScope.read(context)));
       case LyricsTranslateFailed(:final message):
         _say(message);
       case LyricsTranslateToggled() || LyricsTranslateIgnored():
@@ -546,31 +551,72 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     _tools.selection.exit();
   }
 
-  /// Share: the pick frozen into the share sheet; shared → out of select mode.
+  /// Share: the pick frozen into the share sheet (opened on 歌词); shared → out of select mode.
   void _shareLyrics(NowPlayingContent? content, LyricSheet sheet) {
     final selected = _tools.selection.selected;
     final lines = selectedLyricLines(sheet.rows, selected);
     if (content == null || lines.isEmpty) return;
     final selection = _tools.selection;
-    // Taken now: the sheet outlives a song change (and may outlive this page).
-    final keeper = ref.read(lyricHighlightKeeperProvider);
-    final track = content.track;
     _glowLines();
-    showLyricsShareSheet(
-      context,
-      snapshot: LyricsShareSnapshot(
-        lines: lines,
-        passageStarts: lyricPassageStarts(sheet.rows, selected),
-        showTranslation: content.showTranslation,
-        songTitle: content.track.title ?? '',
-        artist: content.track.artist ?? '',
-        cover: content.track.coverArt,
+    _openShare(
+      ShareRequest(
+        ShareTab.lyrics,
+        lyrics: shareLyricsPick(
+          lines,
+          lyricPassageStarts(sheet.rows, selected),
+          showTranslation: content.showTranslation,
+        ),
       ),
       onShared: selection.exit,
-      onMessage: _say,
-      // Saved or shared: Home's Lyric Cards keep the lines as the user's own pick.
-      onKept: () =>
-          keeper.keepUserPick(track: track, lines: [for (final l in lines) l.text], startMs: lines.first.startMs),
+    );
+  }
+
+  /// Share as image (Android ShareSheetRequestHost): the sheet on [request]'s
+  /// tab, with everything the song on show can share frozen now — the sheet
+  /// outlives a song change. Nothing opens when the song has nothing for that
+  /// tab. Saved or shared from 歌词: Home's Lyric Cards keep the lines as the
+  /// user's own pick.
+  void _openShare(ShareRequest request, {VoidCallback? onShared}) {
+    final state = ref.read(nowPlayingViewModelProvider);
+    if (state is! NowPlayingContent) return;
+    final track = state.track;
+    final lyrics = state.lyrics;
+    final about = ref.read(nowPlayingAboutProvider).about;
+    final content = nowPlayingShareContent(
+      track: track,
+      coverUrl: shareCoverUrl(ref.read(activeSourceProvider).value, track.coverArt),
+      durationMs: state.durationMs ?? (track.durationSec ?? 0) * 1000,
+      lyricRows: lyrics is LyricsReady ? lyrics.sheet.rows : const [],
+      showTranslation: state.showTranslation,
+      positionMs: ref.read(playheadClockProvider).positionMs(),
+      aboutEntries: about is AboutReady ? about.entries : const [],
+      credits: state.lyricCredits,
+      notes: _notes.notes,
+      strings: NowPlayingStrings.of(context),
+      aiProvider: ref.read(aiSettingsProvider).value?.provider ?? AiProvider.gemini,
+      lyrics: request.lyrics,
+      aboutFocus: request.aboutFocus,
+      noteId: request.noteId,
+    );
+    if (!content.has(request.tab)) return;
+    final keeper = ref.read(lyricHighlightKeeperProvider);
+    unawaited(
+      showShareSheet(
+        context,
+        content: content,
+        initialTab: request.tab,
+        onMessage: _say,
+        onShared: onShared,
+        onKept: () {
+          final pick = content.lyrics;
+          if (pick == null || pick.lines.isEmpty) return;
+          keeper.keepUserPick(
+            track: track,
+            lines: [for (final l in pick.lines) l.text],
+            startMs: pick.lines.first.startMs,
+          );
+        },
+      ),
     );
   }
 
@@ -588,9 +634,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     }
   }
 
-  /// Focus at ease is armed while synced lyrics play in focus.
+  /// Focus at ease is armed while synced lyrics play in focus, never while a screen reader runs (it sends
+  /// no taps to bring the buttons back; Android LyricToolsIdleEffect).
   void _trackIdle(NowPlayingUiState state) {
     final eligible =
+        !MediaQuery.accessibleNavigationOf(context) &&
         widget.controller.stage == NowPlayingStage.immersive &&
         state is NowPlayingContent &&
         state.isPlaying &&
@@ -1075,7 +1123,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     return NoteMentionLeave(
       // A note's mention opens its page the way Go to album does: the player closes first.
       leave: (open) => _leaveTo(widget.controller, open),
-      child: NowPlayingSignalScope(signal: _signal, child: screen),
+      child: NowPlayingShareScope(
+        open: _openShare,
+        child: NowPlayingSignalScope(signal: _signal, child: screen),
+      ),
     );
   }
 }
@@ -1505,10 +1556,10 @@ class _Stage extends ConsumerWidget {
                         : oneLine
                         ? FadeTransition(
                             opacity: detail,
-                            child: const LyricToolsBar(iconSize: LyricToolsMetrics.shortTabKey, inPlaceGuard: true),
+                            child: const LyricToolsBar(iconSize: LyricToolsMetrics.shortTabKey),
                           )
                         : enlarged
-                        ? const LyricToolsBar(iconSize: LyricToolsMetrics.enlargedTabKey, inPlaceGuard: true)
+                        ? const LyricToolsBar(iconSize: LyricToolsMetrics.enlargedTabKey)
                         : null,
                   ),
                 ),
@@ -2378,6 +2429,7 @@ class _AboutFullPage extends ConsumerWidget {
             _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, albumId));
           },
           onRegenerate: (entry) async {
+            final ai = AiServiceScope.read(context);
             final outcome = await vm.regenerate(entry);
             switch (outcome) {
               case AboutRegenerated():
@@ -2388,11 +2440,11 @@ class _AboutFullPage extends ConsumerWidget {
                   onAction: () => unawaited(vm.undoRegenerate(outcome)),
                 );
               case AboutRegenerateNothing():
-                say(strings.aboutRegenerateNothing);
+                say(strings.aiNothingNew(ai));
               case AboutRegenerateKeyMissing():
-                say(strings.msgApiKeyMissing);
+                say(strings.aiKeyMissing(ai));
               case AboutRegenerateFailed():
-                say(strings.aboutRegenerateFailed);
+                say(strings.aiFailed(ai));
               case null:
                 break;
             }
@@ -3048,75 +3100,81 @@ class _DualPane extends ConsumerWidget {
                       const SizedBox(width: DualPaneTokens.columnGap),
                       // RIGHT — always expanded: tabs, pager, the page's tools.
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SizedBox(
-                              height: NowPlayingTokens.tabRowNominal,
-                              child: Consumer(
-                                builder: (context, ref, _) => StageTabs(
-                                  selected: pageTarget,
-                                  detail: const AlwaysStoppedAnimation(0),
-                                  onSelect: onSelectPage,
-                                  aboutBusy: ref.watch(_aboutBusyProvider),
+                        // Idle tools close their slot and the lyric lines sink into it: once they are gone,
+                        // the first tap where they stood only wakes them (it never seeks; Android PR #334).
+                        child: LyricToolsWakeGuard(
+                          enabled: pageTarget == NowPlayingDetailPage.lyrics,
+                          band: DualPaneTokens.accessoryHeight + insets.bottom,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SizedBox(
+                                height: NowPlayingTokens.tabRowNominal,
+                                child: Consumer(
+                                  builder: (context, ref, _) => StageTabs(
+                                    selected: pageTarget,
+                                    detail: const AlwaysStoppedAnimation(0),
+                                    onSelect: onSelectPage,
+                                    aboutBusy: ref.watch(_aboutBusyProvider),
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: DualPaneTokens.rightGap),
-                            Expanded(
-                              child: _PagerSurface(
-                                page: page,
-                                swipe: true,
-                                onDrag: onPageDrag,
-                                onDragEnd: onPageDragEnd,
-                                lyrics: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
-                                  // The lyrics stay beside a focused cover and lead there too
-                                  // (WidePlayingContent), printing through focus's dots.
-                                  child: LyricsSurfaceReporter(
-                                    primary: pageTarget == NowPlayingDetailPage.lyrics,
-                                    landingFromTop: NowPlayingEffectTokens.lyricsPageLandingFromTop,
-                                    clipLight: true,
-                                    child: LyricHalftoneScope(
-                                      focus: budget.focusCover != null
-                                          ? controller.focus.animation
-                                          : const AlwaysStoppedAnimation<double>(0),
-                                      child: LyricsView(
-                                        mode: LyricsListMode.full,
-                                        showTranslation: state.showTranslation,
-                                        lyrics: state.lyrics,
-                                        songKey: state.songKey,
-                                        clock: clock,
-                                        onSeek: _lineSeek(context, vm),
-                                        title: track.title,
-                                        artist: track.artist,
-                                        autoFollow: autoFollow,
-                                        windowTop:
-                                            insets.top +
-                                            budget.frameTop +
-                                            DualPaneTokens.topBarHeight +
-                                            budget.barGap +
-                                            NowPlayingTokens.tabRowNominal +
-                                            DualPaneTokens.rightGap,
+                              const SizedBox(height: DualPaneTokens.rightGap),
+                              Expanded(
+                                child: _PagerSurface(
+                                  page: page,
+                                  swipe: true,
+                                  onDrag: onPageDrag,
+                                  onDragEnd: onPageDragEnd,
+                                  lyrics: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: NowPlayingTokens.columnPadding),
+                                    // The lyrics stay beside a focused cover and lead there too
+                                    // (WidePlayingContent), printing through focus's dots.
+                                    child: LyricsSurfaceReporter(
+                                      primary: pageTarget == NowPlayingDetailPage.lyrics,
+                                      landingFromTop: NowPlayingEffectTokens.lyricsPageLandingFromTop,
+                                      clipLight: true,
+                                      child: LyricHalftoneScope(
+                                        focus: budget.focusCover != null
+                                            ? controller.focus.animation
+                                            : const AlwaysStoppedAnimation<double>(0),
+                                        child: LyricsView(
+                                          mode: LyricsListMode.full,
+                                          showTranslation: state.showTranslation,
+                                          lyrics: state.lyrics,
+                                          songKey: state.songKey,
+                                          clock: clock,
+                                          onSeek: _lineSeek(context, vm),
+                                          title: track.title,
+                                          artist: track.artist,
+                                          autoFollow: autoFollow,
+                                          windowTop:
+                                              insets.top +
+                                              budget.frameTop +
+                                              DualPaneTokens.topBarHeight +
+                                              budget.barGap +
+                                              NowPlayingTokens.tabRowNominal +
+                                              DualPaneTokens.rightGap,
+                                        ),
                                       ),
                                     ),
                                   ),
+                                  about: _AboutFullPage(controller: controller, track: track),
+                                  note: NotePage(notes: notes, clock: clock),
                                 ),
-                                about: _AboutFullPage(controller: controller, track: track),
-                                note: NotePage(notes: notes, clock: clock),
                               ),
-                            ),
-                            const SizedBox(height: DualPaneTokens.rightGap),
-                            _DualTools(
-                              page: page,
-                              notes: notes,
-                              clock: clock,
-                              onBarHeight: onBarHeight,
-                              barHeight: barHeight,
-                              askSlot: askSlot,
-                              bottom: insets.bottom,
-                            ),
-                          ],
+                              const SizedBox(height: DualPaneTokens.rightGap),
+                              _DualTools(
+                                page: page,
+                                notes: notes,
+                                clock: clock,
+                                onBarHeight: onBarHeight,
+                                barHeight: barHeight,
+                                askSlot: askSlot,
+                                bottom: insets.bottom,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -3591,33 +3649,39 @@ class _LandscapePane extends ConsumerWidget {
                   );
             final right = SizedBox(
               width: rightWidth,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  retreating(f, LandscapeTokens.headerHeight, header()),
-                  retreating(f, LandscapeTokens.tabRow, tabs()),
-                  Expanded(
-                    child: pagerOrFocus(full: l.stacked, f: f),
-                  ),
-                  if (!l.stacked) ...[
-                    // The Ask bar and the write bar open under About and Note only.
-                    AnimatedBuilder(
-                      animation: page,
-                      builder: (context, child) => ClipRect(
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          heightFactor: (math.min(1.0, page.value) * (1 - f)).clamp(0.0, 1.0),
-                          child: child,
-                        ),
-                      ),
-                      child: tools(),
+              // Stacked, the lyric tools close their slot at the column's foot and the lyrics sink into it:
+              // once they are gone the first tap there only wakes them (Android PR #334).
+              child: LyricToolsWakeGuard(
+                enabled: l.stacked && pageTarget == NowPlayingDetailPage.lyrics,
+                band: DualPaneTokens.accessoryHeight,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    retreating(f, LandscapeTokens.headerHeight, header()),
+                    retreating(f, LandscapeTokens.tabRow, tabs()),
+                    Expanded(
+                      child: pagerOrFocus(full: l.stacked, f: f),
                     ),
-                    const SizedBox(height: LandscapeTokens.lyricsToTransport),
-                    transport(rightWidth),
-                    title(),
-                  ] else
-                    retreating(f, DualPaneTokens.accessoryHeight, tools()),
-                ],
+                    if (!l.stacked) ...[
+                      // The Ask bar and the write bar open under About and Note only.
+                      AnimatedBuilder(
+                        animation: page,
+                        builder: (context, child) => ClipRect(
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            heightFactor: (math.min(1.0, page.value) * (1 - f)).clamp(0.0, 1.0),
+                            child: child,
+                          ),
+                        ),
+                        child: tools(),
+                      ),
+                      const SizedBox(height: LandscapeTokens.lyricsToTransport),
+                      transport(rightWidth),
+                      title(),
+                    ] else
+                      retreating(f, DualPaneTokens.accessoryHeight, tools()),
+                  ],
+                ),
               ),
             );
             return Row(

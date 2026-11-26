@@ -178,6 +178,15 @@ data class AlbumInfo(
      * "全景声"); shown as it comes, never translated. Null when the server doesn't say (Android Album.version).
      */
     val version: String? = null,
+    /** OpenSubsonic `recordLabels` by name (Android Album.recordLabels): the credits line's label. Empty when absent. */
+    val recordLabels: List<String> = emptyList(),
+    /**
+     * This release's date, ISO at the precision the server gives ("2014-05-20", "2014-05", "2014"): OpenSubsonic
+     * `releaseDate`, else `originalReleaseDate`, else [year] (Android `subsonicReleaseDate`). Null when unknown.
+     */
+    val releaseDate: String? = null,
+    /** OpenSubsonic `originalReleaseDate`, ISO like [releaseDate]: a reissue's first release. Null when unknown. */
+    val originalReleaseDate: String? = null,
 ) {
     /** [name] without the " (version)" a server appends to it (Android `albumNameWithoutVersion`). */
     val nameWithoutVersion: String
@@ -192,6 +201,17 @@ data class AlbumInfo(
     ) : this(
         ref, id, name, artist, artistId, year, songCount, durationSec, coverArtId, starred, starredAt,
         userRating, playCount, created, genre, releaseType, songs, null, null,
+    )
+
+    /** The constructor from before the release dates and labels existed (Swift: the init ending at `version:`). */
+    constructor(
+        ref: MediaRef, id: String, name: String, artist: String?, artistId: String?, year: Int?,
+        songCount: Int?, durationSec: Int?, coverArtId: String, starred: Boolean, starredAt: String?,
+        userRating: Int?, playCount: Int?, created: String?, genre: String?, releaseType: String?,
+        songs: List<SongInfo>, played: String?, version: String?,
+    ) : this(
+        ref, id, name, artist, artistId, year, songCount, durationSec, coverArtId, starred, starredAt,
+        userRating, playCount, created, genre, releaseType, songs, played, version, emptyList(), null, null,
     )
 
     /** The constructor from before [version] existed (Swift: the init with `played:` and no `version:`). */

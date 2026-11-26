@@ -102,6 +102,7 @@ final class CloudSync {
         // Gemini's About / Ask answers are synced too (Android observes song_about_entries); sync's own
         // writes don't call this, so applying never re-triggers a capture.
         SongAboutStore.onLocalChange = { CloudSync.shared.localChanged() }
+        AlbumAboutStore.onLocalChange = { CloudSync.shared.localChanged() }
         // Gemini lyric translations and the answer language (Android lyrics_translation / setting).
         LyricsUserStore.onLocalChange = { CloudSync.shared.localChanged() }
         GeminiSettings.onLocalChange = { CloudSync.shared.localChanged() }

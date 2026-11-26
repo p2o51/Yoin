@@ -287,7 +287,7 @@ class SettingsSyncAdapter(
         val value = payloadValue ?: return ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, currentHash)
         if (currentHash != expectedLocalHash) return ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
         if (value !in SUPPORTED_TARGET_LANGUAGES) return ApplyOutcome.Skipped(SkipReason.POLICY, currentHash)
-        if (domain.songAboutEntryCount() > 0) return ApplyOutcome.Skipped(SkipReason.POLICY, currentHash)
+        if (domain.songAboutEntryCount() > 0 || domain.albumAboutEntryCount() > 0) return ApplyOutcome.Skipped(SkipReason.POLICY, currentHash)
         domain.putTranslationLanguage(value).orFailWrite("putTranslationLanguage")
         return ApplyOutcome.Applied(languageValue(tracked)?.let(::projection).hashOrNull())
     }

@@ -1,4 +1,4 @@
-/// The Ask Gemini bar under the expanded About (Android AskGeminiBar.kt): a
+/// The Ask bar (named for the AI service in use) under the expanded About (Android AskGeminiBar.kt): a
 /// 56 dp pill at rest that grows to a 252 dp card while focused (the corner
 /// pinned at 28), the question field with the quick questions not asked yet
 /// under it while it is empty, then the loading row with the AI's short
@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import '../settings/settings_components.dart' show SpringReveal;
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/ai_service_scope.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'about_logic.dart';
 import 'about_widgets.dart';
@@ -154,7 +155,8 @@ class _AskGeminiBarState extends State<AskGeminiBar> with TickerProviderStateMix
     final strings = NowPlayingStrings.of(context);
     final colors = Theme.of(context).colorScheme;
     final failed = widget.state is AskFailed ? widget.state as AskFailed : null;
-    final message = failed == null ? null : (failed.keyMissing ? strings.msgApiKeyMissing : (failed.message ?? ''));
+    final ai = AiServiceScope.of(context);
+    final message = failed == null ? null : (failed.keyMissing ? strings.aiKeyMissing(ai) : (failed.message ?? ''));
     return Semantics(
       button: true,
       textField: failed == null,
@@ -169,7 +171,7 @@ class _AskGeminiBarState extends State<AskGeminiBar> with TickerProviderStateMix
               const SizedBox(width: NowPlayingAboutTokens.askIndicatorGap),
               Expanded(
                 child: Text(
-                  message ?? strings.askGemini,
+                  message ?? strings.aiAskProvider(ai),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(
@@ -226,7 +228,7 @@ class _AskGeminiBarState extends State<AskGeminiBar> with TickerProviderStateMix
                     style: style,
                     cursorColor: colors.onPrimaryContainer,
                     decoration: InputDecoration.collapsed(
-                      hintText: strings.askPlaceholder,
+                      hintText: strings.aiAskProvider(AiServiceScope.of(context)),
                       hintStyle: style?.copyWith(color: colors.onPrimaryContainer.withValues(alpha: 0.6)),
                     ),
                   ),
@@ -269,7 +271,7 @@ class _AskGeminiBarState extends State<AskGeminiBar> with TickerProviderStateMix
           const SizedBox(width: NowPlayingAboutTokens.askIndicatorGap),
           Expanded(
             child: Text(
-              title.trim().isEmpty ? strings.askGemini : title,
+              title.trim().isEmpty ? strings.aiAskProvider(AiServiceScope.of(context)) : title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(color: colors.onPrimaryContainer),

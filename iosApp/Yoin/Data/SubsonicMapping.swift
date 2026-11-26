@@ -104,7 +104,10 @@ struct SubsonicMapping {
                      songCount: Self.int(a.songCount),
                      durationSec: Self.int(a.durationSec),
                      genre: a.genre,
-                     version: a.version)
+                     version: a.version,
+                     recordLabels: a.recordLabels,
+                     releaseDate: a.releaseDate,
+                     originalReleaseDate: a.originalReleaseDate)
     }
 
     /// The album a loose song (playlist, search, random) belongs to, as far as

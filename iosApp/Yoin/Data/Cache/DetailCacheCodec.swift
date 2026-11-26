@@ -51,6 +51,12 @@ enum DetailCacheDTO {
         var genre: String?
         /// The release's version tag (Album.version); absent in pages stored before it.
         var version: String? = nil
+        /// Album About's service facts (Album.recordLabels / releaseDate / originalReleaseDate /
+        /// editorialNotes); absent in pages stored before them.
+        var recordLabels: [String]? = nil
+        var releaseDate: String? = nil
+        var originalReleaseDate: String? = nil
+        var editorialNotes: String? = nil
     }
 
     struct Entry: Codable, Sendable, Equatable {
@@ -153,7 +159,9 @@ struct DetailCacheCodec {
         .init(provider: a.id.provider, id: a.id.rawId, title: a.title, artist: a.artist, year: a.year,
               cover: coverKey(a.palette), tracks: a.tracks.map(dto), rating: a.rating, kind: a.kind.rawValue,
               artistId: a.artistId, starred: a.starred, playCount: a.playCount, created: a.created,
-              songCount: a.songCount, durationSec: a.durationSec, genre: a.genre, version: a.version)
+              songCount: a.songCount, durationSec: a.durationSec, genre: a.genre, version: a.version,
+              recordLabels: a.recordLabels.isEmpty ? nil : a.recordLabels, releaseDate: a.releaseDate,
+              originalReleaseDate: a.originalReleaseDate, editorialNotes: a.editorialNotes)
     }
 
     func dtoAlbums(_ a: [Album]) -> [DetailCacheDTO.Album] { a.map(dto) }
@@ -207,7 +215,8 @@ struct DetailCacheCodec {
               palette: palette(a.cover, a.id), tracks: a.tracks.map(track), rating: a.rating,
               kind: ReleaseKind(rawValue: a.kind) ?? .album, artistId: a.artistId, starred: a.starred,
               playCount: a.playCount, created: a.created, songCount: a.songCount, durationSec: a.durationSec,
-              genre: a.genre, version: a.version)
+              genre: a.genre, version: a.version, recordLabels: a.recordLabels ?? [], releaseDate: a.releaseDate,
+              originalReleaseDate: a.originalReleaseDate, editorialNotes: a.editorialNotes)
     }
 
     func entry(_ e: DetailCacheDTO.Entry) -> PlaylistEntry { PlaylistEntry(album: album(e.album), track: track(e.track)) }

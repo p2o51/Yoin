@@ -25,6 +25,7 @@ export const CARRIED_PREF_KEYS: string[] = [
   'profiles.v1',
   'profiles.active.v1',
   'song_about.v1',
+  'album_about.v1',
   'yoin.ai.prefs',
   'neodb.instance',
   'neodb.external_mappings.v1',

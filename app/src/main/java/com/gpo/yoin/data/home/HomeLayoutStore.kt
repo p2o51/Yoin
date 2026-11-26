@@ -2,66 +2,40 @@ package com.gpo.yoin.data.home
 
 import com.gpo.yoin.data.local.HomeLayoutDao
 import com.gpo.yoin.data.local.HomeLayoutPreference
+import com.gpo.yoin.shared.home.HomeLayoutCodec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.EncodeDefault
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
- * One persisted section choice: its stable [id] and whether it renders. Position
- * in the persisted list is the render order. Kept UI-agnostic (a plain id string,
- * not a `HomeSection`) so this data-layer store never depends on the section
- * catalog — the UI layer reconciles ids → sections. See `HomeSection.reconcile`.
- *
- * [config] is the section's settings bag (`{"rows":"xl"}` today, D1): absent
- * for a section left at its defaults — never written as `"config":null` — and
- * opaque here, so keys a newer build adds ride along verbatim. Older builds
- * skip it (ignoreUnknownKeys); no schema or database bump.
+ * One persisted section choice ([com.gpo.yoin.shared.home.HomeSectionPref]): its stable id, whether it
+ * renders, its settings bag (`config`) and the entry's other keys, kept verbatim. Position in the persisted
+ * list is the render order. The UI layer reconciles ids → sections (`HomeLayout.reconcile`).
  */
-@OptIn(ExperimentalSerializationApi::class)
-@Serializable
-data class HomeSectionPref(
-    val id: String,
-    val enabled: Boolean,
-    @EncodeDefault(EncodeDefault.Mode.NEVER) val config: JsonObject? = null,
-)
+typealias HomeSectionPref = com.gpo.yoin.shared.home.HomeSectionPref
 
 /**
- * The whole stored layout: [sections] (as [HomeSectionPref]s), and [wide], the
- * two-column memory of which sections pair up (`{"pairs":[["left","right"], …]}`,
- * owner 2026-11-23), opaque here like a section's config. Null [wide]: written
- * by a build without it (older Android and iOS drop the key when
- * they write), so the UI layer derives it again. Older readers skip the key.
+ * The whole stored layout ([com.gpo.yoin.shared.home.HomeLayoutDocument]): the sections, the two-column
+ * memory `wide` (null: written by a build without it, derived again on read) and the document's other keys.
  */
-data class HomeLayoutDocument(
-    val sections: List<HomeSectionPref>,
-    val wide: JsonObject? = null,
-)
+typealias HomeLayoutDocument = com.gpo.yoin.shared.home.HomeLayoutDocument
 
 /**
  * Per-profile persistence for the customizable home layout. Reads emit `null`
  * when the profile has never customized (the caller falls back to catalog
  * defaults); writes serialize the ordered pref list (and the two-column memory,
- * [HomeLayoutDocument.wide]) to the `home_layout` Room row. The document is versioned and decoded entry by entry: an unreadable
- * document is treated as "never set", a bad entry drops only itself.
+ * [HomeLayoutDocument.wide]) to the `home_layout` Room row, through the shared [HomeLayoutCodec]: an
+ * unreadable document is treated as "never set", a bad entry drops only itself, and keys this build doesn't
+ * read (the document's and each entry's) are written back as they were.
  */
 class HomeLayoutStore(
     private val dao: HomeLayoutDao,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
-
     // Fair (FIFO): a move → undo pair lands in call order, and each equality
     // check below sees the write queued before it.
     private val writeMutex = Mutex()
@@ -99,7 +73,7 @@ class HomeLayoutStore(
                 dao.upsert(
                     HomeLayoutPreference(
                         profileId = profileId,
-                        sectionsJson = encode(document.sections, document.wide),
+                        sectionsJson = HomeLayoutCodec.encode(document),
                         updatedAt = clock(),
                     ),
                 )
@@ -114,27 +88,14 @@ class HomeLayoutStore(
         }
     }
 
-    internal fun encode(sections: List<HomeSectionPref>, wide: JsonObject? = null): String = json.encodeToString(
-        SectionsDto.serializer(),
-        SectionsDto(
-            version = SCHEMA_VERSION,
-            sections = sections.map { json.encodeToJsonElement(HomeSectionPref.serializer(), it) },
-            wide = wide,
-        ),
-    )
+    internal fun encode(sections: List<HomeSectionPref>, wide: JsonObject? = null): String =
+        HomeLayoutCodec.encode(HomeLayoutDocument(sections, wide))
 
     /** Unreadable document → null ("never set"); a bad entry drops only itself. */
     internal fun decode(raw: String): List<HomeSectionPref>? = decodeDocument(raw)?.sections
 
-    /** [decode] with the two-column memory; a `wide` that isn't an object reads as none. */
-    internal fun decodeDocument(raw: String): HomeLayoutDocument? {
-        val dto = runCatching { json.decodeFromString(SectionsDto.serializer(), raw) }.getOrNull()
-            ?: return null
-        val sections = dto.sections.mapNotNull { entry ->
-            runCatching { json.decodeFromJsonElement(HomeSectionPref.serializer(), entry) }.getOrNull()
-        }
-        return HomeLayoutDocument(sections, dto.wide as? JsonObject)
-    }
+    /** [decode] with the two-column memory and the kept keys; a `wide` that isn't an object reads as none. */
+    internal fun decodeDocument(raw: String): HomeLayoutDocument? = HomeLayoutCodec.decode(raw)
 
     private inline fun bestEffort(block: () -> Unit) {
         try {
@@ -146,21 +107,5 @@ class HomeLayoutStore(
             // Best-effort persistence: the edit draft stays authoritative for
             // the session and the next write self-heals.
         }
-    }
-
-    @OptIn(ExperimentalSerializationApi::class)
-    @Serializable
-    private data class SectionsDto(
-        // Absent in pre-versioned rows → 1; older builds skip it (ignoreUnknownKeys).
-        val version: Int = SCHEMA_VERSION,
-        // Raw entries, decoded one by one (see [decode]).
-        val sections: List<JsonElement>,
-        // The two-column memory (HomeLayoutDocument.wide). Optional and additive, so the version stays 1:
-        // older builds skip it and write it away, which reads as "derive it again".
-        @EncodeDefault(EncodeDefault.Mode.NEVER) val wide: JsonElement? = null,
-    )
-
-    private companion object {
-        const val SCHEMA_VERSION = 1
     }
 }

@@ -21,6 +21,9 @@ abstract final class SyncKinds {
   static const memoryCopy = 'memory_copy';
   static const memoryTitle = 'memory_title';
   static const songAbout = 'song_about';
+
+  /// An album's AI credits and paragraph and the questions asked about it (album About, 2026-11-25).
+  static const albumAbout = 'album_about';
   static const albumTitle = 'album_title';
   static const playlistBackup = 'playlist_backup';
 }

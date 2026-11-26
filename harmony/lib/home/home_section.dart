@@ -1,330 +1,73 @@
-import 'dart:convert';
-
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/home/home_catalog.dart';
+import '../data/home/home_layout_codec.dart';
+import '../data/home/home_layout_core.dart';
 
-/// Home's section catalogue (Android ui/home/HomeSection.kt), ported whole so
-/// edit mode can plug in later without a migration. [id]s are persisted:
-/// never rename one. Enum order is the default order.
-enum HomeSection {
-  activities('activities', supportsRows: true),
-  jumpBackIn('jump_back_in', supportsRows: true),
-  recentlyAdded('recently_added'),
-  rediscover('rediscover', appendEnabled: false),
-  recentlyPlayed('recently_played'),
-  yourPlaylists('your_playlists'),
-  otherProfiles('other_profiles'),
-  lyricHighlight('lyric_highlight', takesPresets: true),
-  memoryGrid('memory_grid'),
+export '../data/home/home_catalog.dart';
+export '../data/home/home_layout_codec.dart' show HomeLayoutCodec, HomeLayoutDocument, HomeSectionPref;
+export '../data/home/home_layout_core.dart';
 
-  // Android main (owner 2026-11-15,「为你推荐」): the playlists the service
-  // makes for the account — Apple Music's personal mixes here
-  // (home_made_for_you.dart). Hidden for services that have none, so on by
-  // default and for customized layouts too.
-  madeForYou('made_for_you');
+/// The layout a stored document reads as (Android HomeLayoutStore → HomeLayout.fromDocument): null or an
+/// unreadable text is "never customized", the phone default.
+HomeLayout decodeHomeLayout(String? raw) => HomeLayout.fromDocument(raw == null ? null : HomeLayoutCodec.decode(raw));
 
-  const HomeSection(this.id, {this.supportsRows = false, this.appendEnabled = true, bool takesPresets = false})
-      : _takesPresets = takesPresets;
+/// Home's layout on HarmonyOS (the shared core, home_layout_core.dart).
+extension HomeLayoutHarmony on HomeLayout {
+  /// Sections the v1 feed draws, in layout order (enabled and built).
+  List<HomeSection> get visibleV1Sections => [
+    for (final s in sections)
+      if (s.enabled && s.section.availableInV1) s.section,
+  ];
 
-  final String id;
-  final bool supportsRows;
-
-  /// Enabled when added to a saved layout that never knew it.
-  final bool appendEnabled;
-  final bool _takesPresets;
-
-  bool get defaultEnabled => true;
-  bool get takesPresets => supportsRows || _takesPresets;
-
-  /// Built in the HarmonyOS v1 (the Subsonic build can fill it).
-  bool get availableInV1 => switch (this) {
-    activities ||
-    jumpBackIn ||
-    recentlyAdded ||
-    rediscover ||
-    recentlyPlayed ||
-    yourPlaylists ||
-    otherProfiles ||
-    memoryGrid ||
-    madeForYou => true,
-    // On every device (Android owner 2026-11-08): without Gemini Nano it shows the user's own picks.
-    lyricHighlight => true,
+  /// Enabled sections the feed never draws here: an edit of the drawn order leaves them in their place.
+  Set<HomeSection> get unseenV1Sections => {
+    for (final s in sections)
+      if (s.enabled && !s.section.availableInV1) s.section,
   };
 
-  static HomeSection? byId(String id) {
-    for (final s in values) {
-      if (s.id == id) return s;
-    }
-    return null;
-  }
+  /// The stored document's text, every kept key written back.
+  String encode() => HomeLayoutCodec.encode(toDocument());
 }
 
-/// How many rows a section shows (HomeRowPreset, D1). Presets, not numbers:
-/// each screen turns one into its own composition (home_row_presets.dart), so
-/// the choice travels with the account across screens. [l] is the
-/// composition from before presets existed — a section nobody resized stores
-/// nothing and renders as it did. Declaration order is the size order.
-enum HomeRowPreset {
-  s('s'),
-  m('m'),
-  l('l'),
-  xl('xl');
+/// [layout] with [section] hidden or shown again (in its own place), its pairs set from the memory at the
+/// new order (HomeLayout.withEnabled); [layout] itself when nothing changes.
+HomeLayout withSectionEnabled(HomeLayout layout, HomeSection section, bool enabled) =>
+    layout.withEnabled(section, enabled);
 
-  const HomeRowPreset(this.id);
-  final String id;
+/// [layout] with [section] at row preset [rows] (HomeLayout.withRows): [layout] itself for a section without
+/// presets, one not in it, or one already there.
+HomeLayout withSectionRows(HomeLayout layout, HomeSection section, HomeRowPreset rows) =>
+    layout.withRows(section, rows);
 
-  static const HomeRowPreset defaultPreset = HomeRowPreset.l;
+/// The catalogue arrangement — rows and the two-column memory back to their defaults too — keeping the ids
+/// this build doesn't know (HomeLayout.reset); [layout] itself when it already is.
+HomeLayout resetLayout(HomeLayout layout) => layout.reset();
 
-  /// The preset stored under [id]; null for an id this build doesn't know.
-  static HomeRowPreset? fromId(String? id) {
-    for (final p in values) {
-      if (p.id == id) return p;
-    }
-    return null;
-  }
-
-  /// [fromId], or [defaultPreset] for a missing or unknown id.
-  static HomeRowPreset byId(String? id) => fromId(id) ?? defaultPreset;
-}
-
-/// One slot of a layout. [id] is kept verbatim so unknown (newer) ids survive.
-final class HomeSectionPref {
-  const HomeSectionPref({required this.id, required this.enabled, this.config = const {}, this.extras = const {}});
-
-  final String id;
-  final bool enabled;
-
-  /// Keys of the slot itself other than id / enabled / config (a newer
-  /// build's), kept verbatim and written back.
-  final Map<String, Object?> extras;
-
-  /// The section's settings bag, kept verbatim (keys a newer build adds ride
-  /// along): {"rows": "s"|"m"|"xl"} today; L is not written.
-  final Map<String, Object?> config;
-
-  static const String rowsKey = 'rows';
-
-  HomeSection? get section => HomeSection.byId(id);
-
-  /// The row preset; [HomeRowPreset.defaultPreset] when unset or unreadable.
-  HomeRowPreset get rows => HomeRowPreset.byId(config[rowsKey] is String ? config[rowsKey]! as String : null);
-
-  /// This pref at [preset]: `rows` written, or dropped for the default — the
-  /// rest of the bag (and an unreadable `rows` when nothing changes) kept.
-  HomeSectionPref withRows(HomeRowPreset preset) {
-    if (rows == preset) return this;
-    final bag = {...config}..remove(rowsKey);
-    if (preset != HomeRowPreset.defaultPreset) bag[rowsKey] = preset.id;
-    return HomeSectionPref(id: id, enabled: enabled, config: bag, extras: extras);
-  }
-
-  static const _ownKeys = {'id', 'enabled', 'config'};
-
-  Map<String, Object?> toJson() => {
-        ...extras,
-        'id': id,
-        'enabled': enabled,
-        if (config.isNotEmpty) 'config': config,
-      };
-
-  factory HomeSectionPref.fromJson(Map<String, Object?> json) => HomeSectionPref(
-        id: json['id']! as String,
-        enabled: (json['enabled'] as bool?) ?? true,
-        config: ((json['config'] as Map?) ?? const {}).map((k, v) => MapEntry('$k', v)),
-        extras: {
-          for (final e in json.entries)
-            if (!_ownKeys.contains(e.key)) e.key: e.value,
-        },
-      );
-
-  @override
-  bool operator ==(Object other) =>
-      other is HomeSectionPref &&
-      other.id == id &&
-      other.enabled == enabled &&
-      _jsonEquals(other.config, config) &&
-      _jsonEquals(other.extras, extras);
-
-  @override
-  int get hashCode => Object.hash(id, enabled, Object.hashAllUnordered(config.keys));
-}
-
-/// Deep equality of decoded JSON values (maps by key, lists in order).
-bool _jsonEquals(Object? a, Object? b) {
-  if (a is Map && b is Map) {
-    if (a.length != b.length) return false;
-    for (final e in a.entries) {
-      if (!b.containsKey(e.key) || !_jsonEquals(e.value, b[e.key])) return false;
-    }
-    return true;
-  }
-  if (a is List && b is List) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (!_jsonEquals(a[i], b[i])) return false;
-    }
-    return true;
-  }
-  return a == b;
-}
-
-/// The user's Home layout (HomeLayout), edited in place (home_edit.dart).
-final class HomeLayout {
-  const HomeLayout(this.sections, {this.newSections = const {}, this.extras = const {}});
-
-  final List<HomeSectionPref> sections;
-
-  /// The document's keys other than version / sections, kept verbatim and
-  /// written back: Android's `wide` (the two-column pairing memory,
-  /// HomeLayoutDocument.wide) and whatever a newer build adds. Every edit
-  /// carries them; [resetLayout] drops them (Android's reset forgets the
-  /// pairing memory too).
-  final Map<String, Object?> extras;
-
-  /// The sections appended hidden to a saved layout on this read
-  /// ([HomeSection.appendEnabled] false): they wait in the tray as "New"
-  /// (home_edit_hints.dart). Not part of the user's arrangement; edits keep it.
-  final Set<HomeSection> newSections;
-
-  static final HomeLayout defaultLayout = HomeLayout([
-    for (final s in HomeSection.values) HomeSectionPref(id: s.id, enabled: s.defaultEnabled),
-  ]);
-
-  /// Ids the catalogue retired; dropped on reconcile.
-  static const retiredIds = {'memory_teaser', 'memories'};
-
-  /// Saved prefs → a layout: null / empty → default; keep saved order, flags
-  /// and config for known ids (first occurrence wins), drop retired ids, keep
-  /// other unknown ids verbatim, append catalogue sections the save never knew
-  /// at [HomeSection.appendEnabled].
-  static HomeLayout reconcile(List<HomeSectionPref>? saved, {Map<String, Object?> extras = const {}}) {
-    if (saved == null || saved.isEmpty) {
-      return extras.isEmpty ? defaultLayout : HomeLayout(defaultLayout.sections, extras: extras);
-    }
-    final seen = <String>{};
-    final out = <HomeSectionPref>[];
-    for (final pref in saved) {
-      if (retiredIds.contains(pref.id) || !seen.add(pref.id)) continue;
-      out.add(pref);
-    }
-    final appendedHidden = <HomeSection>{};
-    for (final s in HomeSection.values) {
-      if (seen.contains(s.id)) continue;
-      out.add(HomeSectionPref(id: s.id, enabled: s.appendEnabled));
-      if (!s.appendEnabled) appendedHidden.add(s);
-    }
-    return HomeLayout(out, newSections: appendedHidden, extras: extras);
-  }
-
-  /// [section]'s row preset ([HomeRowPreset.defaultPreset] when it is not in this layout).
-  HomeRowPreset rowsOf(HomeSection section) {
-    for (final p in sections) {
-      if (p.id == section.id) return p.rows;
-    }
-    return HomeRowPreset.defaultPreset;
-  }
-
-  /// The catalogue arrangement, every section at its default rows; unknown ids ignored.
-  bool get isDefault {
-    final known = [for (final p in sections) if (p.section != null) p];
-    final defaults = defaultLayout.sections;
-    if (known.length != defaults.length) return false;
-    for (var i = 0; i < known.length; i++) {
-      if (known[i] != defaults[i]) return false;
-    }
-    return true;
-  }
-
-  /// Sections the v1 feed draws, in layout order (enabled, known, built).
-  List<HomeSection> get visibleV1Sections => [
-        for (final pref in sections)
-          if (pref.enabled && (pref.section?.availableInV1 ?? false)) pref.section!,
-      ];
-
-  static const _ownKeys = {'version', 'sections'};
-
-  /// Versioned JSON as Android's home_layout row ({version, sections}, plus
-  /// [extras] such as `wide`).
-  Map<String, Object?> toJson() => {
-        'version': 1,
-        'sections': [for (final s in sections) s.toJson()],
-        ...extras,
-      };
-
-  static HomeLayout fromJson(Map<String, Object?> json) => reconcile(
-        [
-          for (final s in (json['sections'] as List?) ?? const [])
-            HomeSectionPref.fromJson((s! as Map).cast<String, Object?>()),
-        ],
-        extras: {
-          for (final e in json.entries)
-            if (!_ownKeys.contains(e.key)) e.key: e.value,
-        },
-      );
-}
-
-/// [layout] with [section] hidden or shown again (in its own place); [layout]
-/// itself when nothing changes.
-HomeLayout withSectionEnabled(HomeLayout layout, HomeSection section, bool enabled) {
-  if (!layout.sections.any((p) => p.id == section.id && p.enabled != enabled)) return layout;
-  return HomeLayout([
-    for (final p in layout.sections)
-      p.id == section.id ? HomeSectionPref(id: p.id, enabled: enabled, config: p.config, extras: p.extras) : p,
-  ], newSections: layout.newSections, extras: layout.extras);
-}
-
-/// [layout] with [section] at row preset [rows] (HomeLayout.withRows): [layout]
-/// itself for a section without presets, one not in it, or one already there.
-HomeLayout withSectionRows(HomeLayout layout, HomeSection section, HomeRowPreset rows) {
-  if (!section.takesPresets || !layout.sections.any((p) => p.id == section.id && p.rows != rows)) return layout;
-  return HomeLayout([
-    for (final p in layout.sections) p.id == section.id ? p.withRows(rows) : p,
-  ], newSections: layout.newSections, extras: layout.extras);
-}
-
-/// The catalogue arrangement — rows back to their defaults too — keeping the
-/// ids this build doesn't know at the end (HomeLayout.reset); [layout] itself
-/// when it already is. [HomeLayout.extras] go, as Android's reset forgets the
-/// two-column memory.
-HomeLayout resetLayout(HomeLayout layout) {
-  if (layout.isDefault) return layout;
-  final unknown = [for (final p in layout.sections) if (p.section == null) p];
-  return unknown.isEmpty ? HomeLayout.defaultLayout : HomeLayout([...HomeLayout.defaultLayout.sections, ...unknown]);
-}
-
-/// [layout] with [section] moved to [to] among [visible] (the sections the
-/// feed draws, in order): the visible slots keep their places in the saved
-/// list and only their occupants permute, so hidden and unknown sections stay
-/// where they were. Each section's settings go with it.
+/// [layout] with [section] moved to [to] among [visible] (the sections the feed draws, in order): the
+/// enabled order refilled around the ones it never draws, each section's settings with it, and the `half`
+/// flags set from the two-column memory at the new order (HomeLayout.withEnabledOrder → withRememberedPairs,
+/// so no stale `"span":"half"` is written).
 HomeLayout withSectionMoved(HomeLayout layout, List<HomeSection> visible, HomeSection section, int to) {
   final from = visible.indexOf(section);
   if (from < 0 || to < 0 || to >= visible.length || from == to) return layout;
   final order = [...visible]
     ..removeAt(from)
     ..insert(to, section);
-  final prefById = {for (final p in layout.sections) p.id: p};
-  final ids = {for (final s in visible) s.id};
-  var next = 0;
-  return HomeLayout([
-    for (final p in layout.sections) ids.contains(p.id) ? prefById[order[next++].id]! : p,
-  ], newSections: layout.newSections, extras: layout.extras);
+  return withSectionsOrdered(layout, visible, order);
 }
 
-/// [layout] with the [visible] sections refilled in [order] (a permutation
-/// of them); every other section keeps its slot. [layout] itself when
+/// [layout] with the [visible] sections refilled in [order] (a permutation of them); every other section
+/// keeps its slot, and the pairs follow the memory (HomeLayout.withEnabledOrder). [layout] itself when
 /// [order] is not a permutation of [visible] or changes nothing.
 HomeLayout withSectionsOrdered(HomeLayout layout, List<HomeSection> visible, List<HomeSection> order) {
-  if (order.length != visible.length || !order.toSet().containsAll(visible) || listEquals(order, visible)) {
-    return layout;
-  }
-  final prefById = {for (final p in layout.sections) p.id: p};
-  final ids = {for (final s in visible) s.id};
-  var next = 0;
-  return HomeLayout([
-    for (final p in layout.sections) ids.contains(p.id) ? prefById[order[next++].id]! : p,
-  ], newSections: layout.newSections, extras: layout.extras);
+  if (order.length != visible.length || !order.toSet().containsAll(visible)) return layout;
+  final unseen = {
+    for (final s in layout.enabledSections)
+      if (!visible.contains(s)) s,
+  };
+  return layout.withEnabledOrder(order, unseen: unseen);
 }
 
 /// Home's layout per account (Android home_layout, one row per profile):
@@ -356,7 +99,7 @@ class HomeLayoutNotifier extends Notifier<HomeLayout> {
         _updatedAtKey = updatedAtKeyFor(provider, profile.id);
         final raw = await ref.read(keyValueStoreProvider).read(key);
         if (!ref.mounted || generation != _generation || raw == null) return;
-        state = HomeLayout.fromJson((jsonDecode(raw) as Map).cast<String, Object?>());
+        state = decodeHomeLayout(raw);
       } catch (_) {
         // Unreadable: the default stands.
       }
@@ -366,17 +109,25 @@ class HomeLayoutNotifier extends Notifier<HomeLayout> {
 
   String? _updatedAtKey;
 
-  /// Shows [layout] and saves it for the active account.
+  /// Shows [layout] and saves it for the active account by the persist rule (Android HomeViewModel,
+  /// [homePersistAction]): a default with no ids this build doesn't know clears the row ("never
+  /// customized", so new sections follow their defaults and sync takes every device back to the default);
+  /// anything else writes its document.
   void set(HomeLayout layout) {
     state = layout;
     final key = _key;
     final updatedAtKey = _updatedAtKey;
     if (key == null || updatedAtKey == null) return;
     final store = ref.read(keyValueStoreProvider);
-    store
-        .write(key, jsonEncode(layout.toJson()))
-        .then((_) => store.write(updatedAtKey, '${DateTime.now().millisecondsSinceEpoch}'))
-        .catchError((Object _) {});
+    switch (homePersistAction(layout)) {
+      case HomePersistClear():
+        store.write(key, null).then((_) => store.write(updatedAtKey, null)).catchError((Object _) {});
+      case HomePersistWrite(:final document):
+        store
+            .write(key, HomeLayoutCodec.encode(document))
+            .then((_) => store.write(updatedAtKey, '${DateTime.now().millisecondsSinceEpoch}'))
+            .catchError((Object _) {});
+    }
   }
 
   /// Back to the default layout: the saved one is deleted (Android

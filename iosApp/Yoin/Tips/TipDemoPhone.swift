@@ -25,6 +25,10 @@ struct DemoPhoneMetrics: Equatable {
     /// Width over height of a `tall` frame (20:9), and its screen's width (a 20:9 phone's).
     static let tallAspect: CGFloat = 9.0 / 20.0
     static let tallScreenWidth: CGFloat = 412
+    /// Height over width of a `wide` frame (a 16:10 tablet on its side, as wide as the others are tall), and
+    /// its screen's width (two columns' tier).
+    static let wideAspect: CGFloat = 10.0 / 16.0
+    static let wideScreenWidth: CGFloat = 880
     /// The phone's own corner, on the page (not scaled with its screen).
     static let corner: CGFloat = 24
     /// How much of the container's height the phone may take before it stops growing, and its largest size.
@@ -45,14 +49,17 @@ struct DemoPhoneMetrics: Equatable {
 
     /// [container] is the page the phone sits on (Android: the window): a tall one gets a bigger phone, the
     /// demo being the page's subject; width keeps it to half the container. [tall]: a 20:9 phone as tall as
-    /// the others (narrower), for a scene whose layout differs on a 16:9 screen.
-    init(container: CGSize, tall: Bool = false) {
-        let width = tall ? Self.phoneHeight * Self.tallAspect : Self.phoneWidth
-        let layoutWidth = tall ? Self.tallScreenWidth : Self.screenWidth
+    /// the others (narrower), for a scene whose layout differs on a 16:9 screen. [wide]: a tablet on its side
+    /// (two columns), for a scene only large screens have.
+    init(container: CGSize, tall: Bool = false, wide: Bool = false) {
+        let width = wide ? Self.phoneHeight : tall ? Self.phoneHeight * Self.tallAspect : Self.phoneWidth
+        let height = wide ? Self.phoneHeight * Self.wideAspect : Self.phoneHeight
+        let layoutWidth = wide ? Self.wideScreenWidth : tall ? Self.tallScreenWidth : Self.screenWidth
+        // Android grows every frame by the 300 of a phone's height, the wide one too.
         let fit = min(container.height * Self.heightShare / Self.phoneHeight, container.width * 0.5 / width)
         grow = min(max(fit, 1), Self.maxGrow)
-        phone = CGSize(width: width * grow, height: Self.phoneHeight * grow)
-        screen = CGSize(width: layoutWidth, height: (layoutWidth * Self.phoneHeight / width).rounded())
+        phone = CGSize(width: width * grow, height: height * grow)
+        screen = CGSize(width: layoutWidth, height: (layoutWidth * height / width).rounded())
     }
 }
 
@@ -92,6 +99,9 @@ enum DemoTiming {
     static func linear(_ ms: Int) -> Animation {
         .linear(duration: Double(ms) / 1000).speed(LaunchConfig.animationSpeed)
     }
+
+    /// `tween`'s curve (FastOutSlowIn), for a value the script steps itself.
+    static let tweenCurve = UnitCurve.bezier(startControlPoint: UnitPoint(x: 0.4, y: 0), endControlPoint: UnitPoint(x: 0.2, y: 1))
 
     /// The script's `delay(ms)`. Throws when the demo stops (its page left, the user took the phone).
     static func delay(_ ms: Int) async throws {
@@ -168,6 +178,10 @@ final class DemoFinger {
     private(set) var press: CGFloat = 0
     private(set) var ring: CGFloat = 0
     private(set) var ripple: CGFloat = 1
+    /// A second touch, for a pinch: where it is and whether it shows. Down with the first while it shows.
+    private(set) var x2: CGFloat = 0.5
+    private(set) var y2: CGFloat = 0.5
+    private(set) var alpha2: Double = 0
     @ObservationIgnored let targets: DemoTargets
 
     init(targets: DemoTargets) { self.targets = targets }
@@ -254,17 +268,81 @@ final class DemoFinger {
         try await DemoTiming.delay(DemoTiming.springMs)
     }
 
+    /// Down where it is, slide to ([fx], [fy]) over [ms]; [onProgress] gets 0…1 on the slide's curve every
+    /// frame (Android `drag`'s), for a scene that answers along the way (a block that follows the finger and
+    /// the ones that make way for it).
+    func drag(toX fx: CGFloat, toY fy: CGFloat, ms: Int, onProgress: (CGFloat) -> Void) async throws {
+        withAnimation(DemoTiming.tween(DemoTiming.dragDownMs)) { press = 1 }
+        try await DemoTiming.delay(DemoTiming.dragDownMs)
+        withAnimation(DemoTiming.tween(ms)) {
+            x = fx
+            y = fy
+        }
+        try await follow(ms: ms, onProgress)
+        withAnimation(DemoTiming.springAnimation) { press = 0 }
+        try await DemoTiming.delay(DemoTiming.springMs)
+    }
+
+    /// Two fingers down around ([cx], [cy]), one above the other [fromGap] apart (a fraction of the screen's
+    /// height), closing or opening to [toGap] over [ms]; [onProgress] gets 0…1 every frame. Both lift after;
+    /// the first stays where it ends (Android `pinch`).
+    func pinch(cx: CGFloat, cy: CGFloat, fromGap: CGFloat, toGap: CGFloat, ms: Int, onProgress: (CGFloat) -> Void) async throws {
+        snap {
+            x2 = cx
+            y2 = cy + fromGap / 2
+        }
+        if alpha < 0.05 {
+            snap { x = cx; y = cy - fromGap / 2 }
+            try await frame()
+            withAnimation(DemoTiming.tween(DemoTiming.appearMs)) { alpha = 1 }
+            try await DemoTiming.delay(DemoTiming.appearMs)
+        } else {
+            withAnimation(DemoTiming.springAnimation) { x = cx; y = cy - fromGap / 2 }
+            try await DemoTiming.delay(DemoTiming.springMs)
+        }
+        withAnimation(DemoTiming.tween(140)) { alpha2 = 1 }
+        withAnimation(DemoTiming.tween(DemoTiming.dragDownMs)) { press = 1 }
+        try await DemoTiming.delay(140)
+        withAnimation(DemoTiming.tween(ms)) {
+            y = cy - toGap / 2
+            y2 = cy + toGap / 2
+        }
+        try await follow(ms: ms, onProgress)
+        withAnimation(DemoTiming.tween(DemoTiming.appearMs)) { alpha2 = 0 }
+        withAnimation(DemoTiming.springAnimation) { press = 0 }
+        try await DemoTiming.delay(max(DemoTiming.appearMs, DemoTiming.springMs))
+    }
+
     func lift() async throws {
-        withAnimation(DemoTiming.tween(DemoTiming.liftMs)) { alpha = 0 }
+        withAnimation(DemoTiming.tween(DemoTiming.liftMs)) {
+            alpha = 0
+            alpha2 = 0
+        }
         try await DemoTiming.delay(DemoTiming.liftMs)
     }
 
     func hide() {
         snap {
             alpha = 0
+            alpha2 = 0
             press = 0
             ring = 0
             ripple = 1
+        }
+    }
+
+    /// Steps [onProgress] through 0…1 on `tween`'s curve over [ms], a frame at a time, alongside a `tween(ms)`
+    /// the finger runs (Android `progress.animateTo(1f, tween(ms)) { onProgress(value) }`).
+    private func follow(ms: Int, _ onProgress: (CGFloat) -> Void) async throws {
+        let duration = Double(ms) / 1000 / LaunchConfig.animationSpeed
+        let start = ContinuousClock.now
+        while true {
+            let elapsed = (ContinuousClock.now - start).components
+            let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+            let t = duration > 0 ? min(1, seconds / duration) : 1
+            onProgress(CGFloat(DemoTiming.tweenCurve.value(at: t)))
+            if t >= 1 { return }
+            try await frame()
         }
     }
 
@@ -278,7 +356,7 @@ final class DemoFinger {
     private func frame() async throws { try await Task.sleep(for: .milliseconds(17)) }
 }
 
-/// The touch as drawn: a soft disc and a dot, the tap's ripple, the hold's ring.
+/// The touch as drawn: a soft disc and a dot, the tap's ripple, the hold's ring; a pinch's second touch.
 private struct DemoFingerView: View {
     var finger: DemoFinger
     var grow: CGFloat
@@ -288,6 +366,17 @@ private struct DemoFingerView: View {
         GeometryReader { geo in
             let r = DemoPhoneMetrics.fingerRadius * grow
             let down = 1 - 0.15 * finger.press
+            if finger.alpha2 > 0 {
+                ZStack {
+                    Circle().fill(color.opacity(0.22))
+                        .frame(width: r * 2, height: r * 2)
+                    Circle().fill(color.opacity(0.9))
+                        .frame(width: r * 0.84, height: r * 0.84)
+                }
+                .scaleEffect(down)
+                .opacity(finger.alpha2)
+                .position(x: geo.size.width * finger.x2, y: geo.size.height * finger.y2)
+            }
             ZStack {
                 Circle().fill(color.opacity(0.22))
                     .frame(width: r * 2, height: r * 2)
@@ -325,12 +414,14 @@ private struct DemoRipple: Shape {
 
 // MARK: - The phone
 
-/// A 168 × 300 phone (larger on a tall page) that plays [script] on a loop while [playing] and the user
+/// A 168 × 300 phone (larger on a tall page; `wide`, a 300 × 187.5 tablet on its side) that plays [script] on a loop while [playing] and the user
 /// isn't touching it. [script] puts the scene back at rest first. Reduced motion keeps the phone still but
 /// still pressable.
 struct DemoPhone<Content: View>: View {
     var playing: Bool
     var tall = false
+    /// A tablet on its side (two columns), for a scene only large screens have.
+    var wide = false
     var scheme: CoverScheme
     var script: @MainActor (DemoFinger) async throws -> Void
     @ViewBuilder var content: () -> Content
@@ -348,7 +439,7 @@ struct DemoPhone<Content: View>: View {
     }
 
     var body: some View {
-        let m = DemoPhoneMetrics(container: container, tall: tall)
+        let m = DemoPhoneMetrics(container: container, tall: tall, wide: wide)
         let shape = RoundedRectangle(cornerRadius: DemoPhoneMetrics.corner, style: .continuous)
         ZStack(alignment: .topLeading) {
             content()

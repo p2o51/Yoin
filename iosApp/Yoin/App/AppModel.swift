@@ -87,8 +87,12 @@ final class AppModel {
     /// Deferred stage toggle when ⌘F or ⌘L opens Now Playing from the closed bar.
     enum PendingNPKeyCommand { case focus, lyrics }
     @ObservationIgnored var pendingNPKeyCommand: PendingNPKeyCommand?
-    /// Home's edit mode, for ⌘[ (HomeView registers it).
-    @ObservationIgnored weak var homeEdit: HomeEditController?
+    /// Home's edit mode, for ⌘[ and the shell's chrome (HomeView registers it). Observed: the floating bar and
+    /// the mini player step away while Home is edited (Android hides its nav for edit mode's own chrome).
+    var homeEdit: HomeEditController?
+    /// The one Home edit session: it outlives a Home the shell rebuilds (iPad's columns appearing or going at an
+    /// 840 pt window, a rotation of an 11" iPad), so an open draft follows the new width instead of closing.
+    @ObservationIgnored private(set) lazy var homeEditor = HomeEditController()
     @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
@@ -266,6 +270,9 @@ final class AppModel {
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom":
             var album = library.albums()[0]
             #if DEBUG
+            // `-albumIndex 2`: another mock album (a shorter one shows the list's end on a phone).
+            let index = UserDefaults.standard.integer(forKey: "albumIndex")
+            if library.albums().indices.contains(index) { album = library.albums()[index] }
             // `-notStreamedDemo YES`: the mock album's third and fourth songs as Apple Music songs Apple won't
             // stream; `open` also opens the third one's reason.
             if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil {
@@ -685,7 +692,18 @@ final class AppModel {
 
     /// An album with the most the app knows: the server's detail when loaded.
     func resolved(_ album: Album) -> Album {
-        guard album.id.provider != "mock" else { return album }
+        guard album.id.provider != "mock" else {
+            #if DEBUG
+            // `-albumReleaseDate 2022-06-12` (or "2022-06", "2022"): the mock albums dated that precisely, for
+            // screenshots of the header's date, the line under the tracks and the receipt.
+            if let iso = UserDefaults.standard.string(forKey: "albumReleaseDate") {
+                var dated = album
+                dated.releaseDate = ReleaseDateISO.parse(iso)
+                return dated
+            }
+            #endif
+            return album
+        }
         return store.album(album.id.rawId) ?? album
     }
 

@@ -91,6 +91,11 @@ function useRealCatalog(lang, base) {
   if (typeof SCRAP !== 'undefined') {
     const n = L.clusterNotes;
     SCRAP.harbor = {
+      credits: [['Label', '厂牌', 'Sub Pop', 'Sub Pop'], ['Producer', '制作', 'Jonathan Rado, Natalie Mering', 'Jonathan Rado、Natalie Mering']],
+      about: [
+        'Recorded mostly analog with Jonathan Rado in Los Angeles, Titanic Rising frames Natalie Mering’s classic studio chamber pop around sweeping strings, piano ballads, and an understated eye on modern longing.',
+        '由 Natalie Mering 与制作人 Jonathan Rado 主要以模拟录音室设备录制完成，《Titanic Rising》以弦乐铺陈、钢琴叙事曲与复古软摇滚音色织出宏大而克制的当代抒情专辑。',
+      ],
       stickies: L.stickies,
       clusters: [
         { n: '01', t: 'A Lot’s Gonna Change', d: '4:21', plays: 6, score: '9.2', best: true, liked: true, notes: n[0] },

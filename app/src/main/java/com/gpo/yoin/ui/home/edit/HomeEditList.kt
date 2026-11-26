@@ -59,7 +59,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.cachedBackdropColors
 import com.gpo.yoin.ui.component.handPointer
-import com.gpo.yoin.ui.home.HomeFeedRow
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.titleRes
 import kotlinx.coroutines.CoroutineScope
@@ -75,13 +75,13 @@ import kotlinx.coroutines.Job
 /** Numbers of the list and its pinch. */
 internal object HomeEditListTokens {
     /** A pinch to this fraction of the fingers' starting span takes the feed all the way into the list. */
-    const val PinchInFull = .55f
+    const val PinchInFull = com.gpo.yoin.shared.home.HomeListPinchRules.PinchInFull
 
     /** A pinch out to this multiple of the starting span brings the feed all the way back. */
-    const val PinchOutFull = 1.8f
+    const val PinchOutFull = com.gpo.yoin.shared.home.HomeListPinchRules.PinchOutFull
 
     /** Let go this far of the way (or further) and the change finishes; short of it, it springs back. */
-    const val PinchCommit = .35f
+    const val PinchCommit = com.gpo.yoin.shared.home.HomeListPinchRules.PinchCommit
 
     /** The strips grow into place from this scale as the list comes in. */
     const val EnterScale = .94f
@@ -99,24 +99,11 @@ internal object HomeEditListTokens {
     val StripEndPadding = 4.dp
 }
 
-/**
- * The list's progress for a pinch at [scale] (the fingers' span over their
- * starting span) begun [fromOn] (in the list) or not: in from the feed,
- * 0 → 1 as the span closes to [HomeEditListTokens.PinchInFull]; out from the
- * list, 1 → 0 as it opens to [HomeEditListTokens.PinchOutFull]. The other
- * way does nothing. Pure.
- */
-internal fun homeListPinchProgress(fromOn: Boolean, scale: Float): Float = with(HomeEditListTokens) {
-    if (!fromOn) {
-        ((1f - scale) / (1f - PinchInFull)).coerceIn(0f, 1f)
-    } else {
-        1f - ((scale - 1f) / (PinchOutFull - 1f)).coerceIn(0f, 1f)
-    }
-}
+/** The list's progress for a pinch at [scale] begun [fromOn] ([com.gpo.yoin.shared.home.homeListPinchProgress]). Pure. */
+internal fun homeListPinchProgress(fromOn: Boolean, scale: Float): Float = com.gpo.yoin.shared.home.homeListPinchProgress(fromOn, scale)
 
 /** A pinch begun [fromOn] let go at [progress] lands in the list (true) or the feed. Pure. */
-internal fun homeListSettlesOn(fromOn: Boolean, progress: Float): Boolean =
-    if (!fromOn) progress >= HomeEditListTokens.PinchCommit else progress > 1f - HomeEditListTokens.PinchCommit
+internal fun homeListSettlesOn(fromOn: Boolean, progress: Float): Boolean = com.gpo.yoin.shared.home.homeListSettlesOn(fromOn, progress)
 
 /**
  * Feed ⇄ list: [progress] follows the pinch, then springs to where the

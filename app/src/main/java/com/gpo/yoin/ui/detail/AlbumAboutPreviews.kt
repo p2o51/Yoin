@@ -8,13 +8,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.gpo.yoin.data.album.AlbumAboutAsk
-import com.gpo.yoin.data.album.AlbumAboutContent
-import com.gpo.yoin.data.album.AlbumAiCredits
 import com.gpo.yoin.data.album.AlbumScrapbookAlbumNote
 import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.shared.albumabout.AlbumAboutAsk
+import com.gpo.yoin.shared.albumabout.AlbumAboutContent
+import com.gpo.yoin.shared.albumabout.AlbumAiCredits
 import com.gpo.yoin.ui.component.LocalAiProvider
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.theme.YoinTheme

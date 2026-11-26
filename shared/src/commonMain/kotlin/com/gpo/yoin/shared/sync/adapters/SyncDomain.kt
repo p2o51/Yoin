@@ -112,6 +112,25 @@ data class SongAboutRow(
 )
 
 /**
+ * `album_about_entries`: an album's AI credits and paragraph (`canonical`) and the questions asked about it (`ask`),
+ * global, keyed by the album's provider + id (Android AlbumAboutEntry). Named apart from
+ * [com.gpo.yoin.shared.albumabout.AlbumAboutRow], which is what the page reads of a row.
+ */
+data class AlbumAboutEntryRow(
+    val provider: String,
+    val albumId: String,
+    val albumDisplay: String,
+    val artistDisplay: String,
+    val kind: String,
+    val entryKey: String,
+    val promptText: String?,
+    val titleText: String?,
+    val answerText: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+/**
  * `lyrics_translation_cache`: one translation of a track's lyrics (Android LyricsTranslationCache).
  * [translationsJson] is kept as the exact text it was written or received as.
  */
@@ -208,6 +227,17 @@ interface SyncDomain {
 
     /** Every About / Ask row on this device, any language (Android `songAboutEntryCount`). */
     fun songAboutEntryCount(): Int
+
+    /** Every album About row in [aboutLanguage] (Android `allAlbumAbout`, a table cleared on a language switch). */
+    fun albumAbouts(): List<AlbumAboutEntryRow>
+
+    fun albumAbout(provider: String, albumId: String, kind: String, entryKey: String): AlbumAboutEntryRow?
+
+    /** A row from another device, written in [aboutLanguage] (the adapter applies only records in it). */
+    fun putAlbumAbout(row: AlbumAboutEntryRow): Boolean
+
+    /** Every album About row on this device, any language (Android `albumAboutEntryCount`). */
+    fun albumAboutEntryCount(): Int
 
     /**
      * Sets the Gemini answer language (Android `gemini_config.targetLanguage`; the API key is never touched).

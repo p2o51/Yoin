@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.runtime.Immutable
-import com.gpo.yoin.data.album.AlbumAboutAsk
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.AlbumScrapbookAsk
 import com.gpo.yoin.data.album.AlbumScrapbookData
@@ -9,6 +8,8 @@ import com.gpo.yoin.data.album.AlbumScrapbookFact
 import com.gpo.yoin.data.album.AlbumScrapbookNote
 import com.gpo.yoin.data.local.AlbumAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.shared.albumabout.AlbumAboutAsk
+import com.gpo.yoin.shared.albumabout.AlbumCreditItem
 import com.gpo.yoin.shared.detail.ScrapbookTilt
 import java.time.Instant
 import java.time.ZoneId

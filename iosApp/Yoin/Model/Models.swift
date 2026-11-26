@@ -140,6 +140,19 @@ struct Album: Identifiable, Hashable, Sendable {
     /// Which version of the release this is, as the server names it ("Deluxe", "全景声"; OpenSubsonic
     /// `version`), shown as a tag after the name, never translated (Android Album.version, #154).
     var version: String? = nil
+    /// The record label(s) as the service names them (Spotify `label`, Apple Music `recordLabel`, OpenSubsonic
+    /// `recordLabels`; Android Album.recordLabels): the scrapbook's credits line shows them before asking any AI.
+    var recordLabels: [String] = []
+    /// This release's date, ISO at the service's precision ("2023-10-27", "2023-10", "2023"; Android
+    /// Album.releaseDate). Nil when the service gives none.
+    var releaseDate: String? = nil
+    /// The first release's date when the service gives it apart from this release's (OpenSubsonic
+    /// `originalReleaseDate`), ISO like [releaseDate]: a reissue's 首版 on the credits line.
+    var originalReleaseDate: String? = nil
+    /// The service's own editorial notes, plain text (Apple Music `editorialNotes`: `standard`, else `short`,
+    /// HTML stripped by :shared's `YoinAlbumAbout.editorialNotes`). The scrapbook's About paragraph uses them
+    /// before asking any AI; never stored or synced.
+    var editorialNotes: String? = nil
 
     /// The name without the " (version)" the server appended, where the version shows as a tag.
     var titleWithoutVersion: String { Self.nameWithoutVersion(title, version) }
@@ -170,6 +183,41 @@ struct Album: Identifiable, Hashable, Sendable {
         let rated = tracks.compactMap(\.rating)
         guard !rated.isEmpty else { return nil }
         return rated.reduce(0, +) / Double(rated.count)
+    }
+}
+
+/// A release date as ISO text at the precision the service gave it (Android `ReleaseDate.parseIso` / `of`):
+/// "2023-10-27", "2023-10" or "2023"; what isn't a real date (Spotify's "0000", a 13th month, February 30th) is
+/// dropped instead of guessed.
+enum ReleaseDateISO {
+    /// [text] read as far as it is a date; [precision] (Spotify `release_date_precision`) caps it.
+    static func parse(_ text: String?, precision: String? = nil) -> String? {
+        guard let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+        let parts = t.prefix(10).split(separator: "-", omittingEmptySubsequences: false).map(String.init)
+        func part(_ i: Int, _ length: Int) -> Int? {
+            guard parts.indices.contains(i), parts[i].count == length else { return nil }
+            return Int(parts[i])
+        }
+        let year = part(0, 4), month = part(1, 2), day = part(2, 2)
+        switch precision?.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "year": return of(year: year)
+        case "month": return of(year: year, month: month)
+        default: return of(year: year, month: month, day: day)
+        }
+    }
+
+    /// The date from its parts, kept as far as they make a real date; nil without a usable year.
+    static func of(year: Int?, month: Int? = nil, day: Int? = nil) -> String? {
+        guard let y = year, (1...9999).contains(y) else { return nil }
+        let yy = String(format: "%04d", y)
+        guard let m = month, (1...12).contains(m) else { return yy }
+        let mm = yy + String(format: "-%02d", m)
+        var components = DateComponents(year: y, month: m)
+        components.calendar = Calendar(identifier: .gregorian)
+        let days = components.calendar?.range(of: .day, in: .month,
+                                               for: components.calendar?.date(from: components) ?? Date())?.count ?? 31
+        guard let d = day, (1...days).contains(d) else { return mm }
+        return mm + String(format: "-%02d", d)
     }
 }
 

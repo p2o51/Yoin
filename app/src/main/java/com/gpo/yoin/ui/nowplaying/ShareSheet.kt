@@ -89,6 +89,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.remote.ai.AiProvider
+import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.pointerPressPreview
@@ -135,14 +136,12 @@ internal interface ShareLayoutStore {
 internal class SharedPrefsShareLayoutStore(context: Context) : ShareLayoutStore {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    override fun layoutFor(tab: ShareTab): ShareLayout? {
-        val stored = prefs.getString(tab.name, null) ?: return null
-        // A layout a later build dropped, or one filed under another tab, reads as none chosen.
-        return ShareLayout.entries.firstOrNull { it.name == stored && it.tab == tab }
-    }
+    // A layout a later build dropped, or one filed under another tab, reads as none chosen.
+    override fun layoutFor(tab: ShareTab): ShareLayout? =
+        YoinShareCards.layoutForStoreValue(tab, prefs.getString(tab.storeKey, null))
 
     override fun setLayout(tab: ShareTab, layout: ShareLayout) {
-        if (layout.tab == tab) prefs.edit { putString(tab.name, layout.name) }
+        if (layout.tab == tab) prefs.edit { putString(tab.storeKey, layout.storeValue) }
     }
 
     private companion object {
@@ -338,7 +337,7 @@ internal fun ShareSheet(
     val layout = layouts[tab] ?: return
     val format = ui.format
     // The tone is a slot (0–3), kept across tabs: the lyrics' fourth is Mist, About and Note's Paper.
-    val tone = tab.role.tones()[ui.toneSlot]
+    val tone = YoinShareCards.tone(tab.role, ui.toneSlot)
     var sharing by remember { mutableStateOf(false) }
     var saveStatus by remember { mutableStateOf(SaveStatus.Idle) }
     // One layer per shown image: during a cross-fade both draw, and neither may overwrite the other's recording.
@@ -404,7 +403,8 @@ internal fun ShareSheet(
         haptics.performConfirm()
         scope.launch {
             val shared = layer.exportImage()?.let { image ->
-                shareImageFile(context, image, caption = lyricsCredit(content.song.title, content.song.artist))
+                val caption = YoinShareCards.caption(content.song.title, content.song.artist)
+                shareImageFile(context, image, caption = caption)
             } == true
             sharing = false
             if (shared) {

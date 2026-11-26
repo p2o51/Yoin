@@ -6,7 +6,8 @@ import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import androidx.room.withTransaction
-import com.gpo.yoin.data.album.AlbumAiCredits
+import com.gpo.yoin.shared.albumabout.AlbumAiCredits
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 import com.gpo.yoin.data.album.AlbumScrapbookAboutRef
 import com.gpo.yoin.data.album.toAboutGrounding
 import com.gpo.yoin.data.local.AlbumAboutEntry
@@ -3744,7 +3745,7 @@ class YoinRepository(
         val config = geminiConfigDao.getConfig().first()
         val ai = readyAi(config) ?: return AskAboutResult.ApiKeyMissing
         val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
-        val key = SongAboutEntry.normalize(trimmed)
+        val key = YoinAlbumAbout.questionKey(trimmed)
         return try {
             val reply = geminiService.askAboutAlbum(ai, album.toAboutGrounding(), trimmed, targetLanguage)
             val now = clock()

@@ -9,6 +9,7 @@ extension AlbumNoteRow: @retroactive @unchecked Sendable {}
 extension AlbumTitleRow: @retroactive @unchecked Sendable {}
 extension MemoryCopyRow: @retroactive @unchecked Sendable {}
 extension SongAboutRow: @retroactive @unchecked Sendable {}
+extension AlbumAboutEntryRow: @retroactive @unchecked Sendable {}
 extension SyncProfile: @retroactive @unchecked Sendable {}
 extension LyricsTranslationRow: @retroactive @unchecked Sendable {}
 extension LyricsCacheRow: @retroactive @unchecked Sendable {}
@@ -74,17 +75,20 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
     private let ratingsStore: @MainActor () -> LocalRatings
     private let albumStore: @MainActor () -> AlbumMemoryStore
     private let albumNotesStore: @MainActor () -> AlbumNotesStore
+    private let albumAboutStore: @MainActor () -> AlbumAboutStore
 
     init(accounts: @escaping @MainActor () -> Accounts,
          notes: @escaping @MainActor () -> NotesStore = { NotesStore.shared },
          ratings: @escaping @MainActor () -> LocalRatings = { LocalRatings.shared },
          albums: @escaping @MainActor () -> AlbumMemoryStore = { AlbumMemoryStore.shared },
-         albumNotes: @escaping @MainActor () -> AlbumNotesStore = { AlbumNotesStore.shared }) {
+         albumNotes: @escaping @MainActor () -> AlbumNotesStore = { AlbumNotesStore.shared },
+         albumAbouts: @escaping @MainActor () -> AlbumAboutStore = { AlbumAboutStore.shared }) {
         self.accounts = accounts
         notesStore = notes
         ratingsStore = ratings
         albumStore = albums
         albumNotesStore = albumNotes
+        albumAboutStore = albumAbouts
     }
 
     /// The provider of [profileId]'s account; nil when it isn't on this device.
@@ -463,6 +467,55 @@ final class SyncDomainBridge: NSObject, SyncDomain, @unchecked Sendable {
 
     func songAboutEntryCount() -> Int32 {
         main { Int32(SongAboutStore.shared.all.count) }
+    }
+
+    // MARK: Album About (Data/About/AlbumAboutStore, the scrapbook's credits and About card)
+
+    private static func row(_ e: AlbumAboutStore.Entry) -> AlbumAboutEntryRow {
+        AlbumAboutEntryRow(provider: e.provider, albumId: e.albumId, albumDisplay: e.albumDisplay,
+                           artistDisplay: e.artistDisplay, kind: e.kind, entryKey: e.entryKey,
+                           promptText: e.promptText, titleText: e.titleText, answerText: e.answerText,
+                           createdAt: e.createdAt, updatedAt: e.updatedAt)
+    }
+
+    /// The rows in this device's language (Android's table holds only those: it is cleared on a switch; iOS
+    /// keeps each language's rows and shows and syncs the current one's).
+    func albumAbouts() -> [AlbumAboutEntryRow] {
+        main {
+            let store = albumAboutStore()
+            let language = store.language()
+            return store.all.filter { $0.language == language }.map(Self.row)
+        }
+    }
+
+    func albumAbout(provider: String, albumId: String, kind: String, entryKey: String) -> AlbumAboutEntryRow? {
+        main {
+            let store = albumAboutStore()
+            let language = store.language()
+            return store.all.first {
+                $0.provider == provider && $0.albumId == albumId && $0.kind == kind && $0.entryKey == entryKey &&
+                    $0.language == language
+            }.map(Self.row)
+        }
+    }
+
+    /// The shared adapter applies a record only in this device's language (`aboutLanguage`): the row is filed so.
+    func putAlbumAbout(row: AlbumAboutEntryRow) -> Bool {
+        main {
+            let store = albumAboutStore()
+            let language = store.language()
+            return store.syncUpsert(.init(provider: row.provider, albumId: row.albumId,
+                                                           albumDisplay: row.albumDisplay,
+                                                           artistDisplay: row.artistDisplay, kind: row.kind,
+                                                           entryKey: row.entryKey, promptText: row.promptText,
+                                                           titleText: row.titleText, answerText: row.answerText,
+                                                           createdAt: row.createdAt, updatedAt: row.updatedAt,
+                                                           language: language))
+        }
+    }
+
+    func albumAboutEntryCount() -> Int32 {
+        main { Int32(albumAboutStore().all.count) }
     }
 
     // MARK: Settings (Android `setting`: translation_language and spotify_client_id)
