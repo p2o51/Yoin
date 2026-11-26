@@ -65,6 +65,12 @@ struct ShareCtx {
                                     script: script))
     }
 
+    /// GoogleSansFlexRounded at Bold: a paragraph's **bold** over rounded SemiBold.
+    func roundedBold(_ size: CGFloat) -> Font {
+        let t = Tokens.type.roundedSemiBold
+        return Font(YoinFont.uiFont(size: size, YoinFont.Axes(weight: 750, width: t.width.cg, round: t.round.cg), script: script))
+    }
+
     /// Google Sans Flex at 80% width, Regular: the ticket stub's quiet time.
     func narrow(_ size: CGFloat) -> Font {
         Font(YoinFont.uiFont(size: size, YoinFont.Axes(weight: 400, width: 80), script: script))
@@ -92,6 +98,20 @@ struct ShareCtx {
         return text(s, gsf(sz, weight ?? Font.Weight(gsf: style.weight)), size: sz,
                     lineHeight: lineHeight ?? style.lineHeight.cg, color: color,
                     tracking: tracking ?? style.letterSpacing.cg, lines: lines, align: align)
+    }
+
+    /// An AI paragraph: its **bold** spans bold (as Now Playing's About draws them), the rest in [font].
+    func paragraph(_ s: String, _ font: Font, bold: Font, size: CGFloat, lineHeight: CGFloat, color: Color,
+                   tracking: CGFloat = 0) -> some View {
+        var a = NowPlayingAboutView.markdown(s)
+        for run in a.runs {
+            a[run.range].font = run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true ? bold : font
+        }
+        return Text(a)
+            .tracking(tracking)
+            .foregroundStyle(color)
+            .homeLine(size, lineHeight)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Hero text: GSF rounded SemiBold at [size], [lineHeight] × the size per line.
@@ -772,7 +792,8 @@ private struct ReceiptBody: View {
                 if let paragraph = about.paragraph {
                     ctx.role(about.heading, Tokens.type.titleSmall, .semibold, color: ctx.colors.content)
                         .padding(.top, 16)
-                    ctx.role(paragraph, Tokens.type.bodyMedium, lineHeight: 22, color: ctx.colors.content)
+                    ctx.paragraph(paragraph, ctx.gsf(14), bold: ctx.gsf(14, .bold), size: 14, lineHeight: 22,
+                                  color: ctx.colors.content, tracking: Tokens.type.bodyMedium.letterSpacing.cg)
                         .padding(.top, 6)
                 }
                 ShareFoot(ctx: ctx, sign: aiSign(ctx)).padding(.top, 24)
@@ -800,7 +821,9 @@ private struct QuoteBody: View {
                 .frame(height: 28)
                 .background(ctx.colors.content, in: Capsule())
                 if let paragraph = about.paragraph {
-                    ctx.hero(paragraph, size: 19, lineHeight: 1.5, color: ctx.colors.content).padding(.top, 18)
+                    ctx.paragraph(paragraph, ctx.rounded(19), bold: ctx.roundedBold(19), size: 19, lineHeight: 19 * 1.5,
+                                  color: ctx.colors.content)
+                        .padding(.top, 18)
                 }
                 if !about.credits.isEmpty {
                     HStack(spacing: 6) {
@@ -873,7 +896,8 @@ private struct LinerBody: View {
                         .padding(.top, 20)
                     }
                     if let paragraph = about.paragraph {
-                        ctx.role(paragraph, Tokens.type.bodyMedium, lineHeight: 22, color: ctx.colors.content)
+                        ctx.paragraph(paragraph, ctx.gsf(14), bold: ctx.gsf(14, .bold), size: 14, lineHeight: 22,
+                                      color: ctx.colors.content, tracking: Tokens.type.bodyMedium.letterSpacing.cg)
                             .padding(.top, 12)
                     }
                 }
