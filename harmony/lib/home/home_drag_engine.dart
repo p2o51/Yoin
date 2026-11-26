@@ -11,7 +11,8 @@
 /// Every decision — which arrangement the finger asks for, the 12dp travel gate, the edge scroll and its start
 /// guard, the re-decide on release, the rollback — is the shared core's ([HomeDragCore], replayed against
 /// home-drag.json), driven here frame by frame from a [Ticker]. This engine keeps the springs, the list host
-/// and the frame loop. One column only for now: the two-column rules are in the core, the layout is C2.
+/// and the frame loop. In two columns (the host's [HomeDragHost.twoColumn]) the core decides with rules ①–④
+/// (beside placement) on the rows the host lays out, and a drop writes the order with its pairs.
 library;
 
 import 'package:flutter/rendering.dart' show SliverMultiBoxAdaptorParentData;
@@ -62,6 +63,30 @@ abstract interface class HomeDragHost {
 
   /// The pinched list's rows, not the feed's.
   bool get isList;
+
+  /// The rows are two columns: halves side by side ([pairs]), the bands keyed by each row's first section.
+  bool get twoColumn;
+
+  /// The pairs laid out side by side now, left → right (empty in one column).
+  Map<HomeSection, HomeSection> pairs();
+
+  /// Where [section]'s slot draws its content's top-left, page px; null when it isn't laid out.
+  Offset? slotOf(HomeSection section);
+
+  /// Each section's slot origin, relative to the list's, when [arrangement] is laid out: the other blocks make
+  /// way from where they were to there.
+  Map<HomeSection, Offset> placesOf(DragArrangement arrangement);
+}
+
+/// One column's places: every item at the sum of the extents above it.
+Map<HomeSection, Offset> homeStackPlaces(List<HomeSection> order, double? Function(HomeSection) extentOf) {
+  var y = 0.0;
+  final out = <HomeSection, Offset>{};
+  for (final s in order) {
+    out[s] = Offset(0, y);
+    y += extentOf(s) ?? 0;
+  }
+  return out;
 }
 
 /// Feed ⇄ list (HomeEditListMode): [progress] follows the pinch, then springs to where the pinch lands
@@ -175,12 +200,13 @@ class HomeDragEngine extends ChangeNotifier {
     required TickerProvider vsync,
     required this.specs,
     required this.wiggle,
-    required this.commitOrder,
+    required this.commitArrangement,
     required this.finishDeferredExit,
   }) : lift = HomeEditSpring(vsync),
        liftTint = HomeEditSpring(vsync),
        _settleProgress = HomeEditSpring(vsync),
        _makeWay = {for (final s in HomeSection.values) s: HomeEditSpring(vsync)},
+       _makeWayX = {for (final s in HomeSection.values) s: HomeEditSpring(vsync)},
        list = HomeEditListMode(vsync: vsync, specs: specs) {
     _ticker = vsync.createTicker(_onTick);
     _paint = Listenable.merge([
@@ -189,6 +215,7 @@ class HomeDragEngine extends ChangeNotifier {
       liftTint.listenable,
       _settleProgress.listenable,
       for (final o in _makeWay.values) o.listenable,
+      for (final o in _makeWayX.values) o.listenable,
     ]);
     list.addListener(notifyListeners);
   }
@@ -197,8 +224,9 @@ class HomeDragEngine extends ChangeNotifier {
   HomeEditSpecs Function() specs;
   final HomeEditWiggle wiggle;
 
-  /// Writes a new order (one Undo step, the confirm haptic); false when it changed nothing.
-  final bool Function(List<HomeSection> order) commitOrder;
+  /// Writes a drop (one Undo step, the confirm haptic): the order and, in [twoColumn], its pairs; false when
+  /// it changed nothing.
+  final bool Function(DragArrangement arrangement, {required bool twoColumn}) commitArrangement;
 
   /// An exit that waited for the drag to let go.
   final void Function(HomeEditExitReason reason) finishDeferredExit;
@@ -342,11 +370,21 @@ class HomeDragEngine extends ChangeNotifier {
   HomeEditExitReason? _pendingExit;
   Duration? _lastTick;
 
-  // The other blocks making way: each one's offset from where the list lays it out, springing to 0.
+  // The other blocks making way: each one's offset from where the list lays it out, springing to 0 (y, and x
+  // for a block changing sides in two columns).
   final Map<HomeSection, HomeEditSpring> _makeWay;
+  final Map<HomeSection, HomeEditSpring> _makeWayX;
 
   /// [section]'s offset from its laid-out place while it makes way ([inList]: the list's strip asks).
   double makeWay(HomeSection section, {required bool inList}) => inList == _activeList ? _makeWay[section]!.value : 0;
+
+  /// [section]'s sideways offset from its laid-out place while it makes way (two columns).
+  double makeWayX(HomeSection section, {required bool inList}) =>
+      inList == _activeList ? _makeWayX[section]!.value : 0;
+
+  /// The drag runs in two columns.
+  bool get twoColumn => _twoColumn;
+  bool _twoColumn = false;
 
   /// [section]'s slot shows the drop frame: it is being dragged, or gliding back into the slot. Draw only.
   bool slotShown(HomeSection section, {required bool inList}) =>
@@ -371,12 +409,7 @@ class HomeDragEngine extends ChangeNotifier {
     return null;
   }
 
-  Offset? _slotTopLeft(HomeDragHost host, HomeSection section) {
-    for (final band in host.visibleRows()) {
-      if (band.key == section) return Offset(host.contentLeft(), band.top);
-    }
-    return null;
-  }
+  Offset? _slotTopLeft(HomeDragHost host, HomeSection section) => host.slotOf(section);
 
   HomeDragView _viewOf(HomeDragHost host) {
     final (top, bottom) = host.scrollArea();
@@ -386,7 +419,7 @@ class HomeDragEngine extends ChangeNotifier {
       contentWidth: host.contentWidth(),
       areaTop: top,
       areaBottom: bottom,
-      twoColumn: false,
+      twoColumn: _twoColumn,
     );
   }
 
@@ -400,7 +433,8 @@ class HomeDragEngine extends ChangeNotifier {
     if (host == null) return;
     final ids = host.order();
     if (!ids.contains(dragged)) return;
-    final before = DragArrangement(ids, const {});
+    final twoColumn = host.twoColumn;
+    final before = DragArrangement(ids, twoColumn ? host.pairs() : const {});
     final at = _slotTopLeft(host, dragged);
     if (at == null) return;
     final x = fingerX.isNaN ? at.dx : fingerX;
@@ -410,6 +444,7 @@ class HomeDragEngine extends ChangeNotifier {
     _settleFrom = null;
     _active = host;
     _activeList = host.isList;
+    _twoColumn = twoColumn;
     _finger = Offset(x, fingerY);
     _lastDrawn = null;
     _pendingExit = null;
@@ -417,7 +452,7 @@ class HomeDragEngine extends ChangeNotifier {
     _core.start(
       dragged: dragged,
       before: before,
-      twoColumn: false,
+      twoColumn: twoColumn,
       fingerX: x,
       fingerY: fingerY,
       blockLeft: shown.dx,
@@ -485,7 +520,7 @@ class HomeDragEngine extends ChangeNotifier {
     _settling = null;
     _settleFrom = null;
     _pendingExit = null;
-    for (final o in _makeWay.values) {
+    for (final o in [..._makeWay.values, ..._makeWayX.values]) {
       o.snapTo(0);
     }
     _snapLiftToRest();
@@ -504,9 +539,9 @@ class HomeDragEngine extends ChangeNotifier {
     final from = glide ? (_lastDrawn ?? drawnTopLeft(dragged, inList: _activeList)) : null;
     _ticker.stop();
     // Rolled back: the blocks the drag moved make way back to where they were.
-    if (!keep && live != before && host != null) _flip(host, live.ids, before.ids, dragged);
+    if (!keep && live != before && host != null) _flip(host, live, before, dragged);
     // Written before the live arrangement goes, so the list never shows the order it started from.
-    final changed = keep && live != before && commitOrder(live.ids);
+    final changed = keep && live != before && commitArrangement(live, twoColumn: _twoColumn);
     _dragging = null;
     _arrangement = null;
     _core.end();
@@ -571,7 +606,7 @@ class HomeDragEngine extends ChangeNotifier {
     final live = _arrangement!;
     switch (_core.frame(dt, _viewOf(host))) {
       case HomeDragFrameStep(:final arrangement):
-        _flip(host, live.ids, arrangement.ids, _dragging!);
+        _flip(host, live, arrangement, _dragging!);
         _arrangement = arrangement;
         YoinHaptics.segmentTick();
         notifyListeners();
@@ -587,29 +622,25 @@ class HomeDragEngine extends ChangeNotifier {
     });
   }
 
-  // The other blocks make way: each one laid out somewhere new by the order [from] → [to] keeps where it is
-  // drawn now and springs from there to its new place (the list lays out every item at the sum of the
-  // extents above it, so the change is that sum's).
-  void _flip(HomeDragHost host, List<HomeSection> from, List<HomeSection> to, HomeSection dragged) {
-    final extents = {for (final s in from) s: host.extentOf(s) ?? 0.0};
-    Map<HomeSection, double> tops(List<HomeSection> order) {
-      var y = 0.0;
-      final out = <HomeSection, double>{};
-      for (final s in order) {
-        out[s] = y;
-        y += extents[s] ?? 0;
-      }
-      return out;
-    }
-
-    final before = tops(from), after = tops(to);
-    for (final s in to) {
+  // The other blocks make way: each one laid out somewhere new by the arrangement [from] → [to] keeps where it is
+  // drawn now and springs from there to its new place (the host says where each slot lands).
+  void _flip(HomeDragHost host, DragArrangement from, DragArrangement to, HomeSection dragged) {
+    final before = host.placesOf(from), after = host.placesOf(to);
+    for (final s in to.ids) {
       if (s == dragged) continue;
-      final delta = (after[s] ?? 0) - (before[s] ?? 0);
-      if (delta == 0) continue;
-      final spring = _makeWay[s]!;
-      spring.snapTo(spring.value - delta);
-      spring.animateTo(0, specs().placement, HomeCarryTokens.neighbourPxThreshold);
+      final a = after[s], b = before[s];
+      if (a == null || b == null) continue;
+      final delta = a - b;
+      if (delta.dy != 0) {
+        final spring = _makeWay[s]!;
+        spring.snapTo(spring.value - delta.dy);
+        spring.animateTo(0, specs().placement, HomeCarryTokens.neighbourPxThreshold);
+      }
+      if (delta.dx != 0) {
+        final spring = _makeWayX[s]!;
+        spring.snapTo(spring.value - delta.dx);
+        spring.animateTo(0, specs().placement, HomeCarryTokens.neighbourPxThreshold);
+      }
     }
   }
 
@@ -619,7 +650,7 @@ class HomeDragEngine extends ChangeNotifier {
     lift.dispose();
     liftTint.dispose();
     _settleProgress.dispose();
-    for (final o in _makeWay.values) {
+    for (final o in [..._makeWay.values, ..._makeWayX.values]) {
       o.dispose();
     }
     list.removeListener(notifyListeners);

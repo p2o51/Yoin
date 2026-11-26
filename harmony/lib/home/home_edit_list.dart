@@ -18,6 +18,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/home/home_drag_core.dart';
+import '../data/home/home_drag_rules.dart' show DragArrangement;
 import '../data/model/model.dart';
 import '../theme/tokens.dart';
 import '../ui/component/artwork_image.dart';
@@ -181,6 +182,24 @@ class _HomeEditListState extends ConsumerState<HomeEditList> implements HomeDrag
 
   @override
   bool get isList => true;
+
+  // The list is one column of strips in two columns too (as iOS's): a drag in it only reorders.
+  @override
+  bool get twoColumn => false;
+
+  @override
+  Map<HomeSection, HomeSection> pairs() => const {};
+
+  @override
+  Offset? slotOf(HomeSection section) {
+    for (final band in visibleRows()) {
+      if (band.key == section) return Offset(contentLeft(), band.top);
+    }
+    return null;
+  }
+
+  @override
+  Map<HomeSection, Offset> placesOf(DragArrangement arrangement) => homeStackPlaces(arrangement.ids, extentOf);
 
   @override
   List<HomeSection> order() => widget.order;

@@ -203,7 +203,9 @@ void main() {
   });
 
   testWidgets('should_resizeTheTemplatedShelfAndUnitBento_when_wide', (tester) async {
-    final h = await pumpHome(tester, size: const Size(1280, 2400), grid: 28);
+    // A portrait tablet (Medium, N = 4: the unit bento and the templated shelf); landscape is two columns, whose
+    // ⌟ is the grid's (home_two_column_test.dart).
+    final h = await pumpHome(tester, size: const Size(800, 2400), grid: 28);
     final c = h.container;
     c.read(homeEditProvider.notifier).enter();
     await frames(tester, 30);
