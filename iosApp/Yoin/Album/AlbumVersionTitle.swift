@@ -10,10 +10,22 @@ struct AlbumVersionTitle<Title: View>: View {
     var spacing: CGFloat = 6
     /// Over the album page's white header twin.
     var onBar = false
+    /// The title's point size, for the Explicit "E" after the name (and its tag) when the release is marked
+    /// explicit (Android PR #343; on iOS the E follows the title everywhere, option B). Nil: no E here.
+    var explicitSize: CGFloat? = nil
     /// The name as the caller draws it (font, color, line limit).
     @ViewBuilder var title: (String) -> Title
 
     var body: some View {
+        if let size = explicitSize, album.isExplicit {
+            ExplicitTitle(text: album.title, explicit: true, fontSize: size,
+                          color: onBar ? Color.white : scheme.onSurfaceVariant) { nameAndTag }
+        } else {
+            nameAndTag
+        }
+    }
+
+    @ViewBuilder private var nameAndTag: some View {
         if let tag = album.versionTag {
             // The tag only where the name and the whole tag fit; on a narrow card the name alone
             // (a squeezed "H…" tag says nothing).
@@ -21,6 +33,9 @@ struct AlbumVersionTitle<Title: View>: View {
                 HStack(spacing: spacing) {
                     title(album.titleWithoutVersion).fixedSize(horizontal: true, vertical: false)
                     AlbumVersionTag(version: tag, scheme: scheme, onBar: onBar).fixedSize()
+                        // The row's first baseline is the name's, not the smaller centred tag's (the E after
+                        // the row stands on it): the tag reports one far below, the stack takes the topmost.
+                        .alignmentGuide(.firstTextBaseline) { $0.height + 10_000 }
                 }
                 title(album.titleWithoutVersion)
             }

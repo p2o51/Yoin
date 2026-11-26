@@ -7,6 +7,16 @@ import Foundation
 /// its artwork URL, which carries nothing secret. Palettes are not stored:
 /// they are the placeholder hashed from the cover, rebuilt the same way.
 enum DetailCacheDTO {
+    /// What [Album.marks] says on a page written with the explicit marks and the known-kind flag.
+    static let marksVersion = 1
+
+    /// A stored album page from before the marks (Android detail cache format 2, PR #343): it still paints
+    /// (it may be an offline album's), but is read again now instead of being served as fresh for a week.
+    static func marksOutdated(_ a: Album) -> Bool { (a.marks ?? 0) < marksVersion }
+
+    /// An artist page whose releases were stored before the marks.
+    static func marksOutdated(_ p: ArtistPage) -> Bool { p.releases.contains(where: marksOutdated) }
+
     struct Track: Codable, Sendable, Equatable {
         var provider: String
         var id: String
@@ -30,6 +40,9 @@ enum DetailCacheDTO {
         var channelCount: Int? = nil
         /// Apple lists it but doesn't stream it (Track.notStreamed); nil = false, and in pages cached before it.
         var notStreamed: Bool? = nil
+        /// The Explicit / Clean mark by its stored name (Track.contentRating); nil = unknown, and in pages
+        /// cached before it.
+        var contentRating: String? = nil
     }
 
     struct Album: Codable, Sendable, Equatable {
@@ -57,6 +70,14 @@ enum DetailCacheDTO {
         var releaseDate: String? = nil
         var originalReleaseDate: String? = nil
         var editorialNotes: String? = nil
+        /// The Explicit / Clean mark by its stored name (Album.contentRating); nil = unknown.
+        var contentRating: String? = nil
+        /// The service didn't say what kind [kind] is (Album.kindKnown false); nil = known, as every page
+        /// stored before it read.
+        var kindUnknown: Bool? = nil
+        /// Set on pages written since the explicit marks (Android detail cache format 2): a page without it
+        /// paints, then is read again at once ([DetailCacheDTO.marksOutdated]).
+        var marks: Int? = nil
     }
 
     struct Entry: Codable, Sendable, Equatable {
@@ -152,7 +173,7 @@ struct DetailCacheCodec {
               bitRateKbps: t.bitRateKbps, suffix: t.suffix, trackGainDb: t.audio?.trackGainDb,
               albumGainDb: t.audio?.albumGainDb, trackPeak: t.audio?.trackPeak, albumPeak: t.audio?.albumPeak,
               samplingRate: t.audio?.samplingRate, bitDepth: t.audio?.bitDepth, channelCount: t.audio?.channelCount,
-              notStreamed: t.notStreamed ? true : nil)
+              notStreamed: t.notStreamed ? true : nil, contentRating: t.contentRating?.rawValue)
     }
 
     func dto(_ a: Album) -> DetailCacheDTO.Album {
@@ -161,7 +182,9 @@ struct DetailCacheCodec {
               artistId: a.artistId, starred: a.starred, playCount: a.playCount, created: a.created,
               songCount: a.songCount, durationSec: a.durationSec, genre: a.genre, version: a.version,
               recordLabels: a.recordLabels.isEmpty ? nil : a.recordLabels, releaseDate: a.releaseDate,
-              originalReleaseDate: a.originalReleaseDate, editorialNotes: a.editorialNotes)
+              originalReleaseDate: a.originalReleaseDate, editorialNotes: a.editorialNotes,
+              contentRating: a.contentRating?.rawValue, kindUnknown: a.kindKnown ? nil : true,
+              marks: DetailCacheDTO.marksVersion)
     }
 
     func dtoAlbums(_ a: [Album]) -> [DetailCacheDTO.Album] { a.map(dto) }
@@ -200,7 +223,8 @@ struct DetailCacheCodec {
         Track(id: MediaId(provider: t.provider, rawId: t.id), number: t.number, title: t.title,
               durationSec: t.durationSec, rating: t.rating, artist: t.artist, starred: t.starred,
               playCount: t.playCount, disc: t.disc, bitRateKbps: t.bitRateKbps, suffix: t.suffix,
-              audio: Self.audio(t), notStreamed: t.notStreamed == true)
+              audio: Self.audio(t), notStreamed: t.notStreamed == true,
+              contentRating: t.contentRating.flatMap(ExplicitRating.init(rawValue:)))
     }
 
     static func audio(_ t: DetailCacheDTO.Track) -> TrackAudio? {
@@ -213,10 +237,12 @@ struct DetailCacheCodec {
     func album(_ a: DetailCacheDTO.Album) -> Album {
         Album(id: MediaId(provider: a.provider, rawId: a.id), title: a.title, artist: a.artist, year: a.year,
               palette: palette(a.cover, a.id), tracks: a.tracks.map(track), rating: a.rating,
-              kind: ReleaseKind(rawValue: a.kind) ?? .album, artistId: a.artistId, starred: a.starred,
+              kind: ReleaseKind(rawValue: a.kind) ?? .album, kindKnown: a.kindUnknown != true,
+              artistId: a.artistId, starred: a.starred,
               playCount: a.playCount, created: a.created, songCount: a.songCount, durationSec: a.durationSec,
               genre: a.genre, version: a.version, recordLabels: a.recordLabels ?? [], releaseDate: a.releaseDate,
-              originalReleaseDate: a.originalReleaseDate, editorialNotes: a.editorialNotes)
+              originalReleaseDate: a.originalReleaseDate, editorialNotes: a.editorialNotes,
+              contentRating: a.contentRating.flatMap(ExplicitRating.init(rawValue:)))
     }
 
     func entry(_ e: DetailCacheDTO.Entry) -> PlaylistEntry { PlaylistEntry(album: album(e.album), track: track(e.track)) }

@@ -78,7 +78,9 @@ struct SubsonicMapping {
                      // No suffix: the MIME type's codec stands in (Android subsonicAudioFormat).
                      suffix: s.suffix.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
                          ?? SongFormat.codec(mime: s.contentType),
-                     audio: s.audio.map(Self.audio))
+                     audio: s.audio.map(Self.audio),
+                     // OpenSubsonic explicitStatus (Navidrome: ITUNESADVISORY), read by :shared.
+                     contentRating: ReleaseMarks.rating(s.contentRating))
     }
 
     static func audio(_ a: SongAudio) -> TrackAudio {
@@ -97,6 +99,7 @@ struct SubsonicMapping {
                      tracks: tracks,
                      rating: Self.rating(a.userRating),
                      kind: Self.kind(a.releaseType),
+                     kindKnown: ReleaseMarks.subsonicKind(a.releaseType) != nil,
                      artistId: a.artistId,
                      starred: a.starred,
                      playCount: Self.int(a.playCount),
@@ -107,7 +110,8 @@ struct SubsonicMapping {
                      version: a.version,
                      recordLabels: a.recordLabels,
                      releaseDate: a.releaseDate,
-                     originalReleaseDate: a.originalReleaseDate)
+                     originalReleaseDate: a.originalReleaseDate,
+                     contentRating: ReleaseMarks.rating(a.contentRating))
     }
 
     /// The album a loose song (playlist, search, random) belongs to, as far as
@@ -119,6 +123,7 @@ struct SubsonicMapping {
               year: Self.int(s.year) ?? 0,
               palette: palette(coverId: s.coverArtId ?? s.albumId),
               tracks: [],
+              kindKnown: false,
               artistId: s.artistId,
               genre: s.genre)
     }

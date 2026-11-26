@@ -56,6 +56,8 @@ enum SpotifyDTO {
         var type: String?
         /// A file from the user's device: no id, never playable through the Web API.
         var isLocal: Bool?
+        /// Spotify marks the track explicit; nil when the response left it out.
+        var explicit: Bool?
     }
 
     struct Owner: Decodable, Hashable, Sendable {

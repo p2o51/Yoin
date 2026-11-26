@@ -219,13 +219,14 @@ final class AppModel {
             palette = mocks[key.unicodeScalars.reduce(0) { $0 + Int($1.value) } % max(mocks.count, 1)].palette
         }
         return Album(id: MediaId(provider: t.provider, rawId: key), title: t.album, artist: t.artist,
-                     year: 0, palette: palette, tracks: [track(for: t)])
+                     year: 0, palette: palette, tracks: [track(for: t)], kindKnown: false)
     }
 
     static func track(for t: PlayableTrack) -> Track {
         Track(id: MediaId(provider: t.provider, rawId: t.id), number: 1, title: t.title,
               durationSec: max(1, Int(t.durationSec.rounded())),
-              rating: t.userRating.flatMap { $0 > 0 ? Double($0 * 2) : nil }, starred: t.starred ?? false)
+              rating: t.userRating.flatMap { $0 > 0 ? Double($0 * 2) : nil }, starred: t.starred ?? false,
+              contentRating: t.contentRating)
     }
 
     init(library: any MusicLibrary = MockLibrary.shared, playback: any PlaybackSource = MockLibrary.shared) {
