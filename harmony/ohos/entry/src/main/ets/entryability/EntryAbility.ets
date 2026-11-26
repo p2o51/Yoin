@@ -3,6 +3,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { FlutterAbility, FlutterEngine } from '@ohos/flutter_ohos';
 import { GeneratedPluginRegistrant } from '../plugins/GeneratedPluginRegistrant';
+import { registerPersonalPlayers } from '../yoin/playback/PersonalPlayers';
 import { setQaSilent } from '../yoin/playback/PlaybackEngine';
 import { YoinPlaybackHost } from '../yoin/playback/PlaybackHost';
 import YoinPlaybackPlugin from '../yoin/playback/PlaybackPlugin';
@@ -113,6 +114,8 @@ export default class EntryAbility extends FlutterAbility {
 
   /** Cold start from Yoin's 播控中心 / lock-screen card: open Now Playing once Dart listens. */
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam) {
+    // Before Dart starts: a personal build's extra players (none in the repository's builds; docs/applemusic.md).
+    registerPersonalPlayers(this.context)
     super.onCreate(want, launchParam)
     ContinueOnHost.bind(this.context)
     ContinueOnHost.deliverFrom(want, launchParam)

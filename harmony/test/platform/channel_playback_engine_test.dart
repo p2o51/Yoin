@@ -122,6 +122,30 @@ void main() {
     });
   });
 
+  group('hasPlayer', () {
+    test('should_askForTheScheme_when_personalPlayerIsQueried', () async {
+      messenger.setMockMethodCallHandler(methods, (call) async {
+        calls.add(call);
+        return call.method == 'hasPlayer' && call.arguments['scheme'] == 'yoin-am';
+      });
+
+      expect(await ChannelPlaybackEngine().hasPlayer('yoin-am'), isTrue);
+      expect(calls.single.method, 'hasPlayer');
+    });
+
+    test('should_answerFalse_when_engineDoesNotKnowTheCall', () async {
+      messenger.setMockMethodCallHandler(methods, null);
+
+      expect(await ChannelPlaybackEngine().hasPlayer('yoin-am'), isFalse);
+    });
+
+    test('should_answerFalse_when_engineFails', () async {
+      messenger.setMockMethodCallHandler(methods, (call) async => throw PlatformException(code: 'playback'));
+
+      expect(await ChannelPlaybackEngine().hasPlayer('yoin-am'), isFalse);
+    });
+  });
+
   group('states', () {
     test('should_parseEveryField_when_eventArrives', () async {
       messenger.setMockStreamHandler(

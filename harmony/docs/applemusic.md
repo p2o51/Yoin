@@ -100,14 +100,15 @@ developer token in them is a fake JWT that is never signed.
   - No play reporting. MusicKit reports its own plays.
   - Android's `LIBRARY_ADD`, `LIBRARY_SONGS` and `PLAYLIST_IMPORT` have no counterpart in this
     interface yet. Following YAGNI, they wait for the feature that needs them.
-- **Playback.** `handleFor` throws `UnsupportedSourceOperation`:
+- **Playback.** In every distributed build `handleFor` throws `UnsupportedSourceOperation`:
   1. `catalogIdForPlayback` first applies Android's checks. An import gets "no Apple Music catalog
      version". A song the storefront can't stream (no `playParams`, or an empty `catalog` answer) gets
      refused, because MusicKit would silently drop it and start that many songs further on.
-  2. Every other song is refused as unsupported until a player exists.
+  2. Every other song is refused as unsupported.
 
   `PlaybackController._itemFor` doesn't catch this, so the play fails with an error instead of
-  silently skipping the queue. That is the behaviour we want until a player lands.
+  silently skipping the queue. Only a personal build (see "Personal builds from main" at the end)
+  returns `DirectStream('yoin-am:<catalogId>')` after step 1.
 
 ### Wiring it in (shared files: the patch is below, nothing here is applied)
 
@@ -418,6 +419,15 @@ ArkWeb sign-in page is a separate 2–4 days, and it is worth doing whatever the
 - **AppGallery and distributed builds.** Ship catalogue and library browsing only (option 2 removed),
   or no Apple Music at all. Treat native playback as a **personal-build-only** feature behind a
   compile-time flag that is off by default.
+- **Source code (decided 2026-11-26).** This repository is public, and publishing source is a form
+  of distribution. The FairPlay host is therefore kept out of git along with the binaries: the
+  bridge (`am_bridge*.cpp`, written against Apple's mangled C++ ABI and private class layouts), the
+  NAPI module (`napi_fh.cpp`, `napi_p2.cpp`: FootHill exchange, in-memory decryption, decode),
+  their CMake changes and the ArkTS player (`AmPlayer.ets`, `AmPhase1.ets`). They are Yoin's own
+  code, but their only purpose is to drive Apple's DRM outside the platform its licence covers, and
+  this section doesn't clearly allow publishing them, so they stay local. What git holds is
+  player-neutral: the `EnginePlayer` seam, a registration stub, the off-by-default Dart switch and
+  the build script. The Phase 0 probe and shim already in `spikes/applemusic/` stay as they are.
 
 ## Owner steps
 
@@ -579,8 +589,10 @@ real player would use, so it was the test that counted all along (Risk 5 above).
 - Launch: `aa start -a EntryAbility -b com.gpo.yoin --ps yoinAmProbe "<flags>" --pb yoinQaSilent true`.
   Results from `hilog -x | grep MusicKitProbe`. The crash backtraces come from hilog's
   `DfxFaultLogger` lines (the shell can't list `/data/log/faultlog/faultlogger/`).
-- Note: `entry/libs/` is **not** git-ignored (only `libapp.so`, `libflutter.so` and
-  `libvmservice_snapshot.so` are). Anything copied there shows up as untracked.
+- Note: at the time `entry/libs/` was **not** git-ignored (only `libapp.so`, `libflutter.so` and
+  `libvmservice_snapshot.so` were). Since 2026-11-26 the whole of `ohos/entry/libs/` is ignored, and
+  `entry/hvigorfile.ts` refuses any build that finds the personal-only libraries there (see
+  "Personal builds from main").
 
 **Runs (each a cold start, `aa force-stop` in between):**
 
@@ -925,11 +937,85 @@ before it returns. Nothing is written to disk. The report carries counts and lev
 - OHAudio output-device changes (headphones unplugged) aren't wired to `onDeviceGone` for Apple
   Music yet. Interrupt mapping is untested on the device.
 - The 3082 snackbar is cut off at three lines.
-- **Merging.** The `EnginePlayer` refactor and the Dart flag are safe for the main branch. The
-  Apple libraries, the NAPI module and `AmPlayer` must stay out of anything distributed. One option
-  is a personal-build HAR module plus the flag; it needs an owner decision.
+- ~~**Merging.**~~ **Done (2026-11-26).** The `EnginePlayer` refactor, the Dart flag and the 3082
+  mapping are on main. The Apple libraries, the NAPI module and `AmPlayer` stay outside git as a
+  local overlay; see "Personal builds from main" below.
 - **Audible check: done (2026-11-14 evening).** The owner played Apple Music songs from the
   spike build on the Mate 70 Air and heard them. The first try was silent only because the
   process was still the one a QA launch had started with `yoinQaSilent`. A launch from the
   home-screen icon now clears that flag (main branch). The fix is installed but not yet seen in
   a device log, because the owner was using the phone.
+
+## Personal builds from main (2026-11-26)
+
+The Phase 3 player no longer needs the spike branch. A personal build is **main plus a local overlay
+that never enters git**, made by `harmony/scripts/build_personal_am.sh`. A plain
+`flutter build hap --release` is still the distributable build: no Apple library, no player, and
+Apple Music stays browse-only.
+
+### What is in git (player-neutral)
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| `EnginePlayer` seam | `ohos/.../yoin/playback/EnginePlayer.ets`, `PlaybackEngine.ets` | `PlaybackEngine` drives an `EnginePlayer`. `AvEnginePlayer` is AVPlayer, unchanged. `EnginePlayers.register(scheme, factory)` routes a URI scheme to another player, and `registerWhen(scheme, ready, factory)` registers only once `ready` resolves true (the native library loaded). |
+| Registration stub | `ohos/.../yoin/playback/PersonalPlayers.ets` | `registerPersonalPlayers(context)`, called from `EntryAbility.onCreate` before Dart starts. The repository's copy registers nothing. |
+| `hasPlayer` | `PlaybackPlugin.ets` / `ChannelPlaybackEngine.hasPlayer` | Dart asks whether a scheme has a player. The answer waits for pending `registerWhen`s, and an engine that doesn't know the call answers false. |
+| Dart switch | `AppleMusicSource` (`appleMusicNativePlayback`, `--dart-define=YOIN_AM_PLAYBACK=true`) | `handleFor` returns `DirectStream('yoin-am:<catalogId>')` only when the switch is on **and** `hasPlayer('yoin-am')` is true. Otherwise it refuses as before, so a flag-only build with no overlay, or one whose libraries fail to load, stays browse-only. Tests: `test/data/applemusic/apple_music_source_test.dart` (playback group) and `test/platform/channel_playback_engine_test.dart` (`hasPlayer`). |
+| 3082 copy | `playback_controller.dart` (`errorKindOf`), `playback_strings.dart` | The player's `apple_music_content_restricted (3082)` error shows Android's `player_apple_music_content_restricted` copy. |
+| Guards | `ohos/.gitignore`, `ohos/entry/hvigorfile.ts` | `entry/libs/`, `ets/yoin/personal/` and the NAPI types package are ignored. Any build that finds `libappleMusicSDK.so`, `libc++_ndk1.so`, `libam.so`, `libam_bridge.so` or `libmusickit_probe_napi.so` in `entry/libs/` stops, unless the script set `YOIN_PERSONAL_AM_BUILD=1`. |
+| Script | `harmony/scripts/build_personal_am.sh` | Below. |
+
+### What stays local (`~/.yoin/harmony-am`, mode 700)
+
+| Path | What |
+| --- | --- |
+| `libs/arm64-v8a/` | The patched `libappleMusicSDK.so` and `libc++_ndk1.so`, `libam.so` (shim), `libam_bridge.so`, `libmusickit_probe_napi.so` (the NAPI player module), and the OHOS NDK `libc++_shared.so`. |
+| `ets/AmPlayer.ets`, `ets/AmPhase1.ets` | The player, from the spike with two changes: `AmPlayer.load()` (dlopen check for `registerWhen`), and a credentials lookup that also reads secrets main's `StoragePlugin` stores in 1 KiB chunks (`chunkAlias`, `parseChunkCount` and `joinSecretChunks` are exported for it). |
+| `PersonalPlayers.ets` | The real hook: `EnginePlayers.registerWhen('yoin-am', AmPlayer.load(), …)`. |
+| `types/libmusickit_probe_napi/` | The NAPI module's types package (needed for `import('libmusickit_probe_napi.so')`). |
+| `native-src/` | The spike's C++ and CMake (bridge, NAPI, shim, probe), to rebuild the `.so` files with the commands in its `CMakeLists.txt`. |
+| `signing/build-profile.json5` (mode 600) | Machine-local signing. Only its `signingConfigs` block is used, and the script never prints it. |
+| `out/` | The personal HAPs the script made. |
+
+### Making one
+
+```sh
+source ~/Developer/flutter_ohos/ohos-env.sh
+harmony/scripts/build_personal_am.sh populate   # once: fills the stash from ~/Developer/Yoin-wt-pc-am (read-only)
+harmony/scripts/build_personal_am.sh            # = build
+harmony/scripts/build_personal_am.sh check-hap <file.hap>   # PERSONAL, or "clean"
+```
+
+`build` works in this order:
+
+1. It checks the stash, and that the four tracked files it touches are unchanged: the stub,
+   `entry/oh-package.json5`, `entry/build-profile.json5` and `ohos/build-profile.json5`.
+2. It backs those four files up and copies the overlay in: the libraries, `ets/yoin/personal/`, the
+   real `PersonalPlayers.ets` and the types package. It adds the types dependency, keeps native
+   symbols unstripped (`nativeLib.debugSymbol.strip: false`, so the patched Apple pair goes in
+   byte-identical) and injects the local `signingConfigs`.
+3. It runs `YOIN_PERSONAL_AM_BUILD=1 flutter build hap --release --dart-define=YOIN_AM_PLAYBACK=true`,
+   checks that the HAP carries the player, and copies it to
+   `~/.yoin/harmony-am/out/yoin-personal-am-<time>-entry-default-signed.hap`.
+4. On exit, including failure or Ctrl-C, it restores the four files and deletes the overlay. It also
+   deletes this build's `libapp.so`, `ohos/entry/build/` and `build/ohos/hap/`, so no personal
+   artefact is left for a later plain build to pick up. Then it checks that `git status` is clean.
+
+Settings: `YOIN_AM_HOME` (the stash), `YOIN_AM_SPIKE` (what `populate` reads) and `YOIN_AM_SIGNING`
+(another signing file).
+
+**Install.** By hand on the owner's own phone only, with `hdc install -r <hap>`. Never upload,
+share or publish the HAP. The device id FootHill binds keys to stays in the app preferences
+`yoin_am_spike` / `fhDeviceId`, as in the spike, so an install over the spike build keeps it.
+
+**Verified (2026-11-26, Mac only; no device was touched).**
+- `flutter analyze`: one existing info. `flutter test`: everything passes except the two known
+  failures (landing_host "welcome guide", tips Apple Music demo).
+- The personal build carries all six libraries. `libappleMusicSDK.so` is byte-identical to the stash
+  copy, and the player's code is in `modules.abc`.
+- A plain signed release build carries only `libapp.so` and `libflutter.so`, and none of the
+  player's code.
+- A plain build with a stray `libappleMusicSDK.so` in `entry/libs/` is stopped by the hvigor guard.
+- Not yet checked on the device: the whole Phase 3 path running from main (start-up `registerWhen`,
+  then `hasPlayer`, then play). The spike's open items still apply: no gapless playback, and
+  interrupt mapping untested.

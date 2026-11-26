@@ -18,3 +18,11 @@
 **/libs/**/libapp.so
 **/libs/**/libflutter.so
 **/libs/**/libvmservice_snapshot.so
+
+# Personal builds with Apple Music playback (docs/applemusic.md "Personal builds",
+# scripts/build_personal_am.sh). Apple's libraries, the native player and its ArkTS module live
+# outside git (~/.yoin/harmony-am) and are only copied in for the length of one build.
+# Never commit or distribute any of them.
+/entry/libs/
+/entry/src/main/ets/yoin/personal/
+/entry/src/main/cpp/types/libmusickit_probe_napi/
