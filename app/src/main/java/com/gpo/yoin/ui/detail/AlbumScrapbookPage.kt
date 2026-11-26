@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -162,6 +161,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import com.gpo.yoin.data.notes.BacklinkTarget
 import com.gpo.yoin.data.notes.BacklinkTrack
 import com.gpo.yoin.data.notes.NoteBacklink
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.notes.rememberNoteBacklinks
 import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
@@ -2141,7 +2141,7 @@ internal fun ScrapSheet(
 ) {
     YoinModalBottomSheet(
         onDismissRequest = onDismiss,
-        modifier = Modifier.statusBarsPadding(),
+        modifier = Modifier.topBarsPadding(),
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         contentWindowInsets = {
             if (padBottomInset) {

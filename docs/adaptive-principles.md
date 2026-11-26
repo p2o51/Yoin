@@ -158,6 +158,12 @@
 - 新增 `== Wide` / `!= Compact` 之类的散落判断必须收口到 `WindowAdaptiveRuntime` 或
   `NowPlayingPresentation` 的纯函数并加单测；页面只读 `LocalYoinWindowInfo` 和
   `LocalShellChromeInsets`。
+- 页面顶部让位一律用 `WindowInsets.topBars` / `Modifier.topBarsPadding()`（状态栏加标题栏，
+  `ui/experience/TopBarInsets.kt`），不要只用 `statusBars`。桌面窗口（Android 15+ 的桌面模式）
+  没有状态栏，顶上是标题栏（应用名和窗口按钮）；它画成透明的，页面自己的底色一直铺到窗口按钮
+  后面（`DesktopCaptionSync`），只让状态栏的话内容会压在窗口按钮底下。半透明详情页盖在 shell
+  上时，标题栏换回系统自己的不透明标题栏，深浅跟着页面。ChromeOS 的标题栏是系统框架画的纯色，
+  颜色取页面顶部的 `surfaceContainer`，跟着配色和深浅色走。
 - 新页面上线前回答：它在哪个容器里（窗口 / 列 / 侧栏旁）、容器形态是什么、它要不要让出宽度、
   它的返回归谁（`ShellBackResolver` / 列的子栈 / 自己的 Activity）。答不上来就不是适配问题，
   是设计没做完。

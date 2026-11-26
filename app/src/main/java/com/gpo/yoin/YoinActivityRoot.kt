@@ -109,11 +109,14 @@ private fun ComponentActivity.requestPeakRefreshRate() {
  *
  * Detail Activities read the same resolved palette (the same scheme instance)
  * from their first frame. Opening a window never resets playback colors.
+ * In a desktop window the caption bar follows the same palette
+ * ([DesktopCaptionSync]).
  */
 @Composable
 fun YoinActivityRoot(content: @Composable () -> Unit) {
     val app = LocalContext.current.applicationContext as? YoinApplication
     YoinTheme(playbackThemeState = app?.container?.playbackThemeState) {
+        DesktopCaptionSync()
         YoinAppEnvironment(content = content)
     }
 }
