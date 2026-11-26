@@ -24,11 +24,42 @@ final class TipsTests: XCTestCase {
     func test_should_leaveOutTheKeyboardTip_when_theDeviceHasNoShortcutMenu() throws {
         let keyboard = try XCTUnwrap(Tips.catalog.first { $0.id == "KeyboardShortcuts" })
         XCTAssertTrue(keyboard.keyboard)
-        XCTAssertFalse(Tips.available(Tips.catalog, keyboard: false).contains { $0.id == "KeyboardShortcuts" })
-        XCTAssertTrue(Tips.available(Tips.catalog, keyboard: true).contains { $0.id == "KeyboardShortcuts" })
+        XCTAssertFalse(Tips.available(Tips.catalog, keyboard: false, twoColumn: false).contains { $0.id == "KeyboardShortcuts" })
+        XCTAssertTrue(Tips.available(Tips.catalog, keyboard: true, twoColumn: true).contains { $0.id == "KeyboardShortcuts" })
         // Only the keyboard's tip depends on it.
-        XCTAssertEqual(Tips.available(Tips.catalog, keyboard: false).count, Tips.catalog.count - 1)
+        XCTAssertEqual(Tips.available(Tips.catalog, keyboard: false, twoColumn: false).count, Tips.catalog.count - 1)
+        XCTAssertEqual(Tips.available(Tips.catalog, keyboard: true, twoColumn: false).count, Tips.catalog.count)
         XCTAssertNotNil(Tips.catalog.first { $0.id == "LibraryRefresh" })
+    }
+
+    func test_should_sayAndroidsLine_when_HomeCanLayOutInTwoColumns() throws {
+        // Android's 2026-11-23 EditHome (Home edit v2 and two columns), as given, on an iPad or a Mac.
+        let tip = try XCTUnwrap(Tips.available(Tips.catalog, keyboard: true, twoColumn: true).first { $0.id == "EditHome" })
+        XCTAssertEqual(tip.updated, "2026-11-23")
+        XCTAssertEqual(tip.title, "Rearrange Home")
+        XCTAssertEqual(tip.text, "While editing Home, pinch to collapse into a list, long-press to drag, or drop beside a section on large screens.")
+        XCTAssertEqual(tip.titleZhHans, "重新排版首页")
+        XCTAssertEqual(tip.textZhHans, "编辑首页时双指捏合收成列表，长按直接拖动排序，大屏上拖到旁边即可并排")
+    }
+
+    func test_should_leaveOutTheLargeScreensClause_when_HomeNeverHasTwoColumns() throws {
+        // An iPhone: the same line without the drop beside, in both languages; nothing else changes.
+        let tip = try XCTUnwrap(Tips.available(Tips.catalog, keyboard: false, twoColumn: false).first { $0.id == "EditHome" })
+        XCTAssertEqual(tip.text, "While editing Home, pinch to collapse into a list or long-press to drag.")
+        XCTAssertEqual(tip.textZhHans, "编辑首页时双指捏合收成列表，长按直接拖动排序")
+        XCTAssertEqual(tip.title, "Rearrange Home")
+        XCTAssertEqual(tip.updated, "2026-11-23", "one day for both lines: the read store's key")
+        let phone = Tips.available(Tips.catalog, keyboard: false, twoColumn: false).filter { $0.id != "EditHome" }
+        let pad = Tips.available(Tips.catalog, keyboard: false, twoColumn: true).filter { $0.id != "EditHome" }
+        XCTAssertEqual(phone, pad, "only EditHome has a one-column line")
+    }
+
+    func test_should_comeBackUnread_when_EditHomeWasReadBeforeTheUpdate() throws {
+        let editHome = try XCTUnwrap(Tips.catalog.first { $0.id == "EditHome" })
+        let old = tip("EditHome", updated: "2026-10-17")
+        let (s, defaults) = store([old])
+        s.setRead(old, true)
+        XCTAssertTrue(TipReadStore(defaults: defaults, tips: [editHome]).unread.contains { $0.id == "EditHome" })
     }
 
     func test_should_comeBackOnAndroidsDay_when_iOSHasTheSameSongMenu() throws {
