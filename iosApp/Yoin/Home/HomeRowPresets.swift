@@ -67,56 +67,6 @@ enum HomeLyricCount {
     }
 }
 
-/// The settings bag as Android reads it (HomeSectionState.fromPref / config()): a readable `rows`
-/// is the preset, every other key stays verbatim, and a `rows` this build can't read stays in the
-/// bag too, so a re-encode loses nothing.
-enum HomeRowsConfig {
-    static let rowsKey = "rows"
-
-    static func object(_ config: Data?) -> [String: Any]? {
-        guard let config, let o = (try? JSONSerialization.jsonObject(with: config)) as? [String: Any] else { return nil }
-        return o
-    }
-
-    /// The preset in [config]; L when absent or unreadable.
-    static func rows(_ config: Data?) -> HomeRowPreset {
-        (object(config)?[rowsKey] as? String).flatMap { HomeRowPreset(key: $0) } ?? .default
-    }
-
-    /// [config] at [rows]: `rows` is written unless it is the default, the other keys untouched;
-    /// nil when nothing is left.
-    static func setting(_ rows: HomeRowPreset, in config: Data?) -> Data? {
-        var bag = object(config) ?? [:]
-        if HomeRowPreset(key: bag[rowsKey] as? String) != nil { bag[rowsKey] = nil }
-        if rows != .default { bag[rowsKey] = rows.key }
-        guard !bag.isEmpty else { return nil }
-        return try? JSONSerialization.data(withJSONObject: bag, options: [.sortedKeys])
-    }
-}
-
-extension HomeSectionState {
-    var rows: HomeRowPreset { HomeRowsConfig.rows(config) }
-}
-
-extension HomeLayout {
-    /// [section]'s row preset (L when it is not in this layout).
-    func rowsOf(_ section: HomeSection) -> HomeRowPreset {
-        sections.first { $0.section == section }.map(\.rows) ?? .default
-    }
-
-    /// [section] at [rows]. Unchanged for a section that takes no presets, absent, or already there.
-    func withRows(_ section: HomeSection, _ rows: HomeRowPreset) -> HomeLayout {
-        guard section.takesPresets, sections.contains(where: { $0.section == section && $0.rows != rows }) else { return self }
-        var next = self
-        next.sections = sections.map { s in
-            var s = s
-            if s.section == section { s.config = HomeRowsConfig.setting(rows, in: s.config) }
-            return s
-        }
-        return next
-    }
-}
-
 // MARK: - Ladders
 
 /// One detent of a section's ladder on this screen: the presets that resolve to [payload]
