@@ -124,6 +124,28 @@ void main() {
       }
     });
 
+    test('should_bringRearrangeHomeBackUnread_when_readBeforeThePinchAndTheDropBeside', () {
+      // Read before 11-23: the tip now pinches into the list and (large screens) drops beside a section.
+      expect(decodeReadTips(['editHome@2026-10-17', 'name@2026-10-17']), {HomeBubbleTip.name});
+    });
+
+    test('should_leaveOutTheDropBeside_when_theDeviceCanNeverBeTwoColumns', () {
+      // Large screens: Android's 2026-11-23 copy, word for word.
+      expect(
+        HomeBubbleTip.editHome.text(zh: false),
+        'While editing Home, pinch to collapse into a list, long-press to drag, or drop beside a section on large '
+        'screens.',
+      );
+      expect(HomeBubbleTip.editHome.text(zh: true), '编辑首页时双指捏合收成列表，长按直接拖动排序，大屏上拖到旁边即可并排');
+      // Phones (iOS's phone copy): no large-screen clause.
+      expect(
+        HomeBubbleTip.editHome.text(zh: false, largeScreen: false),
+        'While editing Home, pinch to collapse into a list or long-press to drag.',
+      );
+      expect(HomeBubbleTip.editHome.text(zh: true, largeScreen: false), '编辑首页时双指捏合收成列表，长按直接拖动排序');
+      expect(HomeBubbleTip.editHome.updated, DateTime(2026, 11, 23));
+    });
+
     test('should_paintDemoCovers_when_urlIsADemoCover', () {
       expect(DemoArtwork.parse(DemoArtwork.url(3)), const DemoArtwork(3));
       expect(DemoArtwork.parse('https://example.com/cover.jpg'), isNull);
@@ -268,6 +290,45 @@ void main() {
       await frames(tester, const Duration(seconds: 1));
       expect(tester.takeException(), isNull);
     }
+
+    testWidgets('should_dropBesideOnATablet_when_theRearrangeDemoPlaysOnALargeScreen', (tester) async {
+      HomeBubbleTip.largeScreenOverride = true;
+      addTearDown(() => HomeBubbleTip.largeScreenOverride = null);
+      await pumpDemo(tester, HomeBubbleTip.editHome);
+      // A tablet on its side.
+      expect(tester.widget<DemoPhone>(find.byType(DemoPhone)).wide, isTrue);
+      final added = find.text('Recently Added');
+      final playlists = find.text('Your Playlists');
+      // Your Playlists goes up, then Recently Added drops beside it: one row, side by side.
+      final paired = await playUntil(
+        tester,
+        () =>
+            (tester.getTopLeft(added).dy - tester.getTopLeft(playlists).dy).abs() < 1 &&
+            tester.getTopLeft(added).dx > tester.getTopLeft(playlists).dx + 20,
+        limit: const Duration(seconds: 14),
+      );
+      expect(paired, isTrue);
+      await leave(tester);
+    });
+
+    testWidgets('should_neverDropBeside_when_theRearrangeDemoPlaysOnAPhone', (tester) async {
+      HomeBubbleTip.largeScreenOverride = false;
+      addTearDown(() => HomeBubbleTip.largeScreenOverride = null);
+      await pumpDemo(tester, HomeBubbleTip.editHome);
+      expect(tester.widget<DemoPhone>(find.byType(DemoPhone)).wide, isFalse);
+      final added = find.text('Recently Added');
+      final playlists = find.text('Your Playlists');
+      // The pinch, then the drag up: Your Playlists ends above Recently Added, never beside it.
+      var above = false;
+      for (var t = Duration.zero; t < const Duration(seconds: 12); t += const Duration(milliseconds: 16)) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final a = tester.getTopLeft(added), p = tester.getTopLeft(playlists);
+        expect((a.dy - p.dy).abs() < 1 && (a.dx - p.dx).abs() > 20, isFalse);
+        if (p.dy < a.dy - 50) above = true;
+      }
+      expect(above, isTrue);
+      await leave(tester);
+    });
 
     testWidgets('should_flyTheGridIntoTheBar_when_theAllMemoriesDemoScrolls', (tester) async {
       await pumpDemo(tester, HomeBubbleTip.memoryLedger);

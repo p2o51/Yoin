@@ -2228,9 +2228,14 @@ class YoinRepository(
         songNoteDao.update(note.copy(content = trimmed, updatedAt = clock()))
     }
 
-    suspend fun deleteNoteById(id: String) {
-        songNoteDao.deleteById(id)
-    }
+    /**
+     * Deletes song note [id] on [repositoryScope], not in the caller's. Now Playing deletes a note when its
+     * undo window closes, and when the screen goes away first (closed, its Activity finishing) — by then the
+     * screen's ViewModel may already be cleared, and a delete launched in its scope never ran: the note stayed
+     * in the database and came back (the Note page, Home's Jump Back In). The job is the delete.
+     */
+    fun deleteNoteById(id: String): Job =
+        repositoryScope.launch(start = CoroutineStart.UNDISPATCHED) { songNoteDao.deleteById(id) }
 
     /**
      * New text for one note, by id (the album page's scrapbook); blank deletes it. Returns the note as it

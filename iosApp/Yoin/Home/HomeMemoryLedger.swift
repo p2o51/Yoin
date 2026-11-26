@@ -10,11 +10,14 @@ struct HomeMemoryLedgerSection: View {
     var state: LedgerState
     /// In place of opening All Memories (the tip page's demo phone).
     var onOpen: (() -> Void)? = nil
+    /// Two columns: the cell it lays out in (the card fills the box under the title row); nil in one column.
+    var cell: HomeCell? = nil
 
     var body: some View {
         let s = scheme ?? .brand(dark: false)
-        VStack(alignment: .leading, spacing: 12) {
-            HomeSectionTitle(HomeSection.memoryGrid.title)
+        let grid = cell?.units
+        VStack(alignment: .leading, spacing: grid != nil ? 0 : 12) {
+            if grid != nil { HomeGridTitleRow(HomeSection.memoryGrid.title) } else { HomeSectionTitle(HomeSection.memoryGrid.title) }
             Button { homeTap(edit) { if let onOpen { onOpen() } else { model.path.append(.allMemories) } } } label: {
                 VStack(alignment: .leading, spacing: 12) {
                     // What you wrote leads; with only scores so far, the scores.
@@ -35,8 +38,9 @@ struct HomeMemoryLedgerSection: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
-                // A tablet's wide feed would blow a month's quads up past a cover; the card stays phone-wide.
-                .frame(maxWidth: 560, alignment: .leading)
+                // A tablet's wide feed would blow a month's quads up past a cover; the card stays phone-wide. On the
+                // grid it fills its box under the title row.
+                .frame(maxWidth: grid != nil ? .infinity : 560, maxHeight: grid.map { HomeGrid.content(units: $0) }, alignment: .topLeading)
                 .background(s.surfaceContainerLow, in: .rect(cornerRadius: 28))
                 .contentShape(.rect(cornerRadius: 28))
             }

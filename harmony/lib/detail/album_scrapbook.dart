@@ -37,6 +37,7 @@ import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../memories/memories_view_model.dart';
 import '../playback/local_ratings.dart';
+import 'album_release_date.dart';
 import 'album_scrapbook_editor.dart';
 import 'detail_cache.dart';
 
@@ -786,10 +787,16 @@ List<ScrapPiece> buildAlbumScrapbook(Album album, AlbumScrapbookData data, {requ
     final rated = data.ratings.keys.where(ids.contains).length;
     // Every album note counts with the track notes (D3's receipt).
     final notes = [for (final id in ids) ...?data.notes[id]].where((n) => !n.isBlank).length + stickies.length;
+    // The service's album length, else the tracks' summed.
+    final summed = tracks.fold<int>(0, (sum, t) => sum + (t.track.durationSec ?? 0));
+    final albumLength = (album.durationSec ?? 0) > 0 ? album.durationSec : summed;
     pieces.add(
       ScrapReceipt(
         header: '${album.name} — ${album.artist ?? ''}'.toUpperCase(),
         lines: [
+          // What the album is, before what Yoin knows of it: when it came out and how long it runs.
+          if (album.parsedReleaseDate case final date?) (receiptReleasedLabel, receiptReleaseDate(date)),
+          if (receiptAlbumLength(albumLength) case final length?) (receiptLengthLabel, length),
           ('Plays in Yoin', '${plays.playCount}'),
           ('Days since first play', '${scrapDaysBetween(plays.firstPlayedAt, nowMs)}'),
           ('Last played', scrapRelativeDay(plays.lastPlayedAt, nowMs)),

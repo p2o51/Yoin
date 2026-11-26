@@ -16,6 +16,7 @@ import 'package:yoin/nowplaying/overlay_controller.dart';
 import 'package:yoin/nowplaying/stage_tabs.dart';
 import 'package:yoin/platform/storage/stores.dart';
 import 'package:yoin/ui/adaptive/yoin_window_info.dart';
+import 'package:yoin/ui/component/ai_service_scope.dart';
 import 'package:yoin/ui/component/yoin_loading_indicator.dart';
 
 import '../support/fake_ai_client.dart';
@@ -50,13 +51,17 @@ void main() {
     Size size = const Size(412, 892),
     List<Track>? queue,
     FakeAiClient? ai,
+    bool scoped = false,
+    AiSettings? settings,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     kv = InMemoryStore();
     final secrets = InMemoryStore();
-    if (ready) {
+    if (settings != null) {
+      await AiSettingsStore(kv, secrets).write(settings);
+    } else if (ready) {
       await AiSettingsStore(kv, secrets).write(const AiSettings(provider: AiProvider.qwen, qwenKey: 'q'));
     }
     client = ai ?? FakeAiClient(reply: _about);
@@ -75,13 +80,19 @@ void main() {
           secretStoreProvider.overrideWithValue(secrets),
           aiClientProvider.overrideWithValue(client),
         ],
-        child: MaterialApp(
-          home: Material(
-            child: NowPlayingOverlayScope(
-              controller: controller,
-              child: NowPlayingScreen(controller: controller),
-            ),
-          ),
+        child: Builder(
+          builder: (context) {
+            final app = MaterialApp(
+              home: Material(
+                child: NowPlayingOverlayScope(
+                  controller: controller,
+                  child: NowPlayingScreen(controller: controller),
+                ),
+              ),
+            );
+            // The app root's scope (main.dart): copy names the AI service chosen in Settings.
+            return scoped ? ActiveAiServiceScope(child: app) : app;
+          },
         ),
       ),
     );
@@ -237,6 +248,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(client.prompts, hasLength(2));
     expect(find.text('H. Lewy'), findsWidgets);
+  });
+
+  testWidgets('should_nameTheServiceInUse_when_askBarAndRegenerateShown', (tester) async {
+    final controller = await pump(tester, scoped: true);
+    await tester.tap(find.text('About'));
+    await tester.pumpAndSettle();
+    controller.expandStage();
+    await tester.pumpAndSettle();
+    // Qwen answers here (51, 2026-11-25: "Ask Gemini" while another service answers is wrong).
+    expect(find.text('Ask Qwen'), findsOneWidget);
+    expect(find.textContaining('Gemini'), findsNothing);
+    await tester.longPress(find.text('Henry Lewy').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Regenerate with Qwen'), findsOneWidget);
+  });
+
+  testWidgets('should_nameTheChosenServicesKey_when_itHasNone', (tester) async {
+    await pump(tester, scoped: true, settings: const AiSettings(provider: AiProvider.deepSeek));
+    await tester.tap(find.text('About'));
+    await tester.pumpAndSettle();
+    expect(find.text('No DeepSeek API key'), findsOneWidget);
   });
 
   testWidgets('should_showPaneAndAskBarInRightColumn_when_dualPane', (tester) async {

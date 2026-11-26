@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import YoinShared
 
 /// The Home sections a listener can show, hide and reorder: Android's
 /// catalog (ui/home/HomeSection.kt), in its declaration (= default) order.
@@ -91,9 +92,10 @@ enum HomeSection: String, CaseIterable, Hashable, Sendable {
     static let retiredIds: Set<String> = ["memory_teaser", "memories"]
 }
 
-/// One persisted section choice (Android `HomeSectionPref`): its id, whether
-/// it renders, and its settings bag (`{"rows":"xl"}` on Android) kept as raw
-/// JSON so nothing a newer build wrote is lost on re-encode.
+/// One persisted section choice as a document entry (Android `HomeSectionPref`): its id, whether
+/// it renders, its settings bag (`{"rows":"xl"}`) and the entry's other keys, both raw JSON objects.
+/// Only for building a document by hand (tests, `HomeLayout.reconcile`); the layout itself is the
+/// shared state.
 struct HomeSectionPref: Hashable, Sendable {
     var id: String
     var enabled: Bool
@@ -103,25 +105,62 @@ struct HomeSectionPref: Hashable, Sendable {
     var extra: Data? = nil
 }
 
-/// One section and whether it renders, at its resolved position.
+/// One section at its resolved position, as the shared layout holds it (`HomeLayoutSectionState`):
+/// whether it renders, its row preset (and whether it was chosen), half of a two-column pair, its own
+/// unit count (Lyric Cards), and what this build keeps without reading.
 struct HomeSectionState: Hashable, Sendable {
     var section: HomeSection
     var enabled: Bool
-    var config: Data? = nil
-    var extra: Data? = nil
+    var rows: HomeRowPreset = .default
+    var rowsSet: Bool = false
+    var half: Bool = false
+    var units: Int? = nil
+    var configExtrasJson: String? = nil
+    var entryExtrasJson: String? = nil
+
+    /// The settings bag as the document writes it (`rows` when chosen or not L, `span`, `units`, the kept keys); nil when empty.
+    var config: Data? {
+        var bag = configExtrasJson.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] } ?? [:]
+        if rowsSet || rows != .default { bag["rows"] = rows.key }
+        if half { bag["span"] = "half" }
+        if let units { bag["units"] = units }
+        return bag.isEmpty ? nil : try? JSONSerialization.data(withJSONObject: bag, options: [.sortedKeys])
+    }
 }
 
-/// The resolved, ordered Home layout (Android `HomeLayout`). Disabled
-/// entries keep their slot, so "Show" returns a section home; ids this build
-/// doesn't know ride along in `retained`. Every operation returns an equal
-/// value when it changes nothing.
-struct HomeLayout: Hashable, Sendable {
-    var sections: [HomeSectionState]
-    var retained: [HomeSectionPref] = []
-    /// Sections appended hidden to a customized layout on this read (badged "New").
-    var newSections: Set<HomeSection> = []
+/// The resolved, ordered Home layout (Android `HomeLayout`), on the shared core: a value wrapping
+/// `HomeLayoutState`, every edit a call into `YoinHomeLayout` (shared/…/home/YoinHomeLayout.kt), so iOS
+/// answers exactly as shared/src/commonTest/resources/golden/home-layout.json says. One order and one
+/// show / hide state for both widths, plus the two-column pairing memory (`widePairs`, design.md「两栏的并排
+/// 记忆」): order and visibility edits keep the memory and set the `"span":"half"` flags from it at the new
+/// order (`withRememberedPairs`), so a document iOS writes never carries a stale half. Disabled entries
+/// keep their slot; ids this build doesn't know ride along in `retained`. An edit that changes nothing
+/// returns an equal value.
+struct HomeLayout: Hashable, @unchecked Sendable {
+    /// The shared value (immutable).
+    let state: HomeLayoutState
+    /// [state]'s sections, in render order.
+    let sections: [HomeSectionState]
 
-    static let `default` = HomeLayout(sections: HomeSection.allCases.map { HomeSectionState(section: $0, enabled: $0.defaultEnabled) })
+    init(state: HomeLayoutState) {
+        self.state = state
+        sections = state.sections.compactMap { s in
+            guard let section = HomeSection(rawValue: s.id) else { return nil }
+            return HomeSectionState(section: section, enabled: s.enabled, rows: HomeRowPreset(key: s.rows) ?? .default,
+                                    rowsSet: s.rowsSet, half: s.half, units: s.units.map { Int($0.int32Value) },
+                                    configExtrasJson: s.configExtrasJson, entryExtrasJson: s.entryExtrasJson)
+        }
+    }
+
+    static func == (a: HomeLayout, b: HomeLayout) -> Bool { a.state.isEqual(b.state) }
+    func hash(into h: inout Hasher) { h.combine(state.hash) }
+
+    private static var core: YoinHomeLayout { YoinHomeLayout.shared }
+
+    /// The phone default: what a never-customized account shows in one column.
+    static let `default` = HomeLayout(state: YoinHomeLayout.shared.defaultState())
+    /// The large-screen default (two columns, B2).
+    static let wideDefault = HomeLayout(state: YoinHomeLayout.shared.wideDefaultState())
 
     var enabledSections: [HomeSection] { sections.filter(\.enabled).map(\.section) }
     var hiddenSections: [HomeSection] { sections.filter { !$0.enabled }.map(\.section) }
@@ -131,58 +170,43 @@ struct HomeLayout: Hashable, Sendable {
     /// The edit tray: hidden sections iOS can draw.
     var trayed: [HomeSection] { hiddenSections.filter(\.supportedOnIOS) }
 
-    var isDefault: Bool { sections == Self.default.sections }
+    /// Entries whose id this build doesn't know, kept verbatim.
+    var retained: [HomeLayoutRetainedState] { state.retained }
+    /// Sections appended hidden to a customized layout on this read (badged "New").
+    var newSections: Set<HomeSection> { Set(state.newSections.compactMap(HomeSection.init(rawValue:))) }
+    /// The two-column memory, `[left, right]`.
+    var widePairs: [[String]] { state.widePairs }
 
-    func toPrefs() -> [HomeSectionPref] {
-        sections.map { HomeSectionPref(id: $0.section.id, enabled: $0.enabled, config: $0.config, extra: $0.extra) } + retained
-    }
+    /// The phone default (rows and the memory included; retained ids and new sections aside).
+    var isDefault: Bool { Self.core.isDefault(state: state) }
+    /// Either default (the phone's or the two-column one): written, it clears the account back to "never customized".
+    var isAnyDefault: Bool { Self.core.isAnyDefault(state: state) }
 
-    /// Same order and visibility (ignores `retained` / `newSections`).
-    func sameSections(as other: HomeLayout) -> Bool { sections == other.sections }
+    /// Same order, visibility, rows and settings, and the same pairing memory (ignores `retained` / `newSections`).
+    func sameSections(as other: HomeLayout) -> Bool { Self.core.sameSections(a: state, b: other.state) }
 
-    func reset() -> HomeLayout {
-        isDefault ? self : HomeLayout(sections: Self.default.sections, retained: retained)
-    }
+    private func applying(_ result: HomeLayoutResult) -> HomeLayout { result.changed ? HomeLayout(state: result.state) : self }
+
+    /// The catalog arrangement (one column), keeping `retained` and the document's kept keys.
+    func reset() -> HomeLayout { applying(Self.core.reset(state: state, twoColumn: false)) }
 
     func withEnabled(_ section: HomeSection, _ enabled: Bool) -> HomeLayout {
-        guard sections.contains(where: { $0.section == section && $0.enabled != enabled }) else { return self }
-        var next = self
-        next.sections = sections.map { s in
-            var s = s
-            if s.section == section { s.enabled = enabled }
-            return s
-        }
-        if enabled { next.newSections.remove(section) }
-        return next
+        applying(Self.core.withEnabled(state: state, id: section.id, enabled: enabled))
     }
 
-    /// Refill the enabled slots in [order]; disabled entries keep their
-    /// absolute index (proto.js withEnabledOrder). Unchanged when [order] is
-    /// the current one or not a permutation of the enabled sections.
-    func withEnabledOrder(_ order: [HomeSection]) -> HomeLayout {
-        let enabled = enabledSections
-        guard order != enabled, order.count == enabled.count, Set(order) == Set(enabled),
-              Set(order).count == order.count else { return self }
-        let byId = Dictionary(uniqueKeysWithValues: sections.filter(\.enabled).map { ($0.section, $0) })
-        var it = order.makeIterator()
-        var next = self
-        next.sections = sections.map { s in s.enabled ? byId[it.next()!]! : s }
-        return next
+    /// Refill the enabled slots in [order]; disabled entries keep their absolute index. [unseen]: enabled
+    /// sections this device doesn't draw (they keep their place). Unchanged when [order] is the current one
+    /// or not a permutation of the enabled sections.
+    func withEnabledOrder(_ order: [HomeSection], unseen: [HomeSection] = []) -> HomeLayout {
+        applying(Self.core.withEnabledOrder(state: state, order: order.map(\.id), unseen: unseen.map(\.id)))
     }
 
     /// Move [section] to [index] among the enabled sections (clamped).
     func moved(_ section: HomeSection, toEnabledIndex index: Int) -> HomeLayout {
-        var enabled = enabledSections
-        guard let from = enabled.firstIndex(of: section) else { return self }
-        let to = min(max(index, 0), enabled.count - 1)
-        guard to != from else { return self }
-        enabled.remove(at: from)
-        enabled.insert(section, at: to)
-        return withEnabledOrder(enabled)
+        applying(Self.core.moved(state: state, id: section.id, toEnabledIndex: Int32(clamping: index)))
     }
 
-    /// Move [section] among the sections iOS shows: the unsupported enabled
-    /// ones keep their slots, as hidden ones do.
+    /// Move [section] among the sections iOS shows: the unsupported enabled ones keep their slots, as hidden ones do.
     func movedShown(_ section: HomeSection, to index: Int) -> HomeLayout {
         var shown = shownSections
         guard let from = shown.firstIndex(of: section) else { return self }
@@ -190,95 +214,144 @@ struct HomeLayout: Hashable, Sendable {
         guard to != from else { return self }
         shown.remove(at: from)
         shown.insert(section, at: to)
-        var it = shown.makeIterator()
-        let order = enabledSections.map { $0.supportedOnIOS ? it.next()! : $0 }
-        return withEnabledOrder(order)
+        return withEnabledOrder(shown, unseen: enabledSections.filter { !$0.supportedOnIOS })
     }
 
-    /// Merge a persisted layout with the catalog (Android `HomeLayout.reconcile`):
-    /// saved order, flags and settings for known ids (first occurrence wins);
-    /// retired ids dropped, other unknown ids retained in order; catalog
-    /// sections the save never knew appended at `appendEnabled` (hidden
-    /// ones become `newSections`). nil / empty = never customized = default.
+    /// [section] at the row preset [rows]. Unchanged for a section that takes no presets, or already there.
+    func withRows(_ section: HomeSection, _ rows: HomeRowPreset) -> HomeLayout {
+        applying(Self.core.withRows(state: state, id: section.id, rowsKey: rows.key))
+    }
+
+    /// [section]'s row preset (L when it is not in this layout).
+    func rowsOf(_ section: HomeSection) -> HomeRowPreset {
+        sections.first { $0.section == section }?.rows ?? .default
+    }
+
+    /// The landing's own reorder: [sections] in a new order (hidden ones included), the half flags then
+    /// set from the memory at it (`withRememberedPairs`).
+    func withSectionsOrdered(_ order: [HomeSection]) -> HomeLayout {
+        let byId = Dictionary(state.sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let reordered = order.compactMap { byId[$0.id] }
+        guard reordered.count == state.sections.count, reordered.map(\.id) != state.sections.map(\.id) else { return self }
+        let next = state.doCopy(sections: reordered, retained: state.retained, newSections: state.newSections,
+                                widePairs: state.widePairs, retainedWideJson: state.retainedWideJson,
+                                retainedDocumentJson: state.retainedDocumentJson)
+        return HomeLayout(state: Self.core.withRememberedPairs(state: next).state)
+    }
+
+    // MARK: Two columns (design.md「两栏」; Android HomeLayout's two-column half, through the facade)
+
+    /// The default this width resets to: the large-screen one in two columns.
+    func isDefault(twoColumn: Bool) -> Bool { Self.core.isDefaultFor(state: state, twoColumn: twoColumn) }
+
+    /// [reset] to this width's default (WideDefault in two columns), keeping `retained` and the kept keys.
+    func reset(twoColumn: Bool) -> HomeLayout { applying(Self.core.reset(state: state, twoColumn: twoColumn)) }
+
+    /// What the feed shows at its width: in two columns a never-customized layout is WideDefault.
+    func forTwoColumn(_ twoColumn: Bool) -> HomeLayout { applying(Self.core.forTwoColumn(state: state, twoColumn: twoColumn)) }
+
+    /// The memory made what two columns show now (every two-column edit ends with it).
+    func rememberingShownPairs() -> HomeLayout { applying(Self.core.rememberingShownPairs(state: state)) }
+
+    /// The draft after a width change in edit mode (shared `homeDraftAtWidth`): untouched it is what entering at
+    /// that width would make of [base]; edited it keeps its order and two columns pair it from its memory.
+    func atWidth(edited: Bool, base: HomeLayout, twoColumn: Bool) -> HomeLayout {
+        let next = Self.core.draftAtWidth(draft: state, edited: edited, base: base.state, twoColumn: twoColumn)
+        return next.isEqual(state) ? self : HomeLayout(state: next)
+    }
+
+    /// The pairs the enabled order shows now, left → right.
+    var pairs: [(left: HomeSection, right: HomeSection)] {
+        Self.core.pairs(state: state).compactMap { p in
+            guard p.count == 2, let l = HomeSection(rawValue: p[0]), let r = HomeSection(rawValue: p[1]) else { return nil }
+            return (l, r)
+        }
+    }
+
+    /// [section]'s partner in its pair, either side; nil when it is full width.
+    func partner(of section: HomeSection) -> HomeSection? {
+        Self.core.partnerOf(state: state, id: section.id).flatMap(HomeSection.init(rawValue:))
+    }
+
+    /// The unit count a feed row (one section, or a pair left → right) shows in two columns.
+    func units(ofRow row: [HomeSection]) -> Int { Int(Self.core.rowUnits(state: state, row: row.map(\.id))) }
+
+    /// [section] (full width) the left half of a pair with the row after it.
+    func withHalf(_ section: HomeSection) -> HomeLayout { applying(Self.core.withHalf(state: state, id: section.id)) }
+
+    /// [section] (one of a pair) full width, its partner on its own row after it.
+    func withFull(_ section: HomeSection) -> HomeLayout { applying(Self.core.withFull(state: state, id: section.id)) }
+
+    /// [section] (full width) the right half beside the full section before it (VoiceOver's "Place beside previous").
+    func withBesidePrevious(_ section: HomeSection) -> HomeLayout {
+        applying(Self.core.withBesidePrevious(state: state, id: section.id))
+    }
+
+    /// A two-column drop: [order] (the shown enabled sections) with exactly [pairs] as halves.
+    func withArrangement(_ order: [HomeSection], pairs: [(HomeSection, HomeSection)], unseen: [HomeSection]) -> HomeLayout {
+        applying(Self.core.withArrangement(state: state, order: order.map(\.id), pairs: pairs.map { [$0.0.id, $0.1.id] },
+                                           unseen: unseen.map(\.id)))
+    }
+
+    /// [section]'s row (and its partner) at [units] in two columns, held in the pair's overlap.
+    func withUnits(_ section: HomeSection, _ units: Int) -> HomeLayout {
+        applying(Self.core.withUnits(state: state, id: section.id, units: Int32(clamping: units)))
+    }
+
+    /// Merge persisted entries with the catalog (Android `HomeLayout.reconcile`), through the document they
+    /// make: nil / empty = never customized = default.
     static func reconcile(_ prefs: [HomeSectionPref]?) -> HomeLayout {
         guard let prefs, !prefs.isEmpty else { return .default }
-        var seen = Set<HomeSection>()
-        var retainedIds = Set<String>()
-        var ordered: [HomeSectionState] = []
-        var retained: [HomeSectionPref] = []
-        for p in prefs {
-            if let s = HomeSection(rawValue: p.id) {
-                if seen.insert(s).inserted { ordered.append(HomeSectionState(section: s, enabled: p.enabled, config: p.config, extra: p.extra)) }
-            } else if p.id.trimmingCharacters(in: .whitespaces).isEmpty || HomeSection.retiredIds.contains(p.id) {
-                continue
-            } else if retainedIds.insert(p.id).inserted {
-                retained.append(p)
-            }
-        }
-        let appended = HomeSection.allCases.filter { seen.insert($0).inserted }
-        ordered += appended.map { HomeSectionState(section: $0, enabled: $0.appendEnabled) }
-        return HomeLayout(sections: ordered, retained: retained,
-                          newSections: Set(appended.filter { !$0.appendEnabled }))
+        return HomeLayoutCodec.decode(HomeLayoutCodec.document(prefs)) ?? .default
     }
 }
 
-/// The layout document (Android HomeLayoutStore's `SectionsDto`):
-/// `{"version":1,"sections":[{"id":"activities","enabled":true}, …]}`,
-/// decoded entry by entry: an unreadable document is "never set", a bad
-/// entry drops only itself. Keys this build doesn't read ride along as raw
-/// JSON: the document's (Android's two-column memory `"wide":{"pairs":…}`,
-/// design.md「两栏的并排记忆」) and each entry's.
+/// The layout document (shared `HomeLayoutCodec`, Android's `home_layout.sectionsJson`):
+/// `{"version":1,"sections":[{"id":"activities","enabled":true,"config":{…}}, …],"wide":{"pairs":[…]}}`.
+/// Read and written by the shared codec: an unreadable document is "never set", a bad entry drops only
+/// itself, and every key this build doesn't read (the document's, each entry's, the memory's) is kept.
 enum HomeLayoutCodec {
-    static let schemaVersion = 1
-    private static let documentKeys: Set<String> = ["version", "sections"]
-    private static let entryKeys: Set<String> = ["id", "enabled", "config"]
+    /// The layout [json] reads as; nil when it isn't a layout document.
+    static func decode(_ json: String) -> HomeLayout? {
+        guard YoinShared.HomeLayoutCodec.shared.decode(raw: json) != nil else { return nil }
+        return HomeLayout(state: YoinHomeLayout.shared.decode(documentJson: json))
+    }
 
-    static func encode(_ prefs: [HomeSectionPref], extras: Data? = nil) -> Data {
+    /// [layout]'s document text, every kept key written back.
+    static func encode(_ layout: HomeLayout) -> String { YoinHomeLayout.shared.encode(state: layout.state) }
+
+    /// How persisting [layout] treats the stored row (shared `homePersistAction`): either default with no
+    /// retained ids clears it (back to "never customized"); anything else writes its document.
+    static func persist(_ layout: HomeLayout) -> HomeLayoutWrite {
+        let p = YoinHomeLayout.shared.persist(state: layout.state)
+        if p.clear { return .clear }
+        return .write(p.documentJson ?? encode(layout))
+    }
+
+    /// A document of [prefs] as written by hand (no `wide`: read like an older writer's).
+    static func document(_ prefs: [HomeSectionPref]) -> String {
         let sections: [[String: Any]] = prefs.map { p in
-            var o = object(p.extra) ?? [:]
+            var o = p.extra.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
             o["id"] = p.id
             o["enabled"] = p.enabled
             if let c = p.config, let obj = try? JSONSerialization.jsonObject(with: c), obj is [String: Any] { o["config"] = obj }
             return o
         }
-        var doc = object(extras) ?? [:]
-        doc["version"] = schemaVersion
-        doc["sections"] = sections
-        return (try? JSONSerialization.data(withJSONObject: doc, options: [.sortedKeys])) ?? Data()
+        let data = (try? JSONSerialization.data(withJSONObject: ["version": 1, "sections": sections], options: [.sortedKeys])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
     }
+}
 
-    static func decode(_ data: Data) -> [HomeSectionPref]? { decodeDocument(data)?.prefs }
-
-    /// [decode] with the document's other keys (a JSON object; nil = none), to write back with the prefs.
-    static func decodeDocument(_ data: Data) -> (prefs: [HomeSectionPref], extras: Data?)? {
-        guard let doc = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let raw = doc["sections"] as? [Any] else { return nil }
-        let prefs: [HomeSectionPref] = raw.compactMap { entry in
-            guard let o = entry as? [String: Any], let id = o["id"] as? String,
-                  let enabledValue = o["enabled"], let n = enabledValue as? NSNumber,
-                  CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
-            var config: Data?
-            if let c = o["config"] as? [String: Any] { config = try? JSONSerialization.data(withJSONObject: c, options: [.sortedKeys]) }
-            return HomeSectionPref(id: id, enabled: n.boolValue, config: config, extra: rest(of: o, minus: entryKeys))
-        }
-        return (prefs, rest(of: doc, minus: documentKeys))
-    }
-
-    private static func object(_ data: Data?) -> [String: Any]? {
-        data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
-    }
-
-    /// [o] without [keys], as JSON; nil when nothing is left.
-    private static func rest(of o: [String: Any], minus keys: Set<String>) -> Data? {
-        let rest = o.filter { !keys.contains($0.key) }
-        return rest.isEmpty ? nil : try? JSONSerialization.data(withJSONObject: rest, options: [.sortedKeys])
-    }
+/// What persisting a layout does to the stored row.
+enum HomeLayoutWrite: Equatable {
+    case clear
+    case write(String)
 }
 
 /// Per-account persistence of the Home layout (Android `home_layout`, PK
 /// profile id): one document per account scope, in one JSON file in
 /// Application Support. A layout equal to what is stored is not rewritten;
-/// Reset clears the account back to "never customized".
+/// either default clears the account back to "never customized".
 ///
 /// Each scope keeps the document's exact text and when it last changed:
 /// cloud sync carries the text as is (a peer's encoder spells it its own
@@ -290,13 +363,12 @@ final class HomeLayoutStore {
     static let shared = HomeLayoutStore(fileURL: HomeLayoutStore.defaultURL)
 
     struct Entry: Equatable {
-        var prefs: [HomeSectionPref]
         /// The document as written or received.
         var json: String
         /// Epoch ms.
         var updatedAt: Int64
-        /// The document's keys iOS doesn't read (Android's `wide`), written back with the next save.
-        var extras: Data? = nil
+        /// What it reads as.
+        var layout: HomeLayout
     }
 
     /// scope → its document.
@@ -314,15 +386,12 @@ final class HomeLayoutStore {
             for (scope, value) in all {
                 if let o = value as? [String: Any], let json = o["json"] as? String {
                     // {"json": "<document>", "updatedAt": ms}
-                    guard let d = HomeLayoutCodec.decodeDocument(Data(json.utf8)) else { continue }
-                    docs[scope] = Entry(prefs: d.prefs, json: json, updatedAt: (o["updatedAt"] as? NSNumber)?.int64Value ?? 0,
-                                        extras: d.extras)
+                    guard let layout = HomeLayoutCodec.decode(json) else { continue }
+                    docs[scope] = Entry(json: json, updatedAt: (o["updatedAt"] as? NSNumber)?.int64Value ?? 0, layout: layout)
                 } else if let doc = try? JSONSerialization.data(withJSONObject: value),
-                          let d = HomeLayoutCodec.decodeDocument(doc) {
+                          let layout = HomeLayoutCodec.decode(String(decoding: doc, as: UTF8.self)) {
                     // The first file format: the document itself.
-                    docs[scope] = Entry(prefs: d.prefs,
-                                        json: String(decoding: HomeLayoutCodec.encode(d.prefs, extras: d.extras), as: UTF8.self),
-                                        updatedAt: 0, extras: d.extras)
+                    docs[scope] = Entry(json: HomeLayoutCodec.encode(layout), updatedAt: 0, layout: layout)
                 }
             }
         }
@@ -333,22 +402,27 @@ final class HomeLayoutStore {
         return base.appendingPathComponent("Yoin", isDirectory: true).appendingPathComponent("home-layout.json")
     }
 
-    /// The saved prefs for [scope]; nil = never customized.
-    func prefs(_ scope: String) -> [HomeSectionPref]? { docs[scope]?.prefs }
+    /// [scope] has a stored document (it was customized).
+    func isCustomized(_ scope: String) -> Bool { docs[scope] != nil }
 
-    func layout(_ scope: String) -> HomeLayout { HomeLayout.reconcile(docs[scope]?.prefs) }
+    func layout(_ scope: String) -> HomeLayout { docs[scope]?.layout ?? .default }
 
-    /// Saves [layout] for [scope]; skipped when the stored document already holds it.
-    /// The stored document's other keys (Android's two-column `wide` memory) are kept:
-    /// iOS edits order and visibility only, which Android's single column does too.
+    /// Persists [layout] for [scope] by the shared rule (`HomeLayoutCodec.persist`): either default with no
+    /// retained ids clears the account; anything else writes its document, skipped when the stored one
+    /// already says the same.
     func save(_ layout: HomeLayout, scope: String) {
-        let prefs = layout.toPrefs()
-        guard docs[scope]?.prefs != prefs else { return }
+        switch HomeLayoutCodec.persist(layout) {
+        case .clear: clear(scope)
+        case .write(let json): write(json, layout: layout, scope: scope)
+        }
+    }
+
+    /// Writes the document [json] (what [layout] encodes to) for [scope]; skipped when the stored document reads the same.
+    func write(_ json: String, layout: HomeLayout, scope: String) {
+        if let old = docs[scope], old.json == json || HomeLayoutCodec.encode(old.layout) == json { return }
         let old = docs[scope]
-        let extras = old?.extras
-        docs[scope] = Entry(prefs: prefs, json: String(decoding: HomeLayoutCodec.encode(prefs, extras: extras), as: UTF8.self),
-                            updatedAt: Self.now, extras: extras)
-        guard write() else { docs[scope] = old; return }
+        docs[scope] = Entry(json: json, updatedAt: Self.now, layout: HomeLayoutCodec.decode(json) ?? layout)
+        guard writeFile() else { docs[scope] = old; return }
         Self.onLocalChange?()
     }
 
@@ -356,7 +430,7 @@ final class HomeLayoutStore {
     func clear(_ scope: String) {
         guard let old = docs[scope] else { return }
         docs[scope] = nil
-        guard write() else { docs[scope] = old; return }
+        guard writeFile() else { docs[scope] = old; return }
         Self.onLocalChange?()
     }
 
@@ -368,10 +442,10 @@ final class HomeLayoutStore {
     /// Another device's layout for [scope], at [updatedAt]. False when the
     /// text isn't a layout document or the file couldn't be written (nothing changes).
     func applySynced(json: String, updatedAt: Int64, scope: String) -> Bool {
-        guard let d = HomeLayoutCodec.decodeDocument(Data(json.utf8)) else { return false }
+        guard let layout = HomeLayoutCodec.decode(json) else { return false }
         let old = docs[scope]
-        docs[scope] = Entry(prefs: d.prefs, json: json, updatedAt: updatedAt, extras: d.extras)
-        guard write() else { docs[scope] = old; return false }
+        docs[scope] = Entry(json: json, updatedAt: updatedAt, layout: layout)
+        guard writeFile() else { docs[scope] = old; return false }
         remoteRevision += 1
         return true
     }
@@ -380,7 +454,7 @@ final class HomeLayoutStore {
     func clearSynced(_ scope: String) -> Bool {
         guard let old = docs[scope] else { return true }
         docs[scope] = nil
-        guard write() else { docs[scope] = old; return false }
+        guard writeFile() else { docs[scope] = old; return false }
         remoteRevision += 1
         return true
     }
@@ -389,7 +463,7 @@ final class HomeLayoutStore {
 
     /// True once the file holds every document.
     @discardableResult
-    private func write() -> Bool {
+    private func writeFile() -> Bool {
         var all: [String: Any] = [:]
         for (scope, e) in docs {
             all[scope] = ["json": e.json, "updatedAt": NSNumber(value: e.updatedAt)] as [String: Any]

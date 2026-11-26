@@ -28,13 +28,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
+import '../data/home/home_edit_rules.dart' show HomeSpanCommit;
 import '../nowplaying/haptics.dart';
 import '../shell/bar_edit_pose.dart';
 import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
-import 'home_carry.dart' show pressRect;
+import 'home_edit_lift.dart' show pressRect;
 import 'home_edit_hints.dart';
 import 'home_metrics.dart';
 import 'home_section.dart';
@@ -148,10 +149,26 @@ class HomeEditController extends Notifier<HomeEditState> {
     }
   }
 
-  void _apply(HomeLayout next) {
+  /// The feed is in two columns now (Home sets it as it lays out): edits are made on what two columns show,
+  /// and remember the pairs they leave (Android HomeEditController.twoColumn).
+  bool twoColumn = false;
+
+  /// The layout the feed shows at its width (the large-screen default for a never-customized one in two columns,
+  /// HomeLayout.shownAt): the draft every edit starts from. Width changes mid-edit follow it — untouched the draft
+  /// is what entering at that width would show, edited it keeps its order and pairs from its memory
+  /// ([homeDraftAtWidth]: every step is persisted, so the stored layout is the draft).
+  HomeLayout get shown => ref.read(homeLayoutProvider).shownAt(twoColumn);
+
+  void _apply(HomeLayout next, {HomeLayout? from}) {
     final layouts = ref.read(homeLayoutProvider.notifier);
-    final current = ref.read(homeLayoutProvider);
-    if (identical(next, current)) return;
+    final current = from ?? shown;
+    final step = homeEditStep(current, next, twoColumn);
+    if (step == null) return;
+    _pushUndo(current);
+    layouts.set(step);
+  }
+
+  void _pushUndo(HomeLayout current) {
     final undo = [...state.undo, current];
     state = HomeEditState(
       editing: state.editing,
@@ -159,26 +176,25 @@ class HomeEditController extends Notifier<HomeEditState> {
       trayRequests: state.trayRequests,
       hints: state.hints,
     );
-    layouts.set(next);
   }
 
   void hide(HomeSection section) {
     YoinHaptics.toggle(on: false);
-    _apply(withSectionEnabled(ref.read(homeLayoutProvider), section, false));
+    _apply(withSectionEnabled(shown, section, false));
   }
 
   void show(HomeSection section) {
     YoinHaptics.toggle(on: true);
-    _apply(withSectionEnabled(ref.read(homeLayoutProvider), section, true));
+    _apply(withSectionEnabled(shown, section, true));
   }
 
   /// [section] at row preset [rows] (D1). Saved at once, one Undo step;
   /// false when it changed nothing (the resize gives the confirm haptic).
   bool setRows(HomeSection section, HomeRowPreset rows) {
-    final layout = ref.read(homeLayoutProvider);
+    final layout = shown;
     final next = withSectionRows(layout, section, rows);
     if (identical(next, layout)) return false;
-    _apply(next);
+    _apply(next, from: layout);
     return true;
   }
 
@@ -186,45 +202,82 @@ class HomeEditController extends Notifier<HomeEditState> {
   /// [order], saved at once as one Undo step with the confirm haptic; false
   /// when it changed nothing.
   bool commitOrder(List<HomeSection> order) {
-    final layout = ref.read(homeLayoutProvider);
+    final layout = shown;
     final next = withSectionsOrdered(layout, layout.visibleV1Sections, order);
     if (identical(next, layout)) return false;
     YoinHaptics.confirm();
-    _apply(next);
+    _apply(next, from: layout);
+    return true;
+  }
+
+  /// A drag's drop: in two columns ([pairs] laid out side by side) the order and exactly those pairs
+  /// (HomeLayout.withArrangement, the sections the feed never draws keeping theirs); in one column the order.
+  bool commitArrangement(List<HomeSection> order, Map<HomeSection, HomeSection> pairs, {required bool twoColumn}) {
+    if (!twoColumn) return commitOrder(order);
+    final layout = shown;
+    final next = layout.withArrangement(order, pairs, unseen: layout.unseenV1Sections);
+    if (identical(next, layout)) return false;
+    YoinHaptics.confirm();
+    _apply(next, from: layout);
     return true;
   }
 
   /// Moves [section] to [to] among the sections the feed draws.
   void move(HomeSection section, int to) {
-    final layout = ref.read(homeLayoutProvider);
+    final layout = shown;
     final next = withSectionMoved(layout, layout.visibleV1Sections, section, to);
     if (identical(next, layout)) return;
     YoinHaptics.confirm();
-    _apply(next);
+    _apply(next, from: layout);
+  }
+
+  // ── Two columns (parity p4 C2) ──
+
+  /// [section] (full) becomes the left half beside the row after it (the ⌟ dragged left, ←, "Half width").
+  void setHalf(HomeSection section) => _applyConfirmed(shown.withHalf(section));
+
+  /// [section] (a half) and its partner become full rows (the ⌟ dragged out, →/←, "Full width", "Make full width").
+  void setFull(HomeSection section) => _applyConfirmed(shown.withFull(section));
+
+  /// [section] (full) becomes the right half beside the full row before it (the reader's "Place beside previous").
+  void placeBesidePrevious(HomeSection section) => _applyConfirmed(shown.withBesidePrevious(section));
+
+  /// [section]'s row at [units] grid units, its partner with it (the ⌟ dragged down / up, ↑/↓, the reader).
+  void setUnits(HomeSection section, int units) => _applyConfirmed(shown.withUnits(section, units));
+
+  /// The ⌟'s sideways release or a key: [commit] for [section].
+  void commitSpan(HomeSection section, HomeSpanCommit commit) => switch (commit) {
+    HomeSpanCommit.toHalf => setHalf(section),
+    HomeSpanCommit.toFull => setFull(section),
+    HomeSpanCommit.none => null,
+  };
+
+  void _applyConfirmed(HomeLayout next) {
+    final layout = shown;
+    if (identical(next, layout)) return;
+    _apply(next, from: layout);
   }
 
   void reset() {
     YoinHaptics.confirm();
     final layouts = ref.read(homeLayoutProvider.notifier);
-    final current = ref.read(homeLayoutProvider);
-    final next = resetLayout(current);
+    final current = shown;
+    // Two columns go back to the large-screen default, one column to the catalog's (HomeLayout.reset).
+    final next = current.reset(twoColumn: twoColumn);
     // Sections this build doesn't know stay in the saved layout (Android reset keeps retained ids).
-    if (next.sections.any((p) => p.section == null)) {
-      _apply(next);
+    if (next.retained.isNotEmpty) {
+      _apply(next, from: current);
       return;
     }
     // Already the default: nothing to undo (as _apply), but a saved copy still goes.
-    if (!current.isDefault) {
-      final undo = [...state.undo, current];
-      state = HomeEditState(
-        editing: state.editing,
-        undo: undo.length > homeEditUndoLimit ? undo.sublist(undo.length - homeEditUndoLimit) : undo,
-        trayRequests: state.trayRequests,
-        hints: state.hints,
-      );
-    }
+    if (!current.isDefaultFor(twoColumn)) _pushUndo(current);
     // Restore default deletes the saved layout (Android clearLayout), so it syncs as "default".
-    layouts.clear();
+    if (twoColumn) {
+      // The persist rule clears the row for either default; the feed keeps showing the large-screen one.
+      layouts.set(next);
+    } else {
+      layouts.clear();
+    }
   }
 
   void undo() {
@@ -246,7 +299,7 @@ final homeEditProvider = NotifierProvider<HomeEditController, HomeEditState>(Hom
 /// The sections the tray offers back: hidden, and built in this port.
 List<HomeSection> hiddenSections(HomeLayout layout) => [
       for (final p in layout.sections)
-        if (!p.enabled && (p.section?.availableInV1 ?? false)) p.section!,
+        if (!p.enabled && p.section.availableInV1) p.section,
     ];
 
 double homeEditSmoothstep(double x) {
@@ -277,6 +330,8 @@ class HomeEditPlate extends StatelessWidget {
     this.count = 1,
     this.onMoveUp,
     this.onMoveDown,
+    this.onPlaceBeside,
+    this.onMakeFull,
     this.rowCount,
     this.onMoreRows,
     this.onFewerRows,
@@ -288,7 +343,7 @@ class HomeEditPlate extends StatelessWidget {
     this.hideKey,
   });
 
-  /// 0..1: a lifted plate's colour toward surfaceContainerHighest (HomeCarryEngine liftTint).
+  /// 0..1: a lifted plate's colour toward surfaceContainerHighest (HomeDragEngine liftTint).
   final double liftTint;
 
   /// The plate growing from the press square (the entry latch), or the press
@@ -307,6 +362,11 @@ class HomeEditPlate extends StatelessWidget {
   /// TalkBack's Move up / Move down (null at the ends).
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+
+  /// Two columns: the reader's "Place beside previous" (a full row that can pair with the full row before it)
+  /// and "Make full width" (a half); null where they do nothing.
+  final VoidCallback? onPlaceBeside;
+  final VoidCallback? onMakeFull;
 
   /// A resizable section: the rows it shows now (the reader hears them), its
   /// "More rows" / "Fewer rows" (null at the ends) and the ⌟ handle, whose
@@ -369,6 +429,8 @@ class HomeEditPlate extends StatelessWidget {
               CustomSemanticsAction(label: strings.editMoveDown): ?onMoveDown,
               CustomSemanticsAction(label: strings.editMoreRows): ?onMoreRows,
               CustomSemanticsAction(label: strings.editFewerRows): ?onFewerRows,
+              CustomSemanticsAction(label: strings.editPlaceBesidePrevious): ?onPlaceBeside,
+              CustomSemanticsAction(label: strings.editMakeFullWidth): ?onMakeFull,
               CustomSemanticsAction(label: strings.editHide): ?onHide,
             }
           : null,

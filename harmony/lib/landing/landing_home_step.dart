@@ -23,7 +23,7 @@ class HomeSectionsScene extends StatelessWidget {
   const HomeSectionsScene({super.key, required this.sections, required this.onEnabled, required this.onMove});
 
   /// The rows, in order (the layout's sections this build can draw).
-  final List<HomeSectionPref> sections;
+  final List<HomeSectionState> sections;
   final void Function(HomeSection section, bool enabled) onEnabled;
 
   /// Moves a row: [from] and [to] index [sections].
@@ -53,7 +53,7 @@ class HomeSectionsScene extends StatelessWidget {
 class LandingSectionList extends StatefulWidget {
   const LandingSectionList({super.key, required this.sections, required this.onEnabled, required this.onMove});
 
-  final List<HomeSectionPref> sections;
+  final List<HomeSectionState> sections;
   final void Function(HomeSection section, bool enabled) onEnabled;
   final void Function(int from, int to) onMove;
 
@@ -186,13 +186,13 @@ class _LandingSectionListState extends State<LandingSectionList> with TickerProv
 
   Widget _buildRow(
     BuildContext context,
-    HomeSectionPref pref,
+    HomeSectionState pref,
     int index,
     int count,
     HomeStrings home,
     LandingStrings strings,
   ) {
-    final section = pref.section!;
+    final section = pref.section;
     final id = pref.id;
     final lifted = _dragging == id;
     final title = home.sectionTitle(section);
@@ -278,7 +278,7 @@ class _SectionRow extends StatefulWidget {
     required this.onEnabled,
   });
 
-  final HomeSectionPref pref;
+  final HomeSectionState pref;
   final String title;
   final String supporting;
   final String handleLabel;
@@ -386,7 +386,7 @@ class _SectionRowState extends State<_SectionRow> with TickerProviderStateMixin 
                   ),
                   Opacity(
                     opacity: dim,
-                    child: SectionSketch(section: widget.pref.section!, color: colors.primary),
+                    child: SectionSketch(section: widget.pref.section, color: colors.primary),
                   ),
                   Expanded(
                     child: Padding(

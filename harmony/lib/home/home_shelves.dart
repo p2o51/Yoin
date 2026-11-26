@@ -166,15 +166,18 @@ class _TrackGrid extends StatelessWidget {
 
 /// A Recently Added track: 52 cover, title (13 Medium) and artist. Tap plays it alone.
 class TrackTile extends ConsumerWidget {
-  const TrackTile({super.key, required this.track});
+  const TrackTile({super.key, required this.track, this.coverSize = HomeTokens.recentlyAddedTrackCover});
   final Track track;
+
+  /// The cover's side: 52, or what a grid row leaves in two columns.
+  final double coverSize;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final image = resolveHomeCover(ref, context, trackCover(track),
-        requestSize: HomeCoverRequest.standard, side: HomeTokens.recentlyAddedTrackCover);
+        requestSize: HomeCoverRequest.standard, side: coverSize);
     final artist = track.artist ?? '';
     // Edit mode: the tile sways on its own (homeEditCard).
     return HomeEditCard(
@@ -184,7 +187,7 @@ class TrackTile extends ConsumerWidget {
         child: Row(
           spacing: HomeTokens.recentlyAddedTileGap,
           children: [
-            HomeArtwork(image: image, kind: HomeCardKind.album, size: HomeTokens.recentlyAddedTrackCover),
+            HomeArtwork(image: image, kind: HomeCardKind.album, size: coverSize),
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -205,8 +208,11 @@ class TrackTile extends ConsumerWidget {
 
 /// An 82-wide album card: Bun backdrop cover, name (+ version tag), artist.
 class AlbumShelfCard extends ConsumerWidget {
-  const AlbumShelfCard({super.key, required this.album});
+  const AlbumShelfCard({super.key, required this.album, this.size = HomeTokens.recentlyAddedAlbumCover});
   final Album album;
+
+  /// The cover's side (and the card's width): 82, or the grid's U − 44 in two columns.
+  final double size;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -216,14 +222,18 @@ class AlbumShelfCard extends ConsumerWidget {
       caption: card.subtitle,
       onTap: () => openHomeTarget(context, ref, card.target),
       markAlbum: shelfMarkAlbum(album),
+      size: size,
     );
   }
 }
 
 /// An 82-wide playlist card: Ghostish backdrop cover, name, "N songs".
 class PlaylistShelfCard extends ConsumerWidget {
-  const PlaylistShelfCard({super.key, required this.playlist});
+  const PlaylistShelfCard({super.key, required this.playlist, this.size = HomeTokens.recentlyAddedAlbumCover});
   final Playlist playlist;
+
+  /// The cover's side (and the card's width).
+  final double size;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -233,12 +243,21 @@ class PlaylistShelfCard extends ConsumerWidget {
       card: card,
       caption: count > 0 ? HomeStrings.of(context).playlistSongs(count) : '',
       onTap: () => openHomeTarget(context, ref, card.target),
+      size: size,
     );
   }
 }
 
 class _ShelfCard extends StatelessWidget {
-  const _ShelfCard({super.key, required this.card, required this.caption, required this.onTap, this.markAlbum});
+  const _ShelfCard({
+    required this.card,
+    required this.caption,
+    required this.onTap,
+    this.markAlbum,
+    this.size = HomeTokens.recentlyAddedAlbumCover,
+  });
+
+  final double size;
 
   final HomeWidgetCard card;
   final String caption;
@@ -252,7 +271,7 @@ class _ShelfCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return SizedBox(
-      width: HomeTokens.recentlyAddedAlbumCover,
+      width: size,
       child: HomeEditCard(
         kickKey: card.stableId,
         child: ElasticPress(
@@ -264,7 +283,7 @@ class _ShelfCard extends StatelessWidget {
               BackdropCover(
                 cover: card.cover,
                 kind: card.kind,
-                size: HomeTokens.recentlyAddedAlbumCover,
+                size: size,
                 markAlbum: markAlbum,
               ),
               const SizedBox(height: HomeShelfMetrics.albumCardCaptionGap),
@@ -301,30 +320,40 @@ class MadeForYouSection extends ConsumerWidget {
       height: shelfCardHeight(context),
       padding: _shelfPadding(frame),
       itemCount: playlists.length,
-      itemBuilder: (context, i) {
-        final playlist = playlists[i];
-        final card = HomeWidgetCard(
-          stableId: 'made-for-you:${playlist.id.rawId}',
-          kind: HomeCardKind.playlist,
-          title: playlist.title,
-          subtitle: madeForYouCardSubtitle(playlist),
-          cover: playlist.cover,
-          target: HomeOpenPlaylist(
-            Playlist(id: playlist.id, name: playlist.title, coverArt: playlist.cover, comment: playlist.subtitle),
-          ),
-        );
-        return Align(
-          alignment: Alignment.topCenter,
-          child: _ShelfCard(
-            key: ValueKey(card.stableId),
-            card: card,
-            caption: card.subtitle,
-            onTap: () => openHomeTarget(context, ref, card.target),
-          ),
-        );
-      },
+      itemBuilder: (context, i) => Align(
+        alignment: Alignment.topCenter,
+        child: MadeForYouShelfCard(key: ValueKey(playlists[i].id), playlist: playlists[i]),
+      ),
     ),
   );
+}
+
+/// One Made For You card: the playlist backdrop at [size], its name, whose it is.
+class MadeForYouShelfCard extends ConsumerWidget {
+  const MadeForYouShelfCard({super.key, required this.playlist, this.size = HomeTokens.recentlyAddedAlbumCover});
+
+  final MadeForYouPlaylist playlist;
+  final double size;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final card = HomeWidgetCard(
+      stableId: 'made-for-you:${playlist.id.rawId}',
+      kind: HomeCardKind.playlist,
+      title: playlist.title,
+      subtitle: madeForYouCardSubtitle(playlist),
+      cover: playlist.cover,
+      target: HomeOpenPlaylist(
+        Playlist(id: playlist.id, name: playlist.title, coverArt: playlist.cover, comment: playlist.subtitle),
+      ),
+    );
+    return _ShelfCard(
+      card: card,
+      caption: card.subtitle,
+      onTap: () => openHomeTarget(context, ref, card.target),
+      size: size,
+    );
+  }
 }
 
 /// Recently Played: album cards, bleeding to the screen edge (no fade).

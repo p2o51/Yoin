@@ -15,6 +15,7 @@ class FocusIdle extends ChangeNotifier {
   final int idleMs;
   bool _eligible = false;
   bool _idle = false;
+  bool _held = false;
   Timer? _timer;
 
   bool get idle => _idle;
@@ -36,8 +37,19 @@ class FocusIdle extends ChangeNotifier {
     _arm();
   }
 
+  /// While [held] (a key with input focus) nothing steps away; the count starts afresh once it lets go.
+  void hold(bool held) {
+    if (held == _held) return;
+    _held = held;
+    _timer?.cancel();
+    _timer = null;
+    _setIdle(false);
+    if (!held && _eligible) _arm();
+  }
+
   void _arm() {
     _timer?.cancel();
+    if (_held) return;
     _timer = Timer(Duration(milliseconds: idleMs), () => _setIdle(true));
   }
 

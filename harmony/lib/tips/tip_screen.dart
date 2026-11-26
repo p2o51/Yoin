@@ -260,7 +260,7 @@ class _TipPage extends StatelessWidget {
                 ),
                 const SizedBox(height: TipTokens.textGap),
                 Text(
-                  tip.text(zh: zh),
+                  tip.text(zh: zh, largeScreen: homeTipLargeScreen(context)),
                   style: theme.textTheme.bodyLarge!.copyWith(
                     color: colors.onSurfaceVariant,
                     fontWeight: FontWeight.w400,

@@ -51,6 +51,12 @@ class MetaLine extends StatelessWidget {
     final base = (style ?? theme.textTheme.bodySmall!).copyWith(color: color ?? theme.colorScheme.onSurfaceVariant);
     final ink = base.color!;
     if (groups.isEmpty) return const SizedBox.shrink();
+    // Every group (and a stat's value and unit) is its own Text, and a Chinese run takes the CJK fallback
+    // font's metrics while digits keep Google Sans Flex's, so centred in the line they could sit at
+    // different heights (Android MetaLine, PR #310). One line box for all of them, Google Sans Flex's: the
+    // groups share one baseline and the line keeps its height (a baseline-aligned row would grow by the
+    // fonts' difference and overflow a header sized to the line).
+    final strut = StrutStyle.fromTextStyle(base, forceStrutHeight: true);
     // Each group as plain spans (a stat is two: value, then its unit 4dp later).
     final parts = [for (final g in groups) _spans(g, base, ink, theme.colorScheme.primary)];
     return LayoutBuilder(
@@ -71,17 +77,23 @@ class MetaLine extends StatelessWidget {
         }
         Widget group(List<TextSpan> spans, {bool flexible = false}) {
           if (spans.length == 1) {
-            return Text.rich(spans.single, maxLines: 1, overflow: TextOverflow.ellipsis, style: base);
+            return Text.rich(
+              spans.single,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: base,
+              strutStyle: strut,
+            );
           }
           final children = <Widget>[
             for (final (i, s) in spans.indexed) ...[
               if (i > 0) const SizedBox(width: MetaLineTokens.innerGap),
               if (flexible && i == 0)
                 Flexible(
-                  child: Text.rich(s, maxLines: 1, overflow: TextOverflow.ellipsis, style: base),
+                  child: Text.rich(s, maxLines: 1, overflow: TextOverflow.ellipsis, style: base, strutStyle: strut),
                 )
               else
-                Text.rich(s, maxLines: 1, style: base),
+                Text.rich(s, maxLines: 1, style: base, strutStyle: strut),
             ],
           ];
           return Row(mainAxisSize: MainAxisSize.min, children: children);

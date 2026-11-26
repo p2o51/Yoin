@@ -12,6 +12,7 @@ import '../data/memory/memory_ledger.dart';
 import '../data/model/model.dart';
 import '../detail/detail_page.dart' show DetailBackButton;
 import '../data/highlight/lyric_highlight.dart' show LyricHighlightBucket;
+import '../home/home_bubble_tips.dart' show homeTipLargeScreen;
 import '../home/home_edit.dart' show HomeEditPlate;
 import '../home/home_feed_density.dart' show FeedFrameClass, HomeFeedDensity;
 import '../home/home_lyric_count_handle.dart';
@@ -199,58 +200,136 @@ class DemoHomeFeed extends StatelessWidget {
   }
 }
 
-/// Long-press Home → edit mode; a section held up and dragged moves; Done leaves.
+/// Rearranging Home (Android TipHomeScenes.kt EditHomeDemo, 2026-11-23): long-press Home into edit mode, pinch
+/// the sections into a list and back out, long-press a section and drag it up; on a large screen ([wide]: a
+/// tablet on its side, Home in two columns) then drop one beside another and the two share a row. Phones never
+/// lay Home out in two columns: their demo leaves the drop beside out, as their copy does. The real header and
+/// bar; the sections are drawn simply (plate, title, covers, handle), each step as the app answers it.
 class EditHomeDemo extends StatefulWidget {
-  const EditHomeDemo({super.key, required this.playing});
+  const EditHomeDemo({super.key, required this.playing, this.wide});
   final bool playing;
+
+  /// A tablet on its side with the drop beside; null: as this device can ([homeTipLargeScreen]).
+  final bool? wide;
 
   @override
   State<EditHomeDemo> createState() => _EditHomeDemoState();
 }
 
-class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
-  bool _editing = false;
-  List<int> _order = [0, 1, 2];
-  int? _held;
-  double _dragDy = 0;
+/// The edit demo's own layout (dp of the demo's screen).
+abstract final class _EditDemoTokens {
+  /// A section's row on the wide (tablet) screen, and its covers there.
+  static const double wideSlot = 118;
+  static const double wideCover = 52;
 
-  Future<void> _script(DemoFinger f) async {
-    put(() {
-      _editing = false;
-      _order = [0, 1, 2];
-      _held = null;
-      _dragDy = 0.0;
-    });
+  /// A strip of the pinched list and its row.
+  static const double strip = 44;
+  static const double stripSlot = 52;
+
+  /// Between two blocks.
+  static const double gap = 12;
+}
+
+class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
+  static const _ids = [0, 1, 2];
+
+  bool _editing = false;
+
+  /// 0: the full layout; 1: the pinched list.
+  double _list = 0;
+
+  /// Each section's row, left edge and width (fractions of the content: 0 / 1 full, 0.5 / 0.5 the right half).
+  Map<int, int> _row = {0: 0, 1: 1, 2: 2};
+  Map<int, double> _left = {0: 0, 1: 0, 2: 0};
+  Map<int, double> _width = {0: 1, 1: 1, 2: 1};
+
+  /// The block the finger holds, and how far it has been carried (content fractions across, rows down).
+  int? _held;
+  Offset _carry = Offset.zero;
+  double _carryWidth = 1;
+
+  void _rest() {
+    _editing = false;
+    _list = 0;
+    _row = {0: 0, 1: 1, 2: 2};
+    _left = {0: 0, 1: 0, 2: 0};
+    _width = {0: 1, 1: 1, 2: 1};
+    _held = null;
+    _carry = Offset.zero;
+    _carryWidth = 1;
+  }
+
+  Future<void> _script(DemoFinger f, bool wide) async {
+    put(_rest);
     await f.wait(400);
-    await f.moveTo('slot1', fy: 0.35);
-    await f.hold(
-      () => put(() {
-        _editing = true;
-        _held = 1;
-      }),
-    );
-    final to = f.at('slot0', fy: 0.35);
-    await f.drag(to.dx, to.dy, 900, onProgress: (p) => put(() => _dragDy = -TipSceneTokens.sectionSlot * p));
-    put(() {
-      _order = [1, 0, 2];
-      _held = null;
-      _dragDy = 0.0;
-    });
+    // Long-press Home: edit mode.
+    await f.moveTo('block0', fx: 0.3, fy: 0.55);
+    await f.hold(() => put(() => _editing = true));
     await f.wait(700);
+    // Pinch: the sections close into a list, then open back out.
+    final centre = f.at('feed');
+    await f.pinch(centre.dx, centre.dy, 0.34, 0.12, 650, onProgress: (p) => put(() => _list = p));
+    await f.wait(900);
+    await f.pinch(centre.dx, centre.dy, 0.12, 0.34, 650, onProgress: (p) => put(() => _list = 1 - p));
+    await f.wait(500);
+    // Long-press drag: Your Playlists up above Recently Added.
+    await f.moveTo('block2');
+    await f.hold(() => put(() => _held = 2));
+    final up = f.at('block1');
+    await f.drag(up.dx, up.dy, 700, onProgress: (p) => put(() => _carry = Offset(0, -p)));
+    put(() {
+      _row = {..._row, 2: 1, 1: 2};
+      _held = null;
+      _carry = Offset.zero;
+    });
+    await f.wait(600);
+    if (wide) {
+      // Drop beside: Recently Added onto the right of Your Playlists, and the two share a row.
+      await f.moveTo('block1');
+      await f.hold(() => put(() => _held = 1));
+      final beside = f.at('block2', fx: 0.8);
+      await f.drag(
+        beside.dx,
+        beside.dy,
+        800,
+        onProgress: (p) => put(() {
+          _carry = Offset(0.5 * p, -p);
+          _carryWidth = 1 - 0.5 * p;
+          // Past most of the way the block it pairs with makes room.
+          if (p > 0.6) _width = {..._width, 2: 0.5};
+        }),
+      );
+      put(() {
+        _row = {..._row, 1: 1};
+        _left = {..._left, 1: 0.5};
+        _width = {..._width, 1: 0.5, 2: 0.5};
+        _held = null;
+        _carry = Offset.zero;
+        _carryWidth = 1;
+      });
+      await f.lift();
+      await f.wait(1600);
+    } else {
+      await f.wait(900);
+    }
     // Done is the bar's right half in the edit pose (BarEditPose).
     await f.moveTo('bar', fx: 0.75);
     await f.tap(() => put(() => _editing = false));
-    await f.lift();
-    await f.wait(1200);
+    await f.wait(900);
   }
 
   @override
   Widget build(BuildContext context) {
+    final wide = widget.wide ?? homeTipLargeScreen(context);
     final strings = HomeStrings.of(context);
-    final titles = [strings.sectionJumpBackIn, strings.sectionRecentlyAdded, strings.sectionRecentlyPlayed];
+    final titles = [strings.sectionJumpBackIn, strings.sectionRecentlyAdded, strings.sectionYourPlaylists];
+    final slot = wide ? _EditDemoTokens.wideSlot : TipSceneTokens.sectionSlot;
+    final cover = wide ? _EditDemoTokens.wideCover : TipSceneTokens.sectionCover;
+    final list = _list.clamp(0.0, 1.0);
     return DemoPhone(
       playing: widget.playing,
-      script: _script,
+      wide: wide,
+      script: (f) => _script(f, wide),
       child: GestureDetector(
         onLongPress: () => put(() => _editing = true),
         child: ColoredBox(
@@ -262,33 +341,69 @@ class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
                 children: [
                   _DemoHomeHeader(avatar: _avatar(context, 0)),
                   Expanded(
-                    child: Stack(
-                      children: [
-                        for (var slot = 0; slot < 3; slot++)
-                          Positioned(
-                            left: TipSceneTokens.pagePaddingH,
-                            right: TipSceneTokens.pagePaddingH,
-                            top: slot * TipSceneTokens.sectionSlot,
-                            height: TipSceneTokens.sectionSlot,
-                            child: IgnorePointer(child: DemoTarget('slot$slot', child: const SizedBox.expand())),
-                          ),
-                        for (final id in [..._order.where((id) => id != _held), ?_held])
-                          DemoSpring(
-                            key: ValueKey('section$id'),
-                            target: _order.indexOf(id) * TipSceneTokens.sectionSlot,
-                            builder: (context, top) => Positioned(
-                              left: TipSceneTokens.pagePaddingH,
-                              right: TipSceneTokens.pagePaddingH,
-                              top: top + (id == _held ? _dragDy : 0),
-                              child: _DemoSection(
-                                title: titles[id],
-                                covers: [for (final i in _sectionAlbums[id]) demoAlbums[i]],
-                                editing: _editing,
-                                lift: id == _held ? 1 : 0,
-                              ),
-                            ),
-                          ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.pagePaddingH),
+                      child: DemoTarget(
+                        'feed',
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final content = constraints.maxWidth;
+                            // The pinched list stacks every section as a strip, one column.
+                            final rowPitch = slot + (_EditDemoTokens.stripSlot - slot) * list;
+                            final height = slot - _EditDemoTokens.gap + (_EditDemoTokens.strip - slot + _EditDemoTokens.gap) * list;
+                            return Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                for (final id in [..._ids.where((id) => id != _held), ?_held])
+                                  () {
+                                    final held = id == _held;
+                                    final row = (_row[id]! + (held ? _carry.dy : 0)).toDouble();
+                                    final left = (_left[id]! + (held ? _carry.dx : 0)) * (1 - list);
+                                    final width = (held ? _carryWidth : _width[id]!) + (1 - (held ? _carryWidth : _width[id]!)) * list;
+                                    final half = width < 0.99;
+                                    Widget block(double top, double x, double w) => Positioned(
+                                      top: top,
+                                      left: x,
+                                      width: w,
+                                      height: height,
+                                      child: DemoTarget(
+                                        'block$id',
+                                        child: _EditDemoBlock(
+                                          title: titles[id],
+                                          covers: [for (final i in _sectionAlbums[id]) demoAlbums[i]],
+                                          cover: cover,
+                                          editing: _editing,
+                                          lift: held ? 1 : 0,
+                                          compact: list,
+                                        ),
+                                      ),
+                                    );
+                                    // The others spring to their places; the held one follows the finger.
+                                    final gapX = half ? _EditDemoTokens.gap / 2 : 0.0;
+                                    if (held) {
+                                      return block(row * rowPitch, left * content + (left > 0 ? gapX : 0), width * content - gapX);
+                                    }
+                                    return DemoSpring(
+                                      key: ValueKey('section$id'),
+                                      target: row * rowPitch,
+                                      builder: (context, top) => DemoSpring(
+                                        target: left,
+                                        builder: (context, x) => DemoSpring(
+                                          target: width,
+                                          builder: (context, w) => block(
+                                            top,
+                                            x * content + (x > 0.01 ? gapX : 0),
+                                            w * content - (w < 0.99 ? gapX : 0),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }(),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -313,6 +428,99 @@ class _EditHomeDemoState extends State<EditHomeDemo> with DemoSceneState {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One section on the edit demo: its plate (edit mode), title and drag handle, and a row of covers that fold
+/// away as the pinch closes it into a strip ([compact]).
+class _EditDemoBlock extends StatelessWidget {
+  const _EditDemoBlock({
+    required this.title,
+    required this.covers,
+    required this.cover,
+    required this.editing,
+    required this.lift,
+    required this.compact,
+  });
+
+  final String title;
+  final List<DemoAlbum> covers;
+  final double cover;
+  final bool editing;
+  final double lift;
+  final double compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Transform.scale(
+      scale: 1 + (TipSceneTokens.liftScale - 1) * lift,
+      child: DemoSpring(
+        target: editing ? 1 : 0,
+        spring: YoinSprings.defaultEffects,
+        builder: (context, e) => DecoratedBox(
+          decoration: ShapeDecoration(
+            color: Color.lerp(colors.surfaceContainer, colors.surfaceContainerHighest, lift)!
+                .withValues(alpha: e.clamp(0.0, 1.0)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ShapeTokens.card)),
+          ),
+          child: ClipRect(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: TipSceneTokens.sectionPadding, vertical: 8),
+              child: OverflowBox(
+                alignment: Alignment.topLeft,
+                minHeight: 0,
+                maxHeight: double.infinity,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium!.copyWith(color: colors.onSurface),
+                          ),
+                        ),
+                        Opacity(
+                          opacity: e.clamp(0.0, 1.0),
+                          child: Icon(YoinSymbols.dragHandle, color: colors.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Opacity(
+                      opacity: (1 - compact).clamp(0.0, 1.0),
+                      child: ClipRect(
+                        child: SizedBox(
+                          height: cover,
+                          child: OverflowBox(
+                            alignment: Alignment.centerLeft,
+                            maxWidth: double.infinity,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              spacing: TipSceneTokens.coverGap,
+                              children: [
+                                for (final album in [...covers, ...covers])
+                                  CoverArt(cover: album.coverRef, size: cover, radius: ShapeTokens.cover),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

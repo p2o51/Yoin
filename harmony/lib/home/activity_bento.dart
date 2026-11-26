@@ -28,11 +28,20 @@ import 'widgets/spring_height.dart';
 /// there is no history. Under Home's [HomeRowsScope] the bento renders
 /// through [HomeRowsBody], so edit mode's ⌟ can resize it card by card.
 class ActivitiesSection extends StatelessWidget {
-  const ActivitiesSection({super.key, required this.content, required this.frame, this.preset = HomeRowPreset.defaultPreset});
+  const ActivitiesSection({
+    super.key,
+    required this.content,
+    required this.frame,
+    this.preset = HomeRowPreset.defaultPreset,
+    this.showTitle = true,
+  });
 
   final HomeContent content;
   final HomeFeedFrame frame;
   final HomeRowPreset preset;
+
+  /// False on the two-column grid, whose own 40dp title row stands above the bento.
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -66,8 +75,7 @@ class ActivitiesSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        title,
-        const SizedBox(height: HomeSectionMetrics.activitiesSpacing),
+        if (showTitle) ...[title, const SizedBox(height: HomeSectionMetrics.activitiesSpacing)],
         // A width class (N) re-seats in place — no crossfade (2026-11-12) —
         // and the section's height springs between the two. A row preset
         // updates in place (edit mode's resize interpolates it).
