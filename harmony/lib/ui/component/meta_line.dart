@@ -1,6 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../../data/release/release_marks.dart';
 import '../../theme/tokens.dart';
+import 'component_strings.dart';
+import 'explicit_badge.dart';
 
 /// One group of a [MetaLine] (component/MetaLine.kt).
 sealed class MetaGroup {
@@ -206,21 +211,37 @@ class VersionTitleRow extends StatelessWidget {
     required this.title,
     required this.tag,
     this.gap = AlbumVersionTagTokens.gap,
+    this.explicit = false,
   });
 
   /// [name] as one ellipsized line in [nameStyle], then [version] (when
-  /// there is one) as an [AlbumVersionTag] after it.
+  /// there is one) as an [AlbumVersionTag] after it, then the Explicit "E"
+  /// when [explicit] (AlbumVersionTitle's explicit).
   static Widget orTitle({
     Key? key,
     required String name,
     required TextStyle nameStyle,
     String? version,
     double gap = AlbumVersionTagTokens.gap,
+    bool explicit = false,
   }) {
     final title = Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, style: nameStyle);
     final v = version?.trim();
-    if (v == null || v.isEmpty) return KeyedSubtree(key: key, child: title);
-    return VersionTitleRow(key: key, name: name, nameStyle: nameStyle, title: title, tag: AlbumVersionTag(v), gap: gap);
+    if (v == null || v.isEmpty) {
+      return KeyedSubtree(
+        key: key,
+        child: ExplicitTitle(text: name, explicit: explicit, style: nameStyle, child: title),
+      );
+    }
+    return VersionTitleRow(
+      key: key,
+      name: name,
+      nameStyle: nameStyle,
+      title: title,
+      tag: AlbumVersionTag(v),
+      gap: gap,
+      explicit: explicit,
+    );
   }
 
   /// The text [title] draws, measured with [nameStyle].
@@ -230,22 +251,41 @@ class VersionTitleRow extends StatelessWidget {
   final Widget tag;
   final double gap;
 
+  /// The release is marked explicit: the "E" follows the tag, never cut (the name and its tag share what
+  /// it leaves).
+  final bool explicit;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      final fontSize = explicitTitleFontSize(context, nameStyle);
+      final badgeGap = ReleaseMarks.badgeGap(fontSize).toDouble();
+      final badgeRoom = explicit ? ReleaseMarks.badgeSide(fontSize) + badgeGap : 0.0;
       final tagMax = constraints.hasBoundedWidth
           ? versionTagMaxWidth(
-              rowWidth: constraints.maxWidth,
+              rowWidth: math.max(0, constraints.maxWidth - badgeRoom),
               nameWidth: _measure(context),
               gap: gap,
             )
           : double.infinity;
-      return Row(
+      final row = Row(
+        crossAxisAlignment: explicit ? CrossAxisAlignment.baseline : CrossAxisAlignment.center,
+        textBaseline: TextBaseline.alphabetic,
         children: [
           Flexible(child: title),
           SizedBox(width: gap),
           ConstrainedBox(constraints: BoxConstraints(maxWidth: tagMax), child: tag),
+          if (explicit) ...[
+            SizedBox(width: badgeGap),
+            ExplicitBadge(textStyle: nameStyle, describe: false),
+          ],
         ],
+      );
+      if (!explicit) return row;
+      return Semantics(
+        label: '$name, ${ComponentStrings.of(context).explicitBadge}',
+        excludeSemantics: true,
+        child: row,
       );
     },
   );

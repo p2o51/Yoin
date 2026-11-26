@@ -154,14 +154,23 @@ class _TabletopPaneState extends ConsumerState<_TabletopPane> with TickerProvide
                                 final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
                                 null => null,
                               },
-                              child: Text(
-                                track.title ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textScaler: TextScaler.noScaling,
-                                style: text.headlineSmall!.copyWith(
-                                  fontSize: _TT.titleSize - _TT.titleShrink * e,
-                                  color: colors.onSurface,
+                              // The hero "E" after the title (PR #343), measured unscaled like the title.
+                              child: MediaQuery.withNoTextScaling(
+                                child: ExplicitTitle(
+                                  text: track.title ?? '',
+                                  explicit: track.isExplicit,
+                                  hero: true,
+                                  style: text.headlineSmall!.copyWith(fontSize: _TT.titleSize - _TT.titleShrink * e),
+                                  child: Text(
+                                    track.title ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textScaler: TextScaler.noScaling,
+                                    style: text.headlineSmall!.copyWith(
+                                      fontSize: _TT.titleSize - _TT.titleShrink * e,
+                                      color: colors.onSurface,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

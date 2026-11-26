@@ -4,11 +4,17 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
 import '../detail/detail_track_menu.dart';
 import '../detail/playback_projection.dart';
+import '../detail/detail_strings.dart';
+import '../detail/release_kind_labels.dart';
 import '../detail/playlist_detail_view_model.dart' show playlistHeroCover;
+import '../home/home_ui_state.dart' show HomeCardKind;
+import '../home/widgets/home_artwork.dart' show BackdropCover;
 import '../theme/tokens.dart';
 import '../ui/component/artwork_image.dart';
+import '../ui/component/component_strings.dart';
 import '../ui/component/elastic_press.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
@@ -72,7 +78,8 @@ int librarySparseColumns({
 /// and [height] tall: [libraryGridColumns], grown by [librarySparseColumns]
 /// for a short shelf of [itemCount] — past Compact and not on a landscape
 /// handset ([compactHeight]), where the usual cells stay. [bottom] is the
-/// room kept over the floating bar, [sortRow] whether the sort row leads.
+/// room kept over the floating bar, [sortRow] whether the sort row leads, [filterRow] whether Albums'
+/// kind filter follows it.
 /// Search results keep [libraryGridColumns].
 int libraryViewGridColumns({
   required double width,
@@ -81,6 +88,7 @@ int libraryViewGridColumns({
   required double bottom,
   required bool sortRow,
   required bool compactHeight,
+  bool filterRow = false,
   TextScaler scaler = TextScaler.noScaling,
 }) {
   final base = libraryGridColumns(width);
@@ -91,7 +99,8 @@ int libraryViewGridColumns({
     width: width - 32,
     height: height - LibraryTokens.gridTopPadding - bottom,
     cellExtra: libraryCellExtent(0, scaler),
-    leading: sortRow ? LibraryTokens.sparseSortRow : 0,
+    leading: (sortRow ? LibraryTokens.sparseSortRow : 0) +
+        (filterRow ? LibraryTokens.chipHeight + LibraryTokens.kindFilterBottom : 0),
   );
 }
 
@@ -99,7 +108,9 @@ int libraryViewGridColumns({
 double libraryCellExtent(double cellWidth, TextScaler scaler) =>
     cellWidth + LibraryTokens.coverToTitle + scaler.scale(20) + scaler.scale(16) + 2;
 
-/// Album grid cell: cover (Cover shape), title + version tag, artist.
+/// Album grid cell (Android AlbumCard on the backdrop, PR #343): the cover on Home's album shape in the
+/// cover's colour, its kind ("EP" / "Single"), version tag and Explicit "E" on the shape's band above it;
+/// under it the name alone (no version, no Apple Music " - EP" / " - Single") and the artist.
 class AlbumGridCell extends ConsumerWidget {
   const AlbumGridCell({super.key, required this.album, required this.onTap});
 
@@ -107,17 +118,22 @@ class AlbumGridCell extends ConsumerWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => _SquareCell(
-    url: libraryCoverUrl(ref, album.coverArt),
-    fallbackIcon: YoinSymbols.album,
-    title: albumTitleWithoutVersion(album.name, album.version),
-    version: album.version,
-    subtitle: album.artist ?? '',
-    onTap: onTap,
-  );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final detail = DetailStrings.of(context);
+    return _SquareCell(
+      cover: album.coverArt,
+      kind: HomeCardKind.album,
+      title: ReleaseMarks.nameWithoutKindSuffix(albumTitleWithoutVersion(album.name, album.version), album.releaseType),
+      version: album.version,
+      explicit: album.isExplicit,
+      kindTag: releaseKindTag(detail, album.releaseType),
+      subtitle: album.artist ?? '',
+      onTap: onTap,
+    );
+  }
 }
 
-/// Playlist grid cell: subtitle = owner, else "Playlist".
+/// Playlist grid cell: subtitle = owner, else "Playlist"; the cover on the playlist shape.
 class PlaylistGridCell extends ConsumerWidget {
   const PlaylistGridCell({super.key, required this.playlist, required this.onTap});
 
@@ -128,8 +144,8 @@ class PlaylistGridCell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final owner = playlist.owner?.trim();
     return _SquareCell(
-      url: libraryCoverUrl(ref, playlistHeroCover(playlist)),
-      fallbackIcon: YoinSymbols.playlist,
+      cover: playlistHeroCover(playlist),
+      kind: HomeCardKind.playlist,
       title: playlist.name,
       subtitle: owner == null || owner.isEmpty ? LibraryStrings.of(context).playlistFallback : owner,
       onTap: onTap,
@@ -139,51 +155,57 @@ class PlaylistGridCell extends ConsumerWidget {
 
 class _SquareCell extends StatelessWidget {
   const _SquareCell({
-    required this.url,
-    required this.fallbackIcon,
+    required this.cover,
+    required this.kind,
     required this.title,
     required this.subtitle,
     required this.onTap,
     this.version,
+    this.explicit = false,
+    this.kindTag,
   });
 
-  final String? url;
-  final IconData fallbackIcon;
+  final CoverRef? cover;
+  final HomeCardKind kind;
   final String title;
   final String? version;
+  final bool explicit;
+  final String? kindTag;
   final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dpr = MediaQuery.devicePixelRatioOf(context);
     return ElasticPress(
       onTap: onTap,
-      semanticsLabel: title,
+      // "Explicit" is the title's, so it is said even where a narrow band leaves the E out.
+      semanticsLabel: explicit ? '$title, ${ComponentStrings.of(context).explicitBadge}' : title,
       child: LayoutBuilder(
         builder: (context, constraints) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox.square(
-              dimension: constraints.maxWidth,
-              // The cover breaks up at the chrome seam (Scroll edge style); the text fades.
-              child: SeamDissolve(
-                child: MediaArtwork(
-                  url: url,
-                  fallbackIcon: fallbackIcon,
-                  radius: ShapeTokens.cover,
-                  decodeWidth: (constraints.maxWidth * dpr).round(),
-                ),
-              ),
+            // Home's shape in the cover's colour (read while the grid rests: LibraryPaletteGate), the
+            // cover bottom-end; the marks on the band. One static shape per cover (no press morph).
+            BackdropCover(
+              cover: cover,
+              kind: kind,
+              size: constraints.maxWidth,
+              requestSize: libraryCoverRequestSize,
+              version: version,
+              explicit: explicit,
+              kindTag: kindTag,
+              pressMorph: false,
             ),
             const SizedBox(height: LibraryTokens.coverToTitle),
             SeamFade(
               fontSize: theme.textTheme.titleSmall!.fontSize ?? 14,
-              child: VersionTitleRow.orTitle(
-                name: title,
-                nameStyle: theme.textTheme.titleSmall!,
-                version: version,
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+                style: theme.textTheme.titleSmall,
               ),
             ),
             SeamFade(
@@ -396,6 +418,7 @@ class LibrarySongRow extends ConsumerWidget {
       onTap: onTap,
       onLongPress: onLongPress ?? () => openTrackMenu(context, track),
       trailing: trailing,
+      isExplicit: track.isExplicit,
     );
   }
 }

@@ -32,6 +32,7 @@ import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/ai_service_scope.dart';
 import '../ui/component/artwork_swap.dart';
+import '../ui/component/explicit_badge.dart';
 import '../ui/component/expressive/expressive_shapes.dart';
 import '../ui/component/expressive/expressive_surface_button.dart';
 import 'about_logic.dart';
@@ -61,6 +62,7 @@ import 'share_sheet.dart';
 import 'lyrics_sheets.dart';
 import 'lyrics_view.dart';
 import 'marquee.dart';
+import 'now_playing_explicit_line.dart';
 import 'now_playing_background.dart';
 import 'now_playing_format.dart';
 import 'note_compact_pane.dart';
@@ -1727,6 +1729,7 @@ class _Stage extends ConsumerWidget {
               height: budget.hero,
               child: _Hero(
                 title: track.title ?? '',
+                explicit: track.isExplicit,
                 artist: track.artist ?? '',
                 onTitleTap: switch (track.albumId) {
                   final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
@@ -2101,10 +2104,14 @@ class _Hero extends StatefulWidget {
     required this.oneLine,
     this.onTitleTap,
     this.onArtistTap,
+    this.explicit = false,
   });
 
   final String title;
   final String artist;
+
+  /// The song is marked explicit: the hero "E" after the title (NowPlayingExplicitLine).
+  final bool explicit;
 
   /// The title opens the album, the artist line the artist (null: no id).
   final VoidCallback? onTitleTap;
@@ -2217,20 +2224,26 @@ class _HeroState extends State<_Hero> with TickerProviderStateMixin {
     );
     final title = GestureDetector(
       onTap: widget.onTitleTap,
-      child: ClipRect(
-        child: FlightSlot(
-          element: FlightElement.title,
-          pill: false,
-          child: AnimatedBuilder(
-            animation: _title.animation,
-            builder: (context, child) =>
-                Transform.scale(scaleX: _title.value, alignment: AlignmentDirectional.centerStart, child: child),
-            child: Marquee(
-              key: ValueKey(widget.title),
-              text: widget.title,
-              style: titleStyle,
-              edgeFade: heroTitleEdgeFade,
-              probe: _overlay?.flightKeys.heroTitleMarquee,
+      child: NowPlayingExplicitLine(
+        text: widget.title,
+        style: titleStyle,
+        explicit: widget.explicit,
+        stretch: _title.animation,
+        child: ClipRect(
+          child: FlightSlot(
+            element: FlightElement.title,
+            pill: false,
+            child: AnimatedBuilder(
+              animation: _title.animation,
+              builder: (context, child) =>
+                  Transform.scale(scaleX: _title.value, alignment: AlignmentDirectional.centerStart, child: child),
+              child: Marquee(
+                key: ValueKey(widget.title),
+                text: widget.title,
+                style: titleStyle,
+                edgeFade: heroTitleEdgeFade,
+                probe: _overlay?.flightKeys.heroTitleMarquee,
+              ),
             ),
           ),
         ),
@@ -3079,16 +3092,29 @@ class _DualPane extends ConsumerWidget {
                                   const SizedBox(height: DualPaneTokens.titleLineGap),
                                   GestureDetector(
                                     onTap: track.albumId == null ? null : openAlbum,
+                                    // The "E" after the title in either form (hero size, PR #343).
                                     child: budget.titleForm == DualPaneTitleForm.twoLines
-                                        ? Text(
-                                            track.title ?? '',
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: text.headlineMedium!.copyWith(color: colors.onSurface),
-                                          )
-                                        : Marquee(
+                                        ? ExplicitTitle(
                                             text: track.title ?? '',
-                                            style: text.headlineMedium!.copyWith(color: colors.onSurface),
+                                            explicit: track.isExplicit,
+                                            style: text.headlineMedium,
+                                            maxLines: 2,
+                                            hero: true,
+                                            child: Text(
+                                              track.title ?? '',
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: text.headlineMedium!.copyWith(color: colors.onSurface),
+                                            ),
+                                          )
+                                        : NowPlayingExplicitLine(
+                                            text: track.title ?? '',
+                                            style: text.headlineMedium!,
+                                            explicit: track.isExplicit,
+                                            child: Marquee(
+                                              text: track.title ?? '',
+                                              style: text.headlineMedium!.copyWith(color: colors.onSurface),
+                                            ),
                                           ),
                                   ),
                                 ],
@@ -3436,9 +3462,14 @@ class _LandscapePane extends ConsumerWidget {
                 final id? => () => _leaveTo(controller, (nav) => DetailRoutes.openAlbum(nav, id)),
                 null => null,
               },
-              child: Marquee(
+              child: NowPlayingExplicitLine(
                 text: track.title ?? '',
-                style: text.titleLarge!.copyWith(color: colors.onSurface),
+                style: text.titleLarge!,
+                explicit: track.isExplicit,
+                child: Marquee(
+                  text: track.title ?? '',
+                  style: text.titleLarge!.copyWith(color: colors.onSurface),
+                ),
               ),
             ),
           ),

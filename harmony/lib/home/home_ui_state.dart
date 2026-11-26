@@ -140,6 +140,20 @@ final class HomeWidgetCard {
 
   /// The wide signal card (two cells on the packed shelf).
   bool get expanded => signal != null;
+
+  /// The album or song behind the card is marked explicit: the "E" on the cover's band (Android
+  /// HomeWidgetCard.explicit, PR #343).
+  bool get explicit => switch (target) {
+    HomeOpenAlbum(:final album) => album.isExplicit,
+    HomePlaySong(:final track) => track.isExplicit,
+    _ => false,
+  };
+
+  /// The album's kind as its service says (the band's "EP" / "Single"); null for anything else.
+  ReleaseType? get releaseType => switch (target) {
+    HomeOpenAlbum(:final album) => album.releaseType,
+    _ => null,
+  };
 }
 
 /// One Activities card's data (buildActivityEntries).

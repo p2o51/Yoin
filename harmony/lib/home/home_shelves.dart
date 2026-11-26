@@ -4,8 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
+import '../detail/detail_strings.dart';
+import '../detail/release_kind_labels.dart';
 import '../data/source/music_source.dart' show MadeForYouPlaylist;
 import '../theme/tokens.dart';
+import '../ui/component/component_strings.dart';
+import '../ui/component/explicit_badge.dart';
 import 'home_actions.dart';
 import 'home_album_memory_mark.dart';
 import 'home_edit.dart';
@@ -179,6 +184,11 @@ class TrackTile extends ConsumerWidget {
     final image = resolveHomeCover(ref, context, trackCover(track),
         requestSize: HomeCoverRequest.standard, side: coverSize);
     final artist = track.artist ?? '';
+    final titleStyle = text.bodyMedium!.copyWith(
+      fontSize: HomeShelfMetrics.trackTitleSize,
+      fontWeight: FontWeight.w500,
+      color: colors.onSurface,
+    );
     // Edit mode: the tile sways on its own (homeEditCard).
     return HomeEditCard(
       kickKey: track.id,
@@ -193,8 +203,12 @@ class TrackTile extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SeamText(track.title ?? '',
-                      style: text.bodyMedium!.copyWith(fontSize: HomeShelfMetrics.trackTitleSize, fontWeight: FontWeight.w500, color: colors.onSurface)),
+                  ExplicitTitle(
+                    text: track.title ?? '',
+                    explicit: track.isExplicit,
+                    style: titleStyle,
+                    child: SeamText(track.title ?? '', style: titleStyle),
+                  ),
                   if (artist.isNotEmpty) SeamText(artist, style: text.labelSmall!.copyWith(color: colors.onSurfaceVariant)),
                 ],
               ),
@@ -280,17 +294,27 @@ class _ShelfCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // The kind, version tag and "E" on the shape's band; the name alone under it (PR #343).
               BackdropCover(
                 cover: card.cover,
                 kind: card.kind,
                 size: size,
                 markAlbum: markAlbum,
+                version: card.version,
+                explicit: card.explicit,
+                kindTag: releaseKindTag(DetailStrings.of(context), card.releaseType),
               ),
               const SizedBox(height: HomeShelfMetrics.albumCardCaptionGap),
-              VersionTitle(
-                title: card.title,
-                version: card.version,
-                style: text.bodySmall!.copyWith(fontWeight: FontWeight.w500, color: colors.onSurface),
+              Semantics(
+                label: card.explicit ? '${card.title}, ${ComponentStrings.of(context).explicitBadge}' : null,
+                excludeSemantics: card.explicit,
+                child: VersionTitle(
+                  title: ReleaseMarks.nameWithoutKindSuffix(
+                    albumNameWithoutVersion(card.title, card.version),
+                    card.releaseType,
+                  ),
+                  style: text.bodySmall!.copyWith(fontWeight: FontWeight.w500, color: colors.onSurface),
+                ),
               ),
               if (caption.isNotEmpty) SeamText(caption, style: text.labelSmall!.copyWith(color: colors.onSurfaceVariant)),
             ],

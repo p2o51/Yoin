@@ -13,9 +13,12 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
 import '../data/search/memory_search.dart';
 import '../data/search/search_match.dart';
 import '../data/search/search_page.dart';
+import '../detail/detail_strings.dart';
+import '../detail/release_kind_labels.dart';
 import '../home/home_album_memory_mark.dart';
 import '../home/home_ui_state.dart' show HomeCardKind;
 import '../home/widgets/elastic_press.dart';
@@ -24,6 +27,8 @@ import '../memories/memories_ui_state.dart' show MemoryScoreKind;
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/component_strings.dart';
+import '../ui/component/explicit_badge.dart';
 import '../ui/component/seam/seam.dart';
 import '../ui/shapes/cookie_unit.dart';
 import 'library_search_memories.dart';
@@ -483,6 +488,7 @@ class _Tile extends StatelessWidget {
           art: BackdropCover(cover: track.coverArt, kind: HomeCardKind.song, size: cell),
           side: note == null ? null : _NoteSide(note: note, lines: textLines),
           title: track.title ?? '',
+          explicit: track.isExplicit,
           subtitle: track.artist ?? '',
           query: query,
           onTap: () => note != null ? actions.onNote(note, track) : actions.onSong(track),
@@ -510,14 +516,19 @@ class _Tile extends StatelessWidget {
         return _TileFrame(
           width: width,
           cell: cell,
+          // The kind, version tag and "E" on the shape's band; the name alone under it (PR #343).
           art: BackdropCover(
             cover: album.coverArt,
             kind: HomeCardKind.album,
             size: cell,
             mark: mark != null && marks ? _homeMark(mark) : null,
+            version: album.version,
+            explicit: album.isExplicit,
+            kindTag: releaseKindTag(DetailStrings.of(context), album.releaseType),
           ),
           side: hit == null ? null : _MemorySide(hit: hit, mark: mark ?? hit.mark, lines: textLines),
-          title: album.name,
+          title: ReleaseMarks.nameWithoutKindSuffix(album.name, album.releaseType),
+          describeExplicit: album.isExplicit,
           subtitle: album.artist ?? '',
           inlineMark: marks ? null : mark,
           query: query,
@@ -585,7 +596,15 @@ class _TileFrame extends StatelessWidget {
     this.inlineMark,
     this.otherAccount = false,
     this.centered = false,
+    this.explicit = false,
+    this.describeExplicit = false,
   });
+
+  /// The song is marked explicit: the "E" follows the title (ExplicitTitle).
+  final bool explicit;
+
+  /// The album is marked explicit (its "E" is on the cover's band): the title still says so.
+  final bool describeExplicit;
 
   final double width;
   final double cell;
@@ -638,11 +657,19 @@ class _TileFrame extends StatelessWidget {
                     child: InlineMemoryMark(mark: inlineMark!),
                   ),
                 Flexible(
-                  child: MarkedText(
-                    text: title,
-                    marks: [query.match(title).originalRange],
-                    style: theme.textTheme.titleSmall!.copyWith(color: theme.colorScheme.onSurface),
-                    maxLines: 1,
+                  child: _explicitTitle(
+                    context,
+                    ExplicitTitle(
+                      text: title,
+                      explicit: explicit,
+                      style: theme.textTheme.titleSmall,
+                      child: MarkedText(
+                        text: title,
+                        marks: [query.match(title).originalRange],
+                        style: theme.textTheme.titleSmall!.copyWith(color: theme.colorScheme.onSurface),
+                        maxLines: 1,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -674,6 +701,15 @@ class _TileFrame extends StatelessWidget {
     if (onLongPress != null) content = GestureDetector(onLongPress: onLongPress, child: content);
     return content;
   }
+
+  /// An album's "Explicit" is said by its title (the E is on the band, which a small tile may leave out).
+  Widget _explicitTitle(BuildContext context, Widget title) => !describeExplicit
+      ? title
+      : Semantics(
+          label: '${this.title}, ${ComponentStrings.of(context).explicitBadge}',
+          excludeSemantics: true,
+          child: title,
+        );
 }
 
 /// A note beside its song's cover: "Your note", where it was written, and the note with the hit inked.
@@ -799,7 +835,7 @@ class _BestMatchCard extends StatelessWidget {
         () => actions.onSong(track),
       ),
       SearchAlbumTile(:final album, :final memory) => (
-        album.name,
+        ReleaseMarks.nameWithoutKindSuffix(album.name, album.releaseType),
         album.artist ?? '',
         strings.searchSectionAlbums,
         BackdropCover(
@@ -856,11 +892,21 @@ class _BestMatchCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _SideText(kind, theme.textTheme.labelMedium!.copyWith(color: colors.onSurfaceVariant)),
-                        MarkedText(
+                        ExplicitTitle(
                           text: title,
-                          marks: [query.match(title).originalRange],
-                          style: theme.textTheme.headlineSmall!.copyWith(color: colors.onSurface),
+                          explicit: switch (tile) {
+                            SearchSongTile(:final track) => track.isExplicit,
+                            SearchAlbumTile(:final album) => album.isExplicit,
+                            _ => false,
+                          },
+                          style: theme.textTheme.headlineSmall,
                           maxLines: 2,
+                          child: MarkedText(
+                            text: title,
+                            marks: [query.match(title).originalRange],
+                            style: theme.textTheme.headlineSmall!.copyWith(color: colors.onSurface),
+                            maxLines: 2,
+                          ),
                         ),
                         if (subtitle.trim().isNotEmpty)
                           _SideText(subtitle, theme.textTheme.bodyMedium!.copyWith(color: colors.onSurfaceVariant)),

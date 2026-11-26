@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/model/model.dart';
 import '../memories/memory_title_editor.dart';
 import '../theme/tokens.dart';
+import '../ui/component/component_strings.dart';
 import 'home_actions.dart';
 import 'home_album_memory_mark.dart';
 import 'home_edit_wiggle.dart';
@@ -269,12 +270,15 @@ class _CoverBlock extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      // The version tag and the "E" on the shape's band; the title under it is the name alone (PR #343).
       BackdropCover(
         cover: card.cover,
         kind: card.kind,
         size: coverSide,
         requestSize: HomeCoverRequest.jbi,
         markAlbum: markAlbum,
+        version: card.version,
+        explicit: card.explicit,
       ),
       const SizedBox(height: HomeJbiMetrics.captionGap),
       _CoverCaption(card: card),
@@ -302,7 +306,11 @@ class _CoverCaption extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        VersionTitle(title: card.title, version: card.version, style: titleStyle),
+        Semantics(
+          label: card.explicit ? '${card.title}, ${ComponentStrings.of(context).explicitBadge}' : null,
+          excludeSemantics: card.explicit,
+          child: VersionTitle(title: albumNameWithoutVersion(card.title, card.version), style: titleStyle),
+        ),
         if (card.subtitle.trim().isNotEmpty)
           SeamText(card.subtitle, style: text.bodySmall!.copyWith(color: colors.onSurfaceVariant)),
       ],
@@ -333,7 +341,14 @@ class JbiSignalCard extends ConsumerWidget {
       child: JbiWideCardLayout(
         coverSide: coverSide,
         children: [
-          BackdropCover(cover: card.cover, kind: card.kind, size: coverSide, requestSize: HomeCoverRequest.jbi),
+          BackdropCover(
+            cover: card.cover,
+            kind: card.kind,
+            size: coverSide,
+            requestSize: HomeCoverRequest.jbi,
+            version: card.version,
+            explicit: card.explicit,
+          ),
           _SignalCopy(card: card, coverSide: coverSide, commentMaxLines: HomeJbiMetrics.signalCommentMaxLines),
           _CoverCaption(card: card),
         ],

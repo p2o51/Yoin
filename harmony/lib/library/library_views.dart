@@ -3,13 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
+import '../detail/detail_strings.dart';
+import '../detail/release_kind_labels.dart';
 import '../detail/detail_routes.dart';
 import '../detail/playlist_detail_view_model.dart' show playlistHeroCover;
 import '../playback/playback_context.dart';
 import '../playback/playback_controller.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
+import '../ui/component/cover_band_badges.dart';
 import '../ui/component/empty_state_panel.dart';
+import '../ui/component/expressive_segment_chip.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
 import '../ui/component/yoin_dropdown_menu.dart';
@@ -17,6 +22,7 @@ import '../ui/component/yoin_fast_scroller.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'library_cells.dart';
 import 'library_grid_anchor.dart';
+import 'library_palette_gate.dart';
 import 'library_sort.dart';
 import 'library_strings.dart';
 import 'library_view_model.dart';
@@ -172,10 +178,18 @@ class LibraryGridView extends ConsumerWidget {
     required this.controller,
     required this.emptyText,
     this.loading = false,
+    this.kindFilters = const [],
+    this.kindFilter = ReleaseKindFilter.all,
+    this.onKindFilter,
   });
 
   final LibraryTab tab;
   final SortedView? view;
+
+  /// Albums' kind filters (none: no row), the one in force, and the pick (LibraryContent.albumKindFilters).
+  final List<ReleaseKindFilter> kindFilters;
+  final ReleaseKindFilter kindFilter;
+  final ValueChanged<ReleaseKindFilter>? onKindFilter;
   final LibrarySort sort;
   final LibraryGridScrollController controller;
   final String emptyText;
@@ -197,12 +211,14 @@ class LibraryGridView extends ConsumerWidget {
         final width = constraints.maxWidth;
         final scaler = MediaQuery.textScalerOf(context);
         final sortRow = options.length >= 2;
+        final filterRow = kindFilters.isNotEmpty;
         final columns = libraryViewGridColumns(
           width: width,
           height: constraints.maxHeight,
           itemCount: view.items.length,
           bottom: bottom,
           sortRow: sortRow,
+          filterRow: filterRow,
           compactHeight: YoinWindowInfo.of(context).isCompactHeight,
           scaler: scaler,
         );
@@ -225,53 +241,105 @@ class LibraryGridView extends ConsumerWidget {
           marks: libraryMarks(strings, view.sections),
           bottomInset: bottom,
           onJumped: () => anchor.jumped(controller.position.pixels, [for (final s in view.sections) s.startIndex]),
-          child: CustomScrollView(
-            key: libraryScrollStorageKey(tab),
-            controller: controller,
-            physics: libraryScrollPhysics,
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, LibraryTokens.gridTopPadding, 16, 0),
-                sliver: SliverToBoxAdapter(
-                  child: LibraryGridHead(
-                    anchor: anchor,
-                    child: sortRow ? LibrarySortRow(tab: tab, sort: sort) : const SizedBox.shrink(),
+          // Covers take their colour only while the grid rests (Android libraryColorGate).
+          child: LibraryPaletteGate(
+            child: CustomScrollView(
+              key: libraryScrollStorageKey(tab),
+              controller: controller,
+              physics: libraryScrollPhysics,
+              slivers: [
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, LibraryTokens.gridTopPadding, 16, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: LibraryGridHead(
+                      anchor: anchor,
+                      child: !filterRow
+                          ? (sortRow ? LibrarySortRow(tab: tab, sort: sort) : const SizedBox.shrink())
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (sortRow) LibrarySortRow(tab: tab, sort: sort),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: LibraryTokens.kindFilterBottom),
+                                  child: LibraryKindFilterRow(
+                                    filters: kindFilters,
+                                    selected: kindFilter,
+                                    onSelect: onKindFilter ?? (_) {},
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
                   ),
                 ),
-              ),
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, bottom),
-                sliver: SliverGrid.builder(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    crossAxisSpacing: LibraryTokens.gridGutterH,
-                    mainAxisSpacing: LibraryTokens.gridGutterV,
-                    mainAxisExtent: extent,
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, bottom),
+                  sliver: SliverGrid.builder(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: LibraryTokens.gridGutterH,
+                      mainAxisSpacing: LibraryTokens.gridGutterV,
+                      mainAxisExtent: extent,
+                    ),
+                    itemCount: view.items.length,
+                    findChildIndexCallback: (key) {
+                      final k = (key as ValueKey<String>).value;
+                      final i = view.items.indexWhere((it) => it.key == k);
+                      return i < 0 ? null : i;
+                    },
+                    itemBuilder: (context, i) {
+                      final item = view.items[i];
+                      void open() => openLibraryItem(context, ref, item);
+                      return KeyedSubtree(
+                        key: ValueKey(item.key),
+                        child: switch (item) {
+                          LibraryArtistItem(:final artist) => ArtistGridCell(artist: artist, onTap: open),
+                          LibraryAlbumItem(:final album) => AlbumGridCell(album: album, onTap: open),
+                          LibraryPlaylistItem(:final playlist) => PlaylistGridCell(playlist: playlist, onTap: open),
+                        },
+                      );
+                    },
                   ),
-                  itemCount: view.items.length,
-                  findChildIndexCallback: (key) {
-                    final k = (key as ValueKey<String>).value;
-                    final i = view.items.indexWhere((it) => it.key == k);
-                    return i < 0 ? null : i;
-                  },
-                  itemBuilder: (context, i) {
-                    final item = view.items[i];
-                    void open() => openLibraryItem(context, ref, item);
-                    return KeyedSubtree(
-                      key: ValueKey(item.key),
-                      child: switch (item) {
-                        LibraryArtistItem(:final artist) => ArtistGridCell(artist: artist, onTap: open),
-                        LibraryAlbumItem(:final album) => AlbumGridCell(album: album, onTap: open),
-                        LibraryPlaylistItem(:final playlist) => PlaylistGridCell(playlist: playlist, onTap: open),
-                      },
-                    );
-                  },
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+/// Albums' kind filter (Android AlbumsTabContent's ExpressiveSegmentedTabs; the artist page's chips): All /
+/// Albums / Singles & EPs / Compilations, only the kinds the shelf holds, scrolling sideways when narrow.
+class LibraryKindFilterRow extends StatelessWidget {
+  const LibraryKindFilterRow({super.key, required this.filters, required this.selected, required this.onSelect});
+
+  final List<ReleaseKindFilter> filters;
+  final ReleaseKindFilter selected;
+  final ValueChanged<ReleaseKindFilter> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = DetailStrings.of(context);
+    return SeamFade(
+      fontSize: Theme.of(context).textTheme.labelLarge?.fontSize ?? 14,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        child: Row(
+          spacing: LibraryTokens.chipGap,
+          children: [
+            for (final f in filters)
+              ExpressiveSegmentChip(
+                key: ValueKey('library-kind-${f.name}'),
+                label: releaseKindFilterLabel(strings, f),
+                selected: f == selected,
+                onTap: () => onSelect(f),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -413,6 +481,7 @@ class LibraryFavoritesView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final f = favorites;
     final strings = LibraryStrings.of(context);
+    final detailStrings = DetailStrings.of(context);
     if (f == null) return const LibraryTabLoading();
     if (f.artists.isEmpty && f.albums.isEmpty && f.tracks.isEmpty) {
       return EmptyStatePanel(message: strings.emptyFavorites, physics: libraryScrollPhysics);
@@ -435,9 +504,14 @@ class LibraryFavoritesView extends ConsumerWidget {
           key: ValueKey('fav-album-${a.id}'),
           url: libraryCoverUrl(ref, a.coverArt),
           fallbackIcon: YoinSymbols.album,
-          title: albumTitleWithoutVersion(a.name, a.version),
-          version: a.version,
+          // The name alone; its kind, version tag and "E" at the row's end (Android AlbumListItem).
+          title: ReleaseMarks.nameWithoutKindSuffix(albumTitleWithoutVersion(a.name, a.version), a.releaseType),
           meta: [if (a.artist?.isNotEmpty ?? false) MetaPlain(a.artist!)],
+          trailing: RowEndBadges(
+            kind: releaseKindTag(detailStrings, a.releaseType),
+            version: a.version,
+            explicit: a.isExplicit,
+          ),
           onTap: () => openLibraryItem(context, ref, LibraryAlbumItem(a)),
         ),
       if (f.tracks.isNotEmpty) LibrarySectionHeader(strings.favoritesSectionSongs),
