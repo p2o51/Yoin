@@ -252,8 +252,16 @@ build() {
   # shellcheck disable=SC1091
   source "$HOME/Developer/flutter_ohos/ohos-env.sh"
   cd "$HARMONY"
+  # Cloud sync's Google Desktop client (harmony/docs/cloud-sync.md), kept beside the stash, never in git.
+  local oauth_args=()
+  if [ -f "$AM_HOME/google_oauth.local.json" ]; then
+    oauth_args=(--dart-define-from-file="$AM_HOME/google_oauth.local.json")
+    say "cloud sync: Google client from $AM_HOME/google_oauth.local.json (contents not shown)"
+  else
+    say "cloud sync: no $AM_HOME/google_oauth.local.json; this build says cloud sync isn't available"
+  fi
   say "flutter build hap --release --dart-define=YOIN_AM_PLAYBACK=true"
-  YOIN_PERSONAL_AM_BUILD=1 flutter build hap --release --dart-define=YOIN_AM_PLAYBACK=true
+  YOIN_PERSONAL_AM_BUILD=1 flutter build hap --release --dart-define=YOIN_AM_PLAYBACK=true "${oauth_args[@]}"
 
   local hap
   hap="$(ls -t "$HARMONY"/build/ohos/hap/*.hap 2>/dev/null | head -1)"
