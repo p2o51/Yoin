@@ -998,10 +998,12 @@ private struct MetaLine: View {
     var style: YoinTokens.TypographyStyle = Tokens.type.labelSmall
     var color: Color
     var body: some View {
-        HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+        // Groups on one baseline, not centred (Android MetaLine 2026-11-24: a digits-only group sat above a
+        // Chinese one, whose CJK fallback font has a taller line).
+        HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
                 if let unit = g.1 {
-                    HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.INNER_GAP.cg) {
                         Text(g.0).homeType(style, .medium, digits: true)
                         Text(unit).homeType(style, .regular).opacity(Tokens.metaLine.MUTED_ALPHA)
                     }
@@ -1766,7 +1768,7 @@ private struct RediscoverSongCard: View {
                         .homeType(Tokens.type.titleMedium, .semibold, size: 17, lineHeight: 22)
                         .foregroundStyle(s.onSurface)
                         .padding(.top, 2)
-                    HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
                         if let artist = entry.track.artist, !artist.isEmpty { Text(artist) }
                         if !album.title.isEmpty { Text(album.title).opacity(Tokens.metaLine.MUTED_ALPHA) }
                     }

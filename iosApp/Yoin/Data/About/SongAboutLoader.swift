@@ -23,6 +23,8 @@ final class SongAboutLoader {
     @ObservationIgnored let settings: GeminiSettings
     @ObservationIgnored private let client: () -> GeminiClient
     @ObservationIgnored private var inFlight: Set<SongAboutStore.Entry.SongKey> = []
+    /// The AI service in use, as copy names it ("Ask DeepSeek", 问千问; Android `aiName()`).
+    var aiName: String { AiProviderName.name(settings.effectiveAiSettings.provider) }
 
     init(store: SongAboutStore? = nil, settings: GeminiSettings? = nil,
          client: @escaping () -> GeminiClient = { GeminiClient() }) {
@@ -123,7 +125,7 @@ final class SongAboutLoader {
         let id = askRequestId
         let ai = settings.effectiveAiSettings
         guard ai.isReady else {
-            askState = .error("Gemini API key missing")
+            askState = .error(AiProviderName.keyMissing(aiName))
             return
         }
         let language = settings.targetLanguage
@@ -149,7 +151,7 @@ final class SongAboutLoader {
             } catch is CancellationError {
                 next = .idle
             } catch {
-                next = .error((error as? GeminiClient.Failure)?.message ?? "Failed to ask Gemini")
+                next = .error((error as? GeminiClient.Failure)?.message ?? AiProviderName.failed(aiName))
             }
             guard id == askRequestId else { return }
             askState = next
@@ -215,7 +217,7 @@ final class SongAboutLoader {
         } catch is CancellationError {
             return .nothingNew
         } catch {
-            return .error((error as? GeminiClient.Failure)?.message ?? "Failed to ask Gemini")
+            return .error((error as? GeminiClient.Failure)?.message ?? AiProviderName.failed(aiName))
         }
     }
 
@@ -240,9 +242,9 @@ final class SongAboutLoader {
                 toast.show(String(localized: "Regenerated"), action: .init(label: String(localized: "Undo")) { [weak self] in
                     self?.undoRegenerate(ref, title: title, answer: answer)
                 })
-            case .nothingNew: toast.show(String(localized: "Gemini had nothing new"))
-            case .apiKeyMissing: toast.show(String(localized: "Gemini API key missing"))
-            case .error: toast.show(String(localized: "Gemini couldn't answer. Try again."))
+            case .nothingNew: toast.show(AiProviderName.nothingNew(aiName))
+            case .apiKeyMissing: toast.show(AiProviderName.keyMissing(aiName))
+            case .error: toast.show(AiProviderName.failed(aiName))
             }
         }
     }
@@ -266,7 +268,7 @@ final class SongAboutLoader {
         guard !asked.isEmpty else { return }
         let ai = settings.effectiveAiSettings
         guard ai.isReady else {
-            toast.show(String(localized: "Gemini API key missing"))
+            toast.show(AiProviderName.keyMissing(AiProviderName.name(ai.provider)))
             return
         }
         let language = settings.targetLanguage
@@ -283,7 +285,7 @@ final class SongAboutLoader {
                               language: language)
             } catch is CancellationError {
             } catch {
-                toast.show(String(localized: "Gemini couldn't answer. Try again."))
+                toast.show(AiProviderName.failed(AiProviderName.name(ai.provider)))
             }
             if let i = asking.firstIndex(of: pending) { asking.remove(at: i) }
         }

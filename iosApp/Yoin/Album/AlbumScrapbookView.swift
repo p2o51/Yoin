@@ -429,8 +429,11 @@ struct AlbumScrapbookView: View {
     #if DEBUG
     /// `-scrapNotesDemo …`: the first song's sheet on Notes, once the tracks are here (ScrapNotesTab.swift).
     private func openNotesDemo() {
-        guard !isMock, trackSheet == nil, let t = ScrapNotesDemo.seed(album, store: model.store) else { return }
+        guard !isMock || ScrapNotesDemo.onMock, ScrapNotesDemo.mode != nil, trackSheet == nil else { return }
         Task {
+            try? await Task.sleep(for: .milliseconds(isMock ? 1_600 : 0))
+            // On the mock the page is there at once: seed only once this copy of it is on screen and settled.
+            guard onScreen, trackSheet == nil, let t = ScrapNotesDemo.seed(album, store: model.store) else { return }
             try? await Task.sleep(for: .milliseconds(900))
             trackSheet = ScrapSheetOpen(track: t, tab: .notes)
         }
@@ -869,13 +872,13 @@ struct AlbumScrapbookView: View {
                 // ScrapTicketMetaLine: Stat groups in labelMedium at 12,
                 // tracking 0: numbers Medium tabular, the unit Regular at 60 %.
                 let duration = Text(formatTime(t.durationSec)).font(.gsf(12, .medium))
-                let plays = HStack(spacing: 4) {
+                let plays = HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(playCount(t))").font(.gsf(12, .medium))
                     Text("plays").font(.gsf(12)).opacity(0.6)
                 }
                 let miniScore = Text(scoreText).font(.gsf(15, .semibold)).foregroundStyle(best ? ink : s.primary)
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
                         duration; plays
                         if mini { Spacer(minLength: 4); miniScore }
                     }
@@ -1125,6 +1128,8 @@ struct AlbumScrapbookView: View {
     private func receipt(trackScores: [Double?], albumAsks: Int) -> some View {
         var rows: [(String, String)] = [("Plays in Yoin", "42"), ("Days since first play", "18"),
                                         ("Last played", "Yesterday")]
+        // What the album is, before what Yoin knows of it (Android receiptLines): when it came out, how long it runs.
+        let facts = AlbumReleaseDateText.receiptRows(album)
         if let plays {
             // AlbumScrapbook receiptLines: plays here, then the first / last play when known.
             let now = Int64(Date().timeIntervalSince1970 * 1000)
@@ -1149,6 +1154,7 @@ struct AlbumScrapbookView: View {
             rows += [("Rated", "\(ratedTracksCount) / \(album.tracks.count)"),
                      ("Notes", "\(noteCount)"), ("Asked", "\(asked)")]
         }
+        rows = facts + rows
         return VStack(alignment: .leading, spacing: 0) {
             Text("\(album.title) — \(album.artist)".uppercased())
                 .font(.system(size: 11.5, weight: .medium, design: .monospaced))

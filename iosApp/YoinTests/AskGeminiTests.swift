@@ -110,7 +110,8 @@ final class AskGeminiLoaderTests: XCTestCase {
     func test_should_showAndroidError_when_noKey() {
         let l = loader(SongAboutStore(fileURL: dir.appendingPathComponent("a.json")), key: nil)
         l.ask(title: "Starlight", artist: "Muse", album: "BH&R", question: "Q")
-        XCTAssertEqual(l.askState, .error("Gemini API key missing"))
+        // Named after the service in use (Gemini by default here; Android ai_key_missing).
+        XCTAssertEqual(l.askState, .error(AiProviderName.keyMissing("Gemini")))
         XCTAssertTrue(GeminiStubProtocol.requests.isEmpty)
         l.dismissAskError()
         XCTAssertEqual(l.askState, .idle)
