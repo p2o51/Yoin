@@ -16,11 +16,7 @@ final class ShareCardsTests: XCTestCase {
 
     private static let golden: [String: Any] = {
         let url = repo.appendingPathComponent("shared/src/commonTest/resources/golden/share-cards.json")
-        // The file's description and its About section share the key "about" (JSONSerialization keeps the
-        // first): the description is renamed before reading.
-        let raw = try! String(contentsOf: url, encoding: .utf8)
-            .replacingOccurrences(of: "\"about\": \"Golden vectors", with: "\"description\": \"Golden vectors")
-        return try! JSONSerialization.jsonObject(with: Data(raw.utf8)) as! [String: Any]
+        return try! JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
     }()
 
     private func vectors(_ section: String) -> [[String: Any]] { Self.golden[section] as! [[String: Any]] }
