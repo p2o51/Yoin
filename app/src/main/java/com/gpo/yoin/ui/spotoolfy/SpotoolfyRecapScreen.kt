@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -84,6 +83,7 @@ import com.gpo.yoin.data.migration.spotoolfy.SpotoolfyRecap
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.YoinHaptics
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBars
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.landing.guide.SpotoolfyIconTeal
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -134,7 +134,7 @@ internal fun SpotoolfyRecapScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .windowInsetsPadding(WindowInsets.topBars)
                             .windowInsetsPadding(WindowInsets.navigationBars)
                             .padding(top = TopBarHeight),
                     ) {
@@ -167,7 +167,7 @@ private fun RecapTopBar(page: Int, showPage: Boolean, onClose: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(WindowInsets.topBars)
             .height(TopBarHeight)
             .padding(start = 4.dp, end = 16.dp),
     ) {

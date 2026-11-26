@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.Icon
@@ -54,6 +52,8 @@ import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinButtonGroup
+import com.gpo.yoin.ui.experience.topBars
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.home.HomeAccountButton
 import com.gpo.yoin.ui.home.HomeAccountFanState
 import com.gpo.yoin.ui.home.HomeAccountQuickSwitch
@@ -630,7 +630,7 @@ private fun BoxScope.DemoHomePage(
                 modifier = Modifier
                     .fillMaxWidth()
                     .memoryBubblePage(bubble)
-                    .statusBarsPadding()
+                    .topBarsPadding()
                     .padding(top = 12.dp)
                     .heightIn(min = 48.dp)
                     // Over the page under it: the account fan drops out of its corner.
@@ -766,7 +766,7 @@ private fun DemoMemoriesPage(
     val metrics = remember { memoryCardMetrics(ScreenWidth, DemoScreenHeight) }
     val awards = remember { MemoriesAwardLifecycle() }
     val tilt = rememberGrooveTilt(active = false, reducedMotion = true)
-    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusTop = WindowInsets.topBars.asPaddingValues().calculateTopPadding()
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -816,7 +816,7 @@ private fun DemoMemoriesPage(
             currentDot = 0,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .statusBarsPadding()
+                .topBarsPadding()
                 .demoTarget("memoriesHome"),
         )
     }

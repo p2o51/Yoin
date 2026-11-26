@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,6 +18,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.detail.DetailBackButton
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
@@ -48,7 +48,7 @@ fun DetailErrorState(
             DetailBackButton(
                 onClick = onBack,
                 modifier = Modifier
-                    .statusBarsPadding()
+                    .topBarsPadding()
                     .padding(backPadding),
             )
         }

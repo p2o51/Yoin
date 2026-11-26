@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +53,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.theme.ScreenCorners
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -117,7 +117,7 @@ internal fun ScreenCornersPageContent(
                     .clip(RoundedCornerShape(value.dp))
                     .background(scheme.primaryContainer),
             ) {
-                Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                Column(modifier = Modifier.fillMaxSize().topBarsPadding().navigationBarsPadding()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().height(64.dp),
                         verticalAlignment = Alignment.CenterVertically,
