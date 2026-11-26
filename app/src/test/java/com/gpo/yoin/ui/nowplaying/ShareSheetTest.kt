@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -141,6 +142,37 @@ class ShareSheetTest {
         rule.onNodeWithText("Story").performClick()
         rule.waitForIdle()
         assertEquals("after Story", first, previewBoxHeight(), 0.5f)
+    }
+
+    @Test
+    fun should_offerEveryFamily_and_carryThePick_when_switchingTabs() {
+        // Owner 2026-11-26 (「放开」): About opens on its tertiary tone but offers the primary ones and Paper too.
+        val ui = ShareSheetUi()
+        show(PreviewShareContent, ShareTab.About, ShareLayoutStore.InMemory(), ui)
+        rule.onNodeWithContentDescription("Mist colours").assertIsSelected()
+        rule.onNodeWithContentDescription("Paper colours").assertExists()
+        rule.onNodeWithContentDescription("Soft colours").performClick()
+        rule.waitForIdle()
+        assertEquals(ShareTone.Soft, ui.tone)
+        rule.onNodeWithContentDescription("Soft colours").assertIsSelected()
+
+        // The pick carries to the note; Paper, which the lyrics don't have, gives them their default.
+        rule.onNodeWithTag("${ShareTabTagPrefix}${ShareTab.Note.name}").performClick()
+        rule.onNodeWithContentDescription("Soft colours").assertIsSelected()
+        rule.onNodeWithContentDescription("Paper colours").performClick()
+        rule.onNodeWithTag("${ShareTabTagPrefix}${ShareTab.Lyrics.name}").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Soft colours").assertIsSelected()
+        rule.onNodeWithContentDescription("Paper colours").assertDoesNotExist()
+    }
+
+    @Test
+    fun should_openEachTabOnItsOwnColour_when_nothingIsPicked() {
+        show(PreviewShareContent, ShareTab.Note, ShareLayoutStore.InMemory())
+        rule.onNodeWithContentDescription("Soft colours").assertIsSelected()
+        rule.onNodeWithTag("${ShareTabTagPrefix}${ShareTab.About.name}").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("Mist colours").assertIsSelected()
     }
 
     @Test

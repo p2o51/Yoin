@@ -1562,52 +1562,55 @@ struct NowPlayingView: View, Equatable {
                 ], scheme: scheme, size: keySize)
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
             } else {
-                HStack(spacing: 8) {
-                    LyricKeyRow(keys: [
-                        LyricKey(icon: "search", label: String(localized: "Search lyrics"), enabled: idle) {
-                            actions.openSearch(t)
-                        },
-                        LyricKey(icon: "translate", label: String(localized: "Translate lyrics"), enabled: idle && hasLines,
-                                 busy: actions.inFlight == .translate) {
-                            withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
-                        },
-                        // ✓ = select lines; with no lines it opens the editor (paste lyrics).
-                        LyricKey(icon: "check", label: hasLines ? String(localized: "Select lyrics") : String(localized: "Add lyrics"), enabled: idle) {
-                            if hasLines {
-                                withAnimation(Yoin.effects) {
-                                    lyricsSelected = []
-                                    lyricsSelecting = true
+                GlassEffectContainer(spacing: 0) {
+                    HStack(spacing: 8) {
+                        LyricKeyRow(keys: [
+                            LyricKey(icon: "search", label: String(localized: "Search lyrics"), enabled: idle) {
+                                actions.openSearch(t)
+                            },
+                            LyricKey(icon: "translate", label: String(localized: "Translate lyrics"), enabled: idle && hasLines,
+                                     busy: actions.inFlight == .translate) {
+                                withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
+                            },
+                            // ✓ = select lines; with no lines it opens the editor (paste lyrics).
+                            LyricKey(icon: "check", label: hasLines ? String(localized: "Select lyrics") : String(localized: "Add lyrics"), enabled: idle) {
+                                if hasLines {
+                                    withAnimation(Yoin.effects) {
+                                        lyricsSelected = []
+                                        lyricsSelecting = true
+                                    }
+                                } else {
+                                    openLyricsEditor(t)
                                 }
-                            } else {
-                                openLyricsEditor(t)
-                            }
-                        },
-                        LyricKey(icon: "recenter", label: String(localized: "Return to current line"),
-                                 enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
-                            lyricsFollow = true
-                            lyricsRecenterTick += 1
-                        },
-                    ], scheme: scheme, size: keySize)
-                    if showSing {
-                        SingLyricsCapsuleKey(
-                            phase: model.sing.phase,
-                            level: model.sing.sliderPosition,
-                            failureTick: model.sing.failureTick,
-                            scheme: scheme,
-                            keySize: keySize,
-                            haptics: demo == nil,
-                            onToggle: {
-                                model.sing.toggle(track: t, openLyrics: false)
                             },
-                            onLevelChange: { nextLevel in
-                                model.sing.setSliderPosition(nextLevel)
+                            LyricKey(icon: "recenter", label: String(localized: "Return to current line"),
+                                     enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
+                                lyricsFollow = true
+                                lyricsRecenterTick += 1
                             },
-                            onExit: {
-                                model.sing.exit()
-                            }
-                        )
+                        ], scheme: scheme, size: keySize)
+                        if showSing {
+                            SingLyricsCapsuleKey(
+                                phase: model.sing.phase,
+                                level: model.sing.sliderPosition,
+                                failureTick: model.sing.failureTick,
+                                scheme: scheme,
+                                keySize: keySize,
+                                haptics: demo == nil,
+                                onToggle: {
+                                    model.sing.toggle(track: t, openLyrics: false)
+                                },
+                                onLevelChange: { nextLevel in
+                                    model.sing.setSliderPosition(nextLevel)
+                                },
+                                onExit: {
+                                    model.sing.exit()
+                                }
+                            )
+                        }
                     }
                 }
+                .animation(Yoin.spatial, value: model.sing.isActive)
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
             }
         }
@@ -1790,7 +1793,7 @@ struct NowPlayingView: View, Equatable {
     private func shareSheet(_ item: ShareSheetItem) -> some View {
         let window = ShareSheetView.keyWindowSize()
         let sheet = ShareSheetView(item: item, scheme: scheme, window: window,
-                                   initialFormat: ShareSheetDemo.format, initialToneSlot: ShareSheetDemo.toneSlot,
+                                   initialFormat: ShareSheetDemo.format, initialTone: ShareSheetDemo.tone,
                                    onShared: {
                                        if item.initialTab == .lyrics, lyricsSelecting {
                                            withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
@@ -2695,9 +2698,7 @@ struct NowPlayingView: View, Equatable {
                         .layoutPriority(1)
                     CappedWidth(cap: g.size.width * Tokens.np.HERO_ONE_LINE_ARTIST_SHARE.cg) {
                         routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
-                            Text(p.album.artist)
-                                .font(.gsf(14.4, .medium))
-                                .foregroundStyle(scheme.onSurfaceVariant)
+                            artistLine(p, font: .gsf(14.4, .medium))
                                 .animation(Self.heroStretchSpring) {
                                     $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
                                 }
@@ -2718,9 +2719,7 @@ struct NowPlayingView: View, Equatable {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
-                        Text(p.album.artist)
-                            .font(.gsf(14.4, .medium))
-                            .foregroundStyle(scheme.onSurfaceVariant)
+                        artistLine(p, font: .gsf(14.4, .medium))
                             .frame(height: 24, alignment: .leading)
                             .animation(Self.heroStretchSpring) {
                                 $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
@@ -2747,6 +2746,21 @@ struct NowPlayingView: View, Equatable {
         }
     }
 
+    /// The artist, with the release's EP / Single and version tags after it scrolling with it as one marquee unit
+    /// (owner 2026-11-26, iOS option B: the title keeps only the E); the artist alone without tags.
+    @ViewBuilder
+    private func artistLine(_ p: PlaybackSnapshot, font: Font, role: YoinTokens.TypographyStyle? = nil) -> some View {
+        let tags = ReleaseTags.tags(p.album)
+        if tags.isEmpty, let role {
+            Text(p.album.artist).yoinRole(role).foregroundStyle(scheme.onSurfaceVariant)
+        } else if tags.isEmpty {
+            Text(p.album.artist).font(font).foregroundStyle(scheme.onSurfaceVariant)
+        } else {
+            MarqueeText(text: p.album.artist, font: font, color: scheme.onSurfaceVariant,
+                        initialDelay: 1.5, repeatDelay: 2, edgeFade: 28, tags: tags, tagScheme: scheme)
+        }
+    }
+
     /// The song's format after the artist: the engine's song's, or the demo phone's.
     private var formatTags: [String]? { demo != nil ? demo?.formatTag.map { [$0] } : model.player.currentTrack?.formatTags }
     /// "Spatial" after the format tags while the output spatializes the song (Android NowPlayingFormatTags).
@@ -2756,8 +2770,13 @@ struct NowPlayingView: View, Equatable {
     /// it scales down to the pill's 15 pt so the glyphs line up.
     private func heroTitle(_ p: PlaybackSnapshot) -> some View {
         let script = YoinCJKScript.detect(forLines: [p.track.title, p.track.artist ?? ""])
-        return MarqueeText(text: p.track.title, font: .gsf(36, script: script), color: scheme.onSurface,
-                           initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
+        // The "E" right after the title (Android PR #343), at the title's x-height (hero, at most 18): fixed, never
+        // scrolling away; the marquee scrolls in the room it leaves (owner 2026-11-26, iOS option B).
+        return ExplicitTitle(text: p.track.title, explicit: p.track.isExplicit, fontSize: 36, hero: true,
+                             color: scheme.onSurfaceVariant) {
+            MarqueeText(text: p.track.title, font: .gsf(36, script: script), color: scheme.onSurface,
+                        initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
+        }
             .animation(Self.heroStretchSpring) { $0.scaleEffect(x: titleStretch(p), y: 1, anchor: .leading) }
             .scaleEffect(open ? 1 : Self.titleFoldScale, anchor: .leading)
             .matchedGeometryEffect(id: panel ? "np.title.panel" : "np.title", in: npNamespace,
@@ -4107,9 +4126,8 @@ extension NowPlayingView {
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 routeLink(artistRoute(p), label: String(localized: "Go to artist")) {
-                    Text(p.album.artist)
-                        .yoinRole(Tokens.type.titleMedium)
-                        .foregroundStyle(scheme.onSurfaceVariant)
+                    artistLine(p, font: .gsf(Tokens.type.titleMedium.size.cg, Font.Weight(gsf: Tokens.type.titleMedium.weight)),
+                               role: Tokens.type.titleMedium)
                         .animation(Self.heroStretchSpring) {
                             $0.scaleEffect(x: artistStretch(p), y: 1, anchor: .leading)
                         }
@@ -4127,18 +4145,27 @@ extension NowPlayingView {
             .animation(Yoin.effects, value: spatialTag)
             routeLink(albumRoute(p), label: String(localized: "Go to album")) {
                 let titleScript = YoinCJKScript.detect(forLines: [p.track.title, p.track.artist ?? ""])
+                let size = Tokens.type.headlineMedium.size.cg
                 Group {
                     if twoLines {
-                        Text(p.track.title)
-                            .font(.gsf(Tokens.type.headlineMedium.size.cg, script: titleScript))
+                        // Two lines: the E rides inline after the last word (Apple Music's way).
+                        (Text(p.track.title)
+                            + (p.track.isExplicit ? ExplicitBadgeText.text(fontSize: size, hero: true,
+                                                                           color: scheme.onSurfaceVariant) : Text("")))
+                            .font(.gsf(size, script: titleScript))
                             .lineSpacing(YoinType.lineSpacing(Tokens.type.headlineMedium))
                             .foregroundStyle(scheme.onSurface)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
+                            .accessibilityLabel(p.track.isExplicit
+                                ? Text(verbatim: p.track.title) + Text(verbatim: ", ") + Text("Explicit")
+                                : Text(verbatim: p.track.title))
                     } else {
-                        MarqueeText(text: p.track.title,
-                                    font: .gsf(Tokens.type.headlineMedium.size.cg, script: titleScript),
-                                    color: scheme.onSurface, initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
+                        ExplicitTitle(text: p.track.title, explicit: p.track.isExplicit, fontSize: size, hero: true,
+                                      color: scheme.onSurfaceVariant) {
+                            MarqueeText(text: p.track.title, font: .gsf(size, script: titleScript),
+                                        color: scheme.onSurface, initialDelay: 1.5, repeatDelay: 2, edgeFade: 28)
+                        }
                     }
                 }
                 .animation(Self.heroStretchSpring) {

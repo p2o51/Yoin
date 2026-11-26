@@ -30,7 +30,33 @@ struct MockLibrary: MusicLibrary, PlaybackSource {
                      tracks: list, rating: rating)
     }
 
-    static let allAlbums: [Album] = [
+    static let allAlbums: [Album] = explicitDemo(baseAlbums)
+
+    /// `-explicitDemo YES` (DEBUG, screenshots of Android PR #343's port): the first album an explicit EP with a
+    /// version (Now Playing's song, the third, explicit too), the second a single, the fourth an explicit deluxe
+    /// album, the sixth a compilation, the ninth explicit, so Library's kind filter, the E after titles, the
+    /// header's real kind and Now Playing's artist-line tags all show on mock content.
+    private static func explicitDemo(_ albums: [Album]) -> [Album] {
+        #if DEBUG
+        guard UserDefaults.standard.bool(forKey: "explicitDemo") else { return albums }
+        var a = albums
+        a[0].kind = .ep
+        a[0].version = "Dolby Atmos"
+        a[0].contentRating = .explicit
+        for i in [0, 2, 5] { a[0].tracks[i].contentRating = .explicit }
+        a[1].kind = .single
+        a[3].contentRating = .explicit
+        a[3].version = "Deluxe"
+        a[3].tracks[0].contentRating = .explicit
+        a[5].kind = .compilation
+        a[8].contentRating = .explicit
+        return a
+        #else
+        return albums
+        #endif
+    }
+
+    private static let baseAlbums: [Album] = [
         album(1, "Afterglow Letters", "Mina Asahi", 2024, 0x7A4FD6, 0xF2A1C8, 0x1E2A5A,
               tracks: ["Paper Moon", "Late Bus", "余韻", "Window Seat", "Soft Static", "Kites in July",
                        "Hallway Light", "Ninety Days", "Glass Harbor", "Small Hours", "Undertow", "Goodnight, Again"],

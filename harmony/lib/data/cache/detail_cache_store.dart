@@ -82,14 +82,14 @@ final class DetailCacheStore {
   // ---------------------------------------------------------------- typed API
 
   Future<Cached<Album>?> readAlbum(String profileId, String id) =>
-      _read(profileId, kindAlbum, id, DetailCacheJson.albumFrom);
+      _read(profileId, kindAlbum, id, DetailCacheJson.cachedAlbumFrom);
 
   /// [stillCurrent] guards a background write; see [_write].
   Future<void> writeAlbum(String profileId, String id, Album value, {bool Function()? stillCurrent}) =>
       _write(profileId, kindAlbum, id, stillCurrent, () => DetailCacheJson.album(value));
 
   Future<Cached<ArtistDetail>?> readArtist(String profileId, String id) =>
-      _read(profileId, kindArtist, id, DetailCacheJson.artistFrom);
+      _read(profileId, kindArtist, id, DetailCacheJson.cachedArtistFrom);
 
   Future<void> writeArtist(String profileId, String id, ArtistDetail value, {bool Function()? stillCurrent}) =>
       _write(profileId, kindArtist, id, stillCurrent, () => DetailCacheJson.artist(value));

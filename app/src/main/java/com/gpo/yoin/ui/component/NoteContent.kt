@@ -1,7 +1,5 @@
 package com.gpo.yoin.ui.component
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.material3.IconButton
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
@@ -60,7 +58,6 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -75,6 +72,7 @@ import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.shared.notes.NoteMention
 import com.gpo.yoin.ui.notes.editor.EchoGuard
 import com.gpo.yoin.ui.notes.editor.NoteEditorState
+import com.gpo.yoin.ui.notes.editor.noteEditorColors
 import com.gpo.yoin.ui.notes.editor.NoteFormatToolbar
 import com.gpo.yoin.ui.notes.editor.NoteMarkupField
 import com.gpo.yoin.ui.notes.editor.noteEditorContainer
@@ -438,8 +436,8 @@ class NoteWriteBarState internal constructor(val draftState: NoteDraftState) {
 fun rememberNoteWriteBarState(draftState: NoteDraftState): NoteWriteBarState =
     remember(draftState) { NoteWriteBarState(draftState) }
 
-/** 记下 is live with words to file, or for an edit that changed (emptied, it deletes the note). */
-internal val NoteDraft.canSave: Boolean get() = if (isEditing) !isUntouchedEdit else text.isNotBlank()
+/** 记下 is live with words to file. */
+internal val NoteDraft.canSave: Boolean get() = text.isNotBlank()
 
 /** The bar is open while it has focus or holds unsaved words. */
 internal fun noteWriteBarOpen(focused: Boolean, draftText: String): Boolean = focused || draftText.isNotEmpty()
@@ -482,10 +480,12 @@ internal fun showNoteRealignHint(anchorMs: Long?, positionMs: Long): Boolean =
  * [inline] (the landscape phone, where the keyboard leaves little height)
  * puts 记下 at the end of the line and keeps the card to 3 lines (no footer).
  * [focusGate] holds a pending [NoteWriteBarState.requestWriting] until the
- * host's page has landed. [onShareEditing]: a note opened for editing (its long press) and not yet
- * changed offers Share as image in the card's top-right corner (owner 2026-11-25; not in the formatting
- * row, whose tools keep their room) — the keyboard goes, the edit closes unchanged, and the host opens its
- * share sheet on that note.
+ * host's page has landed.
+ *
+ * At rest the capsule is the listener's own colour, filled ([filledAtRest], Now Playing's Note page:
+ * primary, the live moment in tabular digits so it never jitters as the seconds tick); writing, the card
+ * turns back to the light veil it is written on. Editing a saved note is the note menu's job (a long press
+ * on the note), not the bar's.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -497,7 +497,7 @@ fun NoteWriteBar(
     modifier: Modifier = Modifier,
     inline: Boolean = false,
     focusGate: Boolean = true,
-    onShareEditing: ((noteId: String) -> Unit)? = null,
+    filledAtRest: Boolean = false,
 ) {
     val draftState = state.draftState
     val draft = draftState.draft
@@ -541,13 +541,6 @@ fun NoteWriteBar(
     DisposableEffect(state) {
         onDispose { state.focused = false }
     }
-    // A note line long-pressed for editing: its words are in the draft; take the keyboard.
-    LaunchedEffect(draftState.pendingEditFocus) {
-        if (draftState.pendingEditFocus) {
-            draftState.pendingEditFocus = false
-            state.requestWriting()
-        }
-    }
     LaunchedEffect(state.pendingFocus, focusGate) {
         if (state.pendingFocus && focusGate) {
             state.pendingFocus = false
@@ -564,12 +557,7 @@ fun NoteWriteBar(
             !state.focused -> imeShown = false
             imeVisible -> imeShown = true
             else -> {
-                val draftNow = draftState.draft
-                if (imeShown && draftNow.isUntouchedEdit) {
-                    // An edit put away unchanged closes: the bar returns to its capsule, the note as it was.
-                    draftState.cancelEdit(currentTarget, latestPosition())
-                    focusManager.clearFocus()
-                } else if (shouldCollapseNoteWriteBar(imeShown, imeVisible, draftNow.text.isEmpty())) {
+                if (shouldCollapseNoteWriteBar(imeShown, imeVisible, draftState.draft.text.isEmpty())) {
                     focusManager.clearFocus()
                 }
                 imeShown = false
@@ -598,6 +586,19 @@ fun NoteWriteBar(
     }
     val cardInteraction = remember { MutableInteractionSource() }
     val writeBarLabel = stringResource(R.string.cmp_note_write_bar_cd)
+    // Filled at rest (the listener's own colour), the light veil while writing; a colour change, so the
+    // effects spring.
+    val filled = filledAtRest && !open
+    val barColor by animateColorAsState(
+        targetValue = if (filled) scheme.primary else scheme.surfaceContainerHigh.copy(alpha = 0.92f),
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteWriteBarColor",
+    )
+    val barContent by animateColorAsState(
+        targetValue = if (filled) scheme.onPrimary else scheme.onSurface,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteWriteBarContent",
+    )
 
     val stampSlot: @Composable () -> Unit = {
         NoteStampChip(
@@ -607,6 +608,7 @@ fun NoteWriteBar(
             carried = carried,
             hasWords = draft.text.isNotBlank(),
             positionMs = positionMs,
+            onFilled = filled,
             onClick = {
                 if (open) {
                     haptics.performTick()
@@ -629,7 +631,10 @@ fun NoteWriteBar(
                     if (focus.isFocused) draftState.followIfEmpty(currentTarget, latestPosition())
                 },
             textStyle = MaterialTheme.typography.bodyLarge,
+            colors = noteEditorColors(text = barContent),
             placeholder = stringResource(R.string.cmp_note_placeholder),
+            // On the filled capsule "Write a note" is its label, read in full.
+            placeholderColor = if (filled) barContent else null,
             lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = minLines, maxHeightInLines = maxLines),
             onTextLayout = { layout ->
                 lineCount = layout.lineCount
@@ -642,43 +647,11 @@ fun NoteWriteBar(
             !open -> Icon(
                 imageVector = YoinSymbols.Edit,
                 contentDescription = null,
-                tint = scheme.onSurfaceVariant,
+                tint = if (filledAtRest) barContent else scheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
             inline -> NoteSavePill(enabled = draft.canSave, onClick = save)
-            // The open card's top-right corner, beside the first line: a note opened for editing and not yet
-            // changed offers Share there — never in the formatting row, whose tools keep their room.
-            else -> {
-                val shareId = draft.editingNoteId?.takeIf { draft.isUntouchedEdit }
-                AnimatedVisibility(
-                    visible = onShareEditing != null && shareId != null,
-                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-                        YoinMotion.expandHorizontally(role = YoinMotionRole.Standard),
-                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
-                        YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard),
-                ) {
-                    IconButton(
-                        onClick = {
-                            val id = shareId ?: return@IconButton
-                            haptics.performContextClick()
-                            // The keyboard going closes the unchanged edit (see above).
-                            focusManager.clearFocus()
-                            onShareEditing?.invoke(id)
-                        },
-                        modifier = Modifier
-                            .size(NoteShareButtonSize)
-                            .handPointer()
-                            .testTag(NoteShareButtonTag),
-                    ) {
-                        Icon(
-                            imageVector = YoinSymbols.Share,
-                            contentDescription = stringResource(R.string.np_share_sheet_title),
-                            tint = scheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-            }
+            else -> Unit
         }
     }
     val footerSlot: @Composable () -> Unit = {
@@ -709,8 +682,8 @@ fun NoteWriteBar(
                 shape = RoundedCornerShape(corner.value)
                 clip = true
             }
-            // Over the aurora: a light veil, not another solid grey block.
-            .background(scheme.surfaceContainerHigh.copy(alpha = 0.92f))
+            // Over the aurora: a light veil while writing, not another solid grey block.
+            .background(barColor)
             .pointerPressPreview(cardInteraction, enabled = !open)
             .noRippleClickable(
                 interactionSource = cardInteraction,
@@ -813,6 +786,8 @@ private fun NoteStampChip(
     hasWords: Boolean,
     positionMs: () -> Long,
     onClick: () -> Unit,
+    // On the filled capsule at rest: the chip in the capsule's own content colour.
+    onFilled: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val scheme = MaterialTheme.colorScheme
@@ -826,7 +801,7 @@ private fun NoteStampChip(
         modifier = Modifier
             .height(36.dp)
             .clip(YoinShapeTokens.Full)
-            .background(scheme.primary.copy(alpha = 0.12f))
+            .background(if (onFilled) scheme.onPrimary.copy(alpha = 0.16f) else scheme.primary.copy(alpha = 0.12f))
             .pointerPressPreview(interaction)
             .noRippleClickable(
                 interactionSource = interaction,
@@ -865,7 +840,11 @@ private fun NoteStampChip(
                 color = scheme.primary,
             )
         } else {
-            LivePositionText(positionMs = positionMs, style = style, color = scheme.primary)
+            LivePositionText(
+                positionMs = positionMs,
+                style = style,
+                color = if (onFilled) scheme.onPrimary else scheme.primary,
+            )
         }
     }
 }
@@ -1095,5 +1074,3 @@ private fun NoteWriteBarOpenPreview() {
     }
 }
 
-internal const val NoteShareButtonTag = "noteShare"
-private val NoteShareButtonSize = 36.dp

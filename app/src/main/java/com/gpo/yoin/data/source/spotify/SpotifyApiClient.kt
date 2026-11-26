@@ -955,11 +955,11 @@ class SpotifyApiClient(
          * [SpotifyTrackObject] and [SpotifySimplifiedAlbumObject] decode, under both the
          * February 2026 names (`items` / `item`) and the deprecated ones (`tracks` / `track`).
          * Dropped: `available_markets` (the bulk of a page), `added_at` / `added_by`, `popularity`,
-         * `explicit`, `preview_url`, `is_playable`, `linked_from` and the like, which nothing decodes.
+         * `preview_url`, `is_playable`, `linked_from` and the like, which nothing decodes.
          * A field added to those DTOs must be added here too, or it decodes as its default.
          */
         internal const val PLAYLIST_TRACK_FIELDS =
-            "id,name,uri,duration_ms,track_number,type,is_local,external_ids(isrc)," +
+            "id,name,uri,duration_ms,track_number,type,is_local,explicit,external_ids(isrc)," +
                 "artists(id,name,uri,external_urls)," +
                 "album(id,name,uri,artists(id,name,uri,external_urls),images,total_tracks,release_date," +
                 "release_date_precision,album_type)"

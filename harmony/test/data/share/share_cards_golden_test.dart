@@ -36,6 +36,7 @@ const _sections = [
   'note',
   'time',
   'tones',
+  'toneOffer',
   'retone',
   'storyZoom',
   'storyFits',
@@ -241,6 +242,14 @@ Map<String, Object?> _outputs(String section, Map<String, dynamic> v, Map<String
         'content': _inkJson(colors.content),
         'backdrop': _inkJson(colors.backdrop),
       };
+    case 'toneOffer':
+      final tab = ShareTab.values.firstWhere((t) => t.storeKey == v['tab']);
+      final picked = v['picked'] == null ? null : ShareTone.values.firstWhere((t) => t.kotlinName == v['picked']);
+      return {
+        'tones': [for (final t in YoinShareCards.tones(tab)) t.kotlinName],
+        'default': YoinShareCards.defaultTone(tab).kotlinName,
+        'resolved': YoinShareCards.resolveTone(tab, picked).kotlinName,
+      };
     case 'retone':
       return {'retoned': _hex(YoinShareCards.retone(_argbOf(v['argb'] as String), v['tone'] as int))};
     case 'storyZoom':
@@ -302,6 +311,7 @@ Map<String, Object?> _constants() => {
   'roleTones': {
     for (final role in ShareRole.values) role.kotlinName: [for (final t in role.tones()) t.kotlinName],
   },
+  'roleDefaultTones': {for (final role in ShareRole.values) role.kotlinName: role.defaultTone.kotlinName},
   'cardDesignWidthDp': YoinShareCards.cardDesignWidthDp,
   'storyDesignWidthDp': YoinShareCards.storyDesignWidthDp,
   'storyDesignHeightDp': YoinShareCards.storyDesignHeightDp,

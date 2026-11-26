@@ -24,14 +24,19 @@ final class BackdropColors {
   int get hashCode => Object.hash(base, accent);
 }
 
-/// Extracts and caches backdrop colours per cover (96 entries, keyed by the
-/// cover URL). Decoding reuses the image the card shows (same provider key,
-/// so the image cache serves it); quantising runs off the UI thread.
+/// Extracts and caches backdrop colours per cover (keyed by the cover URL).
+/// Decoding reuses the image the card shows (same provider key, so the image
+/// cache serves it); quantising runs off the UI thread, at most
+/// [PalettePasses.maxRunning] at once.
+///
+/// [capacity]: an entry is two colours, so the cache holds a big Library's
+/// whole shelf (Android BackdropPaletteCacheSize 1024, PR #343): scrolling
+/// back over covers already read never reads them again.
 ///
 /// TODO(harmony): Now Playing needs the same extractor (CoverSeedExtractor);
 /// move this to lib/ui once that area agrees on one service.
 class CoverPaletteCache {
-  CoverPaletteCache({this.capacity = 256, CoverColorStore? persistent}) : _persistent = persistent;
+  CoverPaletteCache({this.capacity = 1024, CoverColorStore? persistent}) : _persistent = persistent;
 
   static final CoverPaletteCache instance = CoverPaletteCache();
 
@@ -127,14 +132,53 @@ class CoverPaletteCache {
     final image = await completer.future;
     if (image == null) return null;
     try {
-      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      if (data == null) return null;
-      final result = await compute(extractBackdropArgb, data.buffer.asUint8List());
-      return result == null ? null : BackdropColors(Color(result.$1), Color(result.$2));
+      // Never more than two passes at once: a Library grid asks for a screenful of covers the moment a
+      // fling settles (Android BackdropPaletteDispatcher, limitedParallelism(2)).
+      return await PalettePasses.instance.run(() async {
+        final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+        if (data == null) return null;
+        final result = await compute(extractBackdropArgb, data.buffer.asUint8List());
+        return result == null ? null : BackdropColors(Color(result.$1), Color(result.$2));
+      });
     } catch (_) {
       return null;
     } finally {
       image.dispose();
+    }
+  }
+}
+
+/// Runs palette passes at most [maxRunning] at a time, the rest waiting in order.
+class PalettePasses {
+  PalettePasses({this.maxRunning = 2});
+
+  static final PalettePasses instance = PalettePasses();
+
+  final int maxRunning;
+  int _running = 0;
+  final Queue<Completer<void>> _waiting = Queue();
+
+  /// Passes running now (for tests).
+  @visibleForTesting
+  int get running => _running;
+
+  Future<T> run<T>(Future<T> Function() pass) async {
+    if (_running >= maxRunning) {
+      final turn = Completer<void>();
+      _waiting.add(turn);
+      await turn.future;
+    } else {
+      _running++;
+    }
+    try {
+      return await pass();
+    } finally {
+      if (_waiting.isNotEmpty) {
+        // The slot passes straight to the next pass in line.
+        _waiting.removeFirst().complete();
+      } else {
+        _running--;
+      }
     }
   }
 }

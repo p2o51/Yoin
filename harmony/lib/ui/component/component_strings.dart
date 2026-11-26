@@ -13,6 +13,9 @@ class ComponentStrings {
 
   static const en = ComponentStrings._(false);
 
+  /// The Explicit "E" after a title, for the screen reader (ExplicitBadge).
+  String get explicitBadge => zh ? '含不雅内容' : 'Explicit'; // cmp_explicit_badge_cd
+
   // Queue sheet editing (strings_component.xml).
   String get keepScreenOn => zh ? '屏幕常亮' : 'Keep screen on'; // np_keep_screen_on
   String get queueClear => zh ? '清除' : 'Clear'; // cmp_queue_clear

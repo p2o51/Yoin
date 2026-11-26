@@ -48,4 +48,6 @@ data class PlaylistSong(
      * [PlaylistDetailViewModel.removeTrack] takes it.
      */
     val rowKey: String,
+    /** The service marks the song explicit: the row wears the "E" badge after its title. */
+    val isExplicit: Boolean = false,
 )

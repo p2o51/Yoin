@@ -383,6 +383,7 @@ class PlaylistDetailViewModel(
                     repository.resolveCoverUrl(it, size = ROW_COVER_SIZE)
                 },
                 rowKey = entry.key,
+                isExplicit = song.isExplicit,
             )
         }
         // The hero's sleeves: the rows' own album covers (same urls, so

@@ -55,7 +55,16 @@ data class Album(
      * any AI. Null when the service has none.
      */
     val editorialNotes: String? = null,
+    /**
+     * Explicit or clean as the service marks the release (Apple Music's own rating; on Spotify
+     * derived from the tracks, [ContentRating.fromTracks]); null = unknown.
+     */
+    val contentRating: ContentRating? = null,
 ) {
+    /** The service marks the release explicit: it wears the "E" badge after its name. */
+    val isExplicit: Boolean
+        get() = contentRating == ContentRating.Explicit
+
     /**
      * [name] without the " (version)" a server appends to it (Navidrome's
      * Subsonic.AppendAlbumVersion, on by default), for where [version] is shown
@@ -75,15 +84,11 @@ fun albumNameWithoutVersion(name: String, version: String?): String {
 
 /**
  * Release kinds a provider can report (Spotify `album_type`, OpenSubsonic
- * `releaseTypes`). Only ever set from provider data — never guessed from the
- * track count — so a null means "don't label it".
+ * `releaseTypes`, Apple Music's flags and " - EP" / " - Single"). Only ever set from provider data — never
+ * guessed from the track count — so a null means "don't label it". The type and the readers live in :shared
+ * (`com.gpo.yoin.shared.release`, golden release-marks.json).
  */
-enum class ReleaseType {
-    Album,
-    EP,
-    Single,
-    Compilation,
-}
+typealias ReleaseType = com.gpo.yoin.shared.release.ReleaseType
 
 /**
  * A release date at the precision the service gave it: the year always, then

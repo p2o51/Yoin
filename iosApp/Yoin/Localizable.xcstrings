@@ -1121,6 +1121,17 @@
       }
     },
     "AIza…": {},
+    "Explicit": {
+      "comment": "VoiceOver for the E badge after an explicit song's or release's title (Android cmp_explicit_badge_cd; zh owner 2026-11-26)",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含不雅内容"
+          }
+        }
+      }
+    },
     "Album": {
       "localizations": {
         "zh-Hans": {
@@ -6150,12 +6161,14 @@
         }
       }
     },
-    "Song info, Ask Gemini, translation and Memory titles": {
+    "Song info, Ask %@, translation and Memory titles": {
+      "comment": "Settings › AI features before a key is set; %@ = the AI service chosen (Android settings_gemini_summary_empty)",
+      "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "歌曲信息、问 Gemini、歌词翻译与 Memories 标⁠题"
+            "value": "歌曲信息、问 %@、歌词翻译与 Memories 标⁠题"
           }
         }
       }
@@ -10188,12 +10201,14 @@
         }
       }
     },
-    "Memory titles, About and Ask": {
+    "Memory titles, About and Ask %@": {
+      "comment": "Cloud sync › What syncs; %@ = the AI service chosen (its Ask answers sync)",
+      "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Memories 标题、歌曲信息与问 Gemini"
+            "value": "Memories 标题、歌曲信息与问 %@"
           }
         }
       }

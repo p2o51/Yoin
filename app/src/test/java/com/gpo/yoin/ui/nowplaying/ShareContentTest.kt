@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.shared.share.YoinShareCards
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,7 +15,7 @@ import org.junit.Test
 /**
  * The share sheet's rules (owner 2026-11-25): which layouts a tab offers (竖排 for CJK lines only), what a
  * Poster draws (four lines at most, the translation as one line), the Player's excerpt (≥ 6% of the bar),
- * the role's tones (Paper replaces Mist for About and Note), what About shares (credits and one AI
+ * the tones (every family on every tab, About and Note add Paper; each tab opens on its role's colour), what About shares (credits and one AI
  * paragraph — no file facts, no listener entries), and which note.
  */
 class ShareContentTest {
@@ -106,8 +107,9 @@ class ShareContentTest {
             surfaceContainerLowest = Color(0xFFFFFFFF),
         )
         assertEquals(listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Mist), ShareRole.Lyrics.tones())
-        assertEquals(listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Paper), ShareRole.Ai.tones())
-        assertEquals(listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Paper), ShareRole.Own.tones())
+        val all = listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Mist, ShareTone.Paper)
+        assertEquals(all, ShareRole.Ai.tones())
+        assertEquals(all, ShareRole.Own.tones())
 
         val aboutPaper = ShareTone.Paper.colors(scheme, ShareRole.Ai)
         assertEquals(PaperCard, aboutPaper.card)
@@ -115,10 +117,13 @@ class ShareContentTest {
         val notePaper = ShareTone.Paper.colors(scheme, ShareRole.Own)
         assertEquals(PaperCard, notePaper.card)
         assertEquals(paperInk(scheme.primary), notePaper.content)
-        // About is tertiary all through, a note primary.
-        assertEquals(scheme.tertiaryContainer, ShareTone.Soft.colors(scheme, ShareRole.Ai).card)
-        assertEquals(scheme.primaryContainer, ShareTone.Soft.colors(scheme, ShareRole.Own).card)
-        // The lyrics keep Mist in the fourth slot, whichever it is asked by.
+        // Every family on every tab (owner 2026-11-26): About can be primary, a note tertiary.
+        assertEquals(scheme.primaryContainer, ShareTone.Soft.colors(scheme, ShareRole.Ai).card)
+        assertEquals(scheme.tertiaryContainer, ShareTone.Mist.colors(scheme, ShareRole.Own).card)
+        // The defaults keep the colour rule: About opens tertiary, a note primary.
+        assertEquals(scheme.tertiaryContainer, YoinShareCards.defaultTone(ShareTab.About).colors(scheme, ShareRole.Ai).card)
+        assertEquals(scheme.primaryContainer, YoinShareCards.defaultTone(ShareTab.Note).colors(scheme, ShareRole.Own).card)
+        // The lyrics don't offer Paper; asked for it, they draw Mist.
         assertEquals(scheme.tertiaryContainer, ShareTone.Paper.colors(scheme, ShareRole.Lyrics).card)
     }
 

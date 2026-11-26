@@ -619,7 +619,7 @@ struct CloudSyncView: View {
     static var syncedLines: [String] {
         [String(localized: "Notes on songs"),
          String(localized: "Song and album ratings, album reviews"),
-         String(localized: "Memory titles, About and Ask"),
+         AiProviderName.syncedAboutAndAsk(AiProviderName.current),
          String(localized: "Home layout"),
          String(localized: "AI lyric translations"),
          String(localized: "Playlist cloud backups"),

@@ -253,12 +253,23 @@ class _Content extends ConsumerWidget {
                     emptyText: strings.emptyAll,
                     loading: !state.allSettled,
                   ),
-                  LibraryTab.artists || LibraryTab.albums => LibraryGridView(
+                  LibraryTab.artists => LibraryGridView(
                     tab: tab,
                     view: state.sorted.of(tab),
                     sort: state.sortOf(tab),
                     controller: scrolls[tab]! as LibraryGridScrollController,
-                    emptyText: tab == LibraryTab.artists ? strings.emptyArtists : strings.emptyAlbums,
+                    emptyText: strings.emptyArtists,
+                  ),
+                  // EP and album apart (owner 2026-11-26): the kind filter, offered with 2+ kinds.
+                  LibraryTab.albums => LibraryGridView(
+                    tab: tab,
+                    view: state.shownAlbums,
+                    sort: state.sortOf(tab),
+                    controller: scrolls[tab]! as LibraryGridScrollController,
+                    emptyText: strings.emptyAlbums,
+                    kindFilters: state.albumKindFilters,
+                    kindFilter: state.activeAlbumKindFilter,
+                    onKindFilter: vm.selectAlbumKindFilter,
                   ),
                   LibraryTab.playlists => Stack(
                     fit: StackFit.expand,

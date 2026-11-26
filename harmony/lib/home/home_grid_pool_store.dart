@@ -11,7 +11,8 @@ import '../platform/storage/stores.dart';
 /// home_grid_pool_cache). Slim rows only — id, title, artist, cover storage
 /// key, album id, duration, version, and a song's album name and artist id
 /// (so a song played from the cache opens its artist in Now Playing; Android
-/// drops it and asks the service again) — never resolved cover URLs
+/// drops it and asks the service again), and an album's or song's explicit /
+/// clean mark ('cr', for the "E"; absent on rows from before it: unknown) — never resolved cover URLs
 /// (Subsonic URLs carry credentials).
 final class HomeGridPools {
   const HomeGridPools({this.albums = const [], this.tracks = const [], this.playlists = const [], required this.cachedAtMs});
@@ -28,7 +29,14 @@ final class HomeGridPools {
         'at': cachedAtMs,
         'albums': [
           for (final a in albums)
-            {'id': a.id.rawId, 'n': a.name, 'a': a.artist, 'c': a.coverArt?.storageKey, 'v': a.version},
+            {
+              'id': a.id.rawId,
+              'n': a.name,
+              'a': a.artist,
+              'c': a.coverArt?.storageKey,
+              'v': a.version,
+              'cr': ?a.contentRating?.storageName,
+            },
         ],
         'tracks': [
           for (final t in tracks)
@@ -41,6 +49,7 @@ final class HomeGridPools {
               'an': ?t.album,
               'ar': ?t.artistId?.rawId,
               'd': t.durationSec,
+              'cr': ?t.contentRating?.storageName,
             },
         ],
         'playlists': [
@@ -63,6 +72,10 @@ final class HomeGridPools {
             artist: r['a'] as String?,
             coverArt: CoverRef.fromStorageKey(r['c'] as String?),
             version: r['v'] as String?,
+            contentRating: switch (r['cr']) {
+              final String name => ContentRating.fromStorage(name),
+              _ => null,
+            },
           ),
       ],
       tracks: [
@@ -76,6 +89,10 @@ final class HomeGridPools {
             album: r['an'] as String?,
             artistId: r['ar'] == null ? null : id(r['ar']),
             durationSec: r['d'] as int?,
+            contentRating: switch (r['cr']) {
+              final String name => ContentRating.fromStorage(name),
+              _ => null,
+            },
           ),
       ],
       playlists: [

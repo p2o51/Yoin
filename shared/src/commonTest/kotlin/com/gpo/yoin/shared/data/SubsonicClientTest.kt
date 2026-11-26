@@ -5,6 +5,7 @@ import com.gpo.yoin.shared.data.subsonic.AlbumListType
 import com.gpo.yoin.shared.data.subsonic.SubsonicClient
 import com.gpo.yoin.shared.data.subsonic.SubsonicErrorKind
 import com.gpo.yoin.shared.data.subsonic.SubsonicException
+import com.gpo.yoin.shared.release.ContentRating
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
@@ -290,6 +291,24 @@ class SubsonicClientTest {
         assertTrue(old.recordLabels.isEmpty())
         val none = assertNotNull(client(routes = mapOf("getAlbum" to SubsonicFixtures.albumNoCover)).getAlbum("al-9"))
         assertNull(none.originalReleaseDate)
+    }
+
+    @Test
+    fun should_readTheExplicitMark_when_openSubsonicSendsExplicitStatus() = runTest {
+        // Android PR #343: OpenSubsonic explicitStatus on the album and each song ("" / absent = unknown).
+        val body = SubsonicFixtures.ok(
+            """"album":{"id":"al-5","name":"DAMN.","explicitStatus":"explicit","song":[""" +
+                """{"id":"s-1","title":"BLOOD.","explicitStatus":"clean"},""" +
+                """{"id":"s-2","title":"DNA.","explicitStatus":"explicit"},""" +
+                """{"id":"s-3","title":"YAH.","explicitStatus":""},""" +
+                """{"id":"s-4","title":"ELEMENT."}]}""",
+        )
+        val album = assertNotNull(client(routes = mapOf("getAlbum" to body)).getAlbum("al-5"))
+        assertEquals(ContentRating.Explicit, album.contentRating)
+        assertEquals(listOf(ContentRating.Clean, ContentRating.Explicit, null, null), album.songs.map { it.contentRating })
+        val plain = assertNotNull(client(routes = mapOf("getAlbum" to SubsonicFixtures.album)).getAlbum("al-1"))
+        assertNull(plain.contentRating)
+        assertNull(plain.songs.single().contentRating)
     }
 
     @Test

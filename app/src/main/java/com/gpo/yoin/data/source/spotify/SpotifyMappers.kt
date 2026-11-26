@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseDate
@@ -14,6 +15,7 @@ import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.shared.release.YoinReleaseMarks
 
 internal fun SpotifyTrackObject.toTrack(
     savedTrackIds: Set<String> = emptySet(),
@@ -40,6 +42,7 @@ internal fun SpotifyTrackObject.toTrack(
             // Every credited artist, for a playlist backup (Track.artist is the first).
             if (artists.size > 1) put(Track.EXTRA_ARTISTS, Track.joinArtists(artists.map { it.name }))
         },
+        contentRating = ContentRating.fromExplicitFlag(explicit),
     )
 }
 
@@ -62,6 +65,8 @@ internal fun SpotifyAlbumObject.toAlbum(
     isStarred = id in savedAlbumIds,
     releaseDate = releaseDate(),
     recordLabels = listOfNotNull(label?.trim()?.takeIf(String::isNotEmpty)),
+    releaseType = spotifyReleaseType(albumType, totalTracks),
+    contentRating = contentRating(tracksOverride),
     tracks = tracksOverride.map { track ->
         track.toTrack(
             savedTrackIds = savedTrackIds,
@@ -70,8 +75,30 @@ internal fun SpotifyAlbumObject.toAlbum(
     },
 )
 
+/**
+ * The album's rating from its tracks (Spotify rates tracks, not albums): explicit when one of
+ * [tracks] is; clean only when [tracks] is the whole tracklist (`total_tracks`, else the embedded
+ * page's `total`) and none is; else unknown. Nothing is read just for this (owner 2026-11-26): the
+ * album page (its whole tracklist) and Library (a saved album's embedded tracks) show the badge;
+ * search results, artist releases and recently played albums stay unknown rather than cost a tracks
+ * request per album.
+ */
+internal fun SpotifyAlbumObject.contentRating(
+    tracks: List<SpotifyTrackObject> = this.tracks?.items.orEmpty(),
+): ContentRating? {
+    return ContentRating.fromTracks(
+        ratings = tracks.map { ContentRating.fromExplicitFlag(it.explicit) },
+        complete = YoinReleaseMarks.tracklistComplete(tracks.size, totalTracks, this.tracks?.total),
+    )
+}
+
+/**
+ * [contentRating] is the release's when the caller knows it (a saved album's embedded tracks,
+ * [SpotifyAlbumObject.contentRating]); a simplified album says nothing of its tracks, so unknown.
+ */
 internal fun SpotifySimplifiedAlbumObject.toAlbum(
     savedAlbumIds: Set<String> = emptySet(),
+    contentRating: ContentRating? = null,
 ): Album = Album(
     id = MediaId.spotify(id),
     name = name,
@@ -85,6 +112,7 @@ internal fun SpotifySimplifiedAlbumObject.toAlbum(
     isStarred = id in savedAlbumIds,
     releaseType = spotifyReleaseType(albumType, totalTracks),
     releaseDate = releaseDate(),
+    contentRating = contentRating,
 )
 
 /**
@@ -92,12 +120,7 @@ internal fun SpotifySimplifiedAlbumObject.toAlbum(
  * own clients show a "single" with 4+ tracks as an EP, so this does too.
  */
 internal fun spotifyReleaseType(albumType: String?, totalTracks: Int?): ReleaseType? =
-    when (albumType?.lowercase()) {
-        "album" -> ReleaseType.Album
-        "compilation" -> ReleaseType.Compilation
-        "single" -> if ((totalTracks ?: 0) >= 4) ReleaseType.EP else ReleaseType.Single
-        else -> null
-    }
+    YoinReleaseMarks.spotifyReleaseType(albumType, totalTracks)
 
 internal fun SpotifyArtistObject.toArtist(
     isStarred: Boolean = false,

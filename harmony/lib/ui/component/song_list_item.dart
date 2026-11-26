@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
+import '../../data/release/release_marks.dart';
 import '../../theme/motion.dart';
 import '../../theme/tokens.dart';
 import 'equalizer_glyph.dart';
+import 'explicit_badge.dart';
 import 'media_artwork.dart';
 import 'meta_line.dart';
 import 'seam/seam.dart';
@@ -83,7 +85,11 @@ class SongListItem extends StatelessWidget {
     this.decodeWidth,
     this.nowPlayingLabel,
     this.trailing,
+    this.isExplicit = false,
   });
+
+  /// The service marks the song explicit: the "E" follows the title (ExplicitBadge).
+  final bool isExplicit;
 
   final String title;
   final String? coverUrl;
@@ -153,14 +159,27 @@ class SongListItem extends StatelessWidget {
                             ),
                           ),
                           Expanded(
-                            child: SpringColorBuilder(
-                              color: isCurrent ? colors.primary : colors.onSurface,
-                              builder: (color) => Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: text.titleSmall?.copyWith(color: color),
-                              ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.baseline,
+                              textBaseline: TextBaseline.alphabetic,
+                              children: [
+                                Flexible(
+                                  child: SpringColorBuilder(
+                                    color: isCurrent ? colors.primary : colors.onSurface,
+                                    builder: (color) => Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: text.titleSmall?.copyWith(color: color),
+                                    ),
+                                  ),
+                                ),
+                                if (isExplicit)
+                                  Padding(
+                                    padding: const EdgeInsetsDirectional.only(start: ReleaseMarks.gapDp),
+                                    child: ExplicitBadge(textStyle: text.titleSmall),
+                                  ),
+                              ],
                             ),
                           ),
                         ],

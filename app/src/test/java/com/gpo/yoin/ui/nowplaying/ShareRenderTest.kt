@@ -25,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -68,6 +69,11 @@ class ShareRenderTest(
         val content = longCreditsContent(lang)
         val image = when {
             case.startsWith("sheet-") -> sheet(content)
+            // Every tone the tab offers (owner 2026-11-26: both families on About and Note, and Paper).
+            case.startsWith("tone-") -> {
+                val (_, layoutName, toneName) = case.split('-')
+                export(content, ShareLayout.valueOf(layoutName), LyricsShareFormat.Card, ShareTone.valueOf(toneName))
+            }
             else -> {
                 val (layoutName, formatName) = case.split('-')
                 export(content, ShareLayout.valueOf(layoutName), LyricsShareFormat.valueOf(formatName))
@@ -78,13 +84,18 @@ class ShareRenderTest(
         }
     }
 
-    private fun export(content: ShareContent, layout: ShareLayout, format: LyricsShareFormat): ImageBitmap {
+    private fun export(
+        content: ShareContent,
+        layout: ShareLayout,
+        format: LyricsShareFormat,
+        tone: ShareTone = YoinShareCards.defaultTone(layout.tab),
+    ): ImageBitmap {
         var layer: GraphicsLayer? = null
         rule.setContent {
             YoinTheme(darkTheme = theme == "dark") {
                 val recording = rememberGraphicsLayer()
                 layer = recording
-                ShareImage(content = content, layout = layout, format = format, tone = ShareTone.Soft, exportLayer = recording)
+                ShareImage(content = content, layout = layout, format = format, tone = tone, exportLayer = recording)
             }
         }
         rule.onRoot().captureToImage()
@@ -99,7 +110,7 @@ class ShareRenderTest(
     private fun sheet(content: ShareContent): ImageBitmap {
         val (tab, layout) = when (case) {
             "sheet-lyrics" -> ShareTab.Lyrics to ShareLayout.LyricsPlayer
-            "sheet-about-scrolled", "sheet-about" -> ShareTab.About to ShareLayout.AboutQuote
+            "sheet-about-scrolled", "sheet-about", "sheet-about-swatches" -> ShareTab.About to ShareLayout.AboutQuote
             else -> ShareTab.Note to ShareLayout.NoteBig
         }
         rule.setContent {
@@ -125,7 +136,7 @@ class ShareRenderTest(
                                 tab = tab,
                                 layout = layout,
                                 format = LyricsShareFormat.Card,
-                                tone = ShareTone.Soft,
+                                tone = YoinShareCards.defaultTone(tab),
                                 layers = remember { mutableMapOf() },
                                 wide = false,
                                 // A tall phone's preview in a shorter frame: the body scrolls, as on the owner's phone.
@@ -154,6 +165,14 @@ class ShareRenderTest(
             rule.mainClock.advanceTimeBy(2_000)
             rule.waitForIdle()
         }
+        if (case.endsWith("-swatches")) {
+            // Down to the tones: About opens on its tertiary Mist, a note on its primary Soft, both offer all five.
+            repeat(3) {
+                rule.onNodeWithTag(SharePreviewBoxTag).performTouchInput { swipeUp(startY = bottom - 4f, endY = top) }
+                rule.mainClock.advanceTimeBy(2_000)
+                rule.waitForIdle()
+            }
+        }
         return rule.onRoot().captureToImage()
     }
 
@@ -161,8 +180,10 @@ class ShareRenderTest(
         private val cases = listOf(
             "AboutReceipt-Card", "AboutQuote-Card", "AboutLiner-Card",
             "AboutReceipt-Story", "AboutQuote-Story", "AboutLiner-Story",
-            "sheet-lyrics", "sheet-about", "sheet-about-scrolled", "sheet-note",
-        )
+            "sheet-lyrics", "sheet-about", "sheet-about-scrolled", "sheet-note", "sheet-about-swatches", "sheet-note-swatches",
+        ) + listOf(ShareLayout.AboutQuote, ShareLayout.NoteBig).flatMap { layout ->
+            YoinShareCards.tones(layout.tab).map { "tone-${layout.name}-${it.name}" }
+        }
 
         @JvmStatic
         @ParameterizedRobolectricTestRunner.Parameters(name = "{0} {1} {2}")

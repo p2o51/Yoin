@@ -538,6 +538,8 @@ struct PillContent: View {
         var album: Album
         var title: String
         var artist: String
+        /// The song is marked explicit: the "E" after the title (Android PR #343, the collapsed bar too).
+        var explicit = false
     }
 
     @State private var shown: Shown?
@@ -553,7 +555,8 @@ struct PillContent: View {
 
     private var live: Shown {
         let p = playback
-        return Shown(key: p.track.id, album: p.album, title: p.track.title, artist: p.album.artist)
+        return Shown(key: p.track.id, album: p.album, title: p.track.title, artist: p.album.artist,
+                     explicit: p.track.isExplicit)
     }
 
     var body: some View {
@@ -570,11 +573,14 @@ struct PillContent: View {
                 }
             VStack(alignment: .leading, spacing: 1) {
                 // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
-                MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
+                ExplicitTitle(text: s.title, explicit: s.explicit, fontSize: 15,
+                              color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant) {
+                    MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                            if let np, !model.searchActive { np.pillMeasured(.title, r) }
+                        }
+                }
                     .opacity(showTitle ? 1 : 0)
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                        if let np, !model.searchActive { np.pillMeasured(.title, r) }
-                    }
                 MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
             }
             .lineLimit(1)

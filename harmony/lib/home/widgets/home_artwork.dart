@@ -12,6 +12,7 @@ import '../home_album_memory_mark.dart';
 import '../home_metrics.dart';
 import '../../ui/component/artwork_image.dart';
 import '../../ui/component/artwork_swap.dart';
+import '../../ui/component/cover_band_badges.dart';
 import '../home_ui_state.dart';
 import 'backdrop_shapes.dart';
 import 'cover_palette.dart';
@@ -37,8 +38,10 @@ final class HomeCoverImage {
 /// Resolves [cover] through the active source; decodes at [side] × dpr.
 HomeCoverImage? resolveHomeCover(WidgetRef ref, BuildContext context, CoverRef? cover, {required int requestSize, required double side}) {
   if (cover == null) return null;
-  final source = ref.watch(activeSourceProvider).value;
-  final url = source?.resolveCoverUrl(cover, size: requestSize);
+  // The tip pages' made-up covers need no source.
+  final url = cover is CoverUrl && DemoArtwork.parse(cover.url) != null
+      ? cover.url
+      : ref.watch(activeSourceProvider).value?.resolveCoverUrl(cover, size: requestSize);
   if (url == null) return null;
   final px = (side * MediaQuery.devicePixelRatioOf(context)).round().clamp(1, requestSize);
   return HomeCoverImage(url, artworkImageProvider(url, cacheWidth: px), decodeWidth: px);
@@ -93,6 +96,9 @@ class HomeArtwork extends StatelessWidget {
 /// Pressing (an enclosing [ElasticPress]) morphs the shape toward the rounded
 /// Triangle on the Expressive fast spatial spring and presses the cover 0.97.
 /// Artists draw a bare full-size circle cover.
+///
+/// An album's kind tag ([kindTag], "EP" / "Single"), its [version] tag and its Explicit "E" ([explicit])
+/// sit on the shape's band above the cover, never on the art ([CoverBandBadges], PR #343).
 class BackdropCover extends ConsumerWidget {
   const BackdropCover({
     super.key,
@@ -102,7 +108,24 @@ class BackdropCover extends ConsumerWidget {
     this.requestSize = HomeCoverRequest.standard,
     this.markAlbum,
     this.mark,
+    this.version,
+    this.explicit = false,
+    this.kindTag,
+    this.pressMorph = true,
   });
+
+  /// The album's version, a tag on the band; null = none.
+  final String? version;
+
+  /// The release (or song) is marked explicit: the "E" on the band.
+  final bool explicit;
+
+  /// The release's kind worth a tag ("EP", "Single"; [coverKindTag]), first on the band.
+  final String? kindTag;
+
+  /// The shape morphs toward the Triangle while pressed. Off for Library's grid: one static shape per
+  /// cover (Android pressMorph = false), a grid holds dozens of them.
+  final bool pressMorph;
 
   final CoverRef? cover;
   final HomeCardKind kind;
@@ -138,10 +161,22 @@ class BackdropCover extends ConsumerWidget {
                   cacheKey: image?.url,
                   image: image?.image,
                   fallback: fallback,
-                  builder: (context, base, _) => _MorphingShape(kind: kind, color: base),
+                  builder: (context, base, _) => pressMorph
+                      ? _MorphingShape(kind: kind, color: base)
+                      : CustomPaint(painter: BackdropShapePainter(kind, base, kAlwaysDismissedAnimation)),
                 ),
               ),
             ),
+            if (version != null || explicit || kindTag != null)
+              Positioned.fill(
+                child: CoverBandBadges(
+                  coverFraction: HomeBackdropMetrics.artworkFraction,
+                  kind: kindTag,
+                  version: version,
+                  explicit: explicit,
+                  stickerRoom: markAlbum != null || mark != null,
+                ),
+              ),
             Align(
               alignment: AlignmentDirectional.bottomEnd,
               child: _PressedArtwork(

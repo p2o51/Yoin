@@ -81,6 +81,35 @@ ShareContent _content(String lang) {
   );
 }
 
+/// The owner's long AI credits (2026-11-26, Android ShareRenderTest): the chips that were cut to "Re…".
+ShareContent _longCredits(String lang) {
+  final base = _content(lang);
+  final zh = lang == 'zh';
+  return ShareContent(
+    song: base.song,
+    lyrics: base.lyrics,
+    about: ShareAbout(
+      credits: zh
+          ? const [
+              ShareCredit('作词', '沐一（注：部分来源标注为闪电）', ai: true),
+              ShareCredit('作曲', '沐一（注：部分来源标注为闪电）', ai: true),
+              ShareCredit('制作人', '田碧川', ai: true),
+              ShareCredit('创作时间', '2024年4月（单曲于2024年4月19日左右发行）', ai: true),
+            ]
+          : const [
+              ShareCredit('Lyricist', 'Remi Wolf / Jared Solomon (some sources also list Solomonophonic)', ai: true),
+              ShareCredit('Composer', 'Remi Wolf / Jared Solomon', ai: true),
+              ShareCredit('Producer', 'Remi Wolf / Solomonophonic', ai: true),
+              ShareCredit('Creation Time', 'Early 2023, recorded during the 2022–2023 tour', ai: true),
+            ],
+      heading: base.about!.heading,
+      paragraph: base.about!.paragraph,
+    ),
+    note: base.note,
+    aiProvider: base.aiProvider,
+  );
+}
+
 List<Override> _overrides() => [
   activeSourceProvider.overrideWith((ref) async => LibraryFakeSource()),
   keyValueStoreProvider.overrideWithValue(InMemoryStore()),
@@ -119,11 +148,13 @@ void main() {
     required String lang,
     required ShareTab tab,
     ShareFormat format = ShareFormat.card,
+    ShareContent? content,
+    double scroll = 0,
   }) async {
     tester.view.physicalSize = size * 2;
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.reset);
-    final content = _content(lang);
+    final shown = content ?? _content(lang);
     final boundary = GlobalKey();
     await tester.pumpWidget(
       RepaintBoundary(
@@ -140,7 +171,7 @@ void main() {
               builder: (context) => Scaffold(
                 body: Center(
                   child: TextButton(
-                    onPressed: () => showShareSheet(context, content: content, initialTab: tab, onMessage: (_) {}),
+                    onPressed: () => showShareSheet(context, content: shown, initialTab: tab, onMessage: (_) {}),
                     child: const Text('open'),
                   ),
                 ),
@@ -151,12 +182,17 @@ void main() {
       ),
     );
     await tester.runAsync(
-      () => precacheImage(shareCoverImage(content.song.coverArtUrl!), tester.element(find.text('open'))),
+      () => precacheImage(shareCoverImage(shown.song.coverArtUrl!), tester.element(find.text('open'))),
     );
     await tester.tap(find.text('open'));
     await _settle(tester);
     if (format == ShareFormat.story) {
       await tester.tap(find.byKey(const ValueKey('share-format-Story')));
+      await _settle(tester);
+    }
+    if (scroll > 0) {
+      // Part-way down: the tabs stay, the rest goes under the sheet's top edge (the tide line).
+      await tester.drag(find.byKey(const ValueKey('share-sheet-scroll')), Offset(0, -scroll));
       await _settle(tester);
     }
     await _write(tester, boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary, name, 2);
@@ -187,6 +223,87 @@ void main() {
       format: ShareFormat.story,
     );
   }, skip: _dir.isEmpty);
+
+  // 2026-11-26: the About / Note sheets (every family offered, About opening on Mist), the sheet scrolled
+  // part-way (the fixed tabs over the tide line), and About's images with the long AI credits.
+  for (final brightness in Brightness.values) {
+    for (final lang in ['en', 'zh']) {
+      final tag = '${brightness.name}-$lang';
+      for (final tab in [ShareTab.about, ShareTab.note]) {
+        testWidgets('tones $tag ${tab.storeKey}', (tester) async {
+          await shootSheet(
+            tester,
+            name: 'tones-$tag-${tab.storeKey.toLowerCase()}',
+            size: const Size(412, 915),
+            brightness: brightness,
+            lang: lang,
+            tab: tab,
+            content: _longCredits(lang),
+          );
+        }, skip: _dir.isEmpty);
+      }
+      testWidgets('sheet top $tag', (tester) async {
+        await shootSheet(
+          tester,
+          name: 'sheet-top-scrolled-$tag-about',
+          size: const Size(412, 720),
+          brightness: brightness,
+          lang: lang,
+          tab: ShareTab.about,
+          content: _longCredits(lang),
+          scroll: 90,
+        );
+      }, skip: _dir.isEmpty);
+      testWidgets('long credits $tag', (tester) async {
+        tester.view.physicalSize = const Size(800, 1400);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final content = _longCredits(lang);
+        for (final layout in [ShareLayout.aboutQuote, ShareLayout.aboutLiner, ShareLayout.aboutReceipt]) {
+          for (final format in ShareFormat.values) {
+            final key = GlobalKey();
+            await tester.pumpWidget(
+              ProviderScope(
+                overrides: _overrides(),
+                child: MaterialApp(
+                  debugShowCheckedModeBanner: false,
+                  theme: yoinTheme(brightness),
+                  locale: Locale(lang),
+                  supportedLocales: const [Locale('en'), Locale('zh')],
+                  localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                  home: SingleChildScrollView(
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: RepaintBoundary(
+                        key: key,
+                        child: ShareImage(
+                          content: content,
+                          layout: layout,
+                          format: format,
+                          tone: YoinShareCards.defaultTone(ShareTab.about),
+                          animateTone: false,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+            await tester.runAsync(
+              () => precacheImage(shareCoverImage(content.song.coverArtUrl!), tester.element(find.byType(ShareImage))),
+            );
+            await _settle(tester);
+            await _write(
+              tester,
+              key.currentContext!.findRenderObject()! as RenderRepaintBoundary,
+              'long-credits-$tag-${layout.storeValue}-${format.kotlinName}',
+              sharePixelRatio(format) / 2,
+            );
+          }
+        }
+      }, skip: _dir.isEmpty);
+    }
+  }
 
   // Every exported image, as the PNG (Card 1440 wide, Story 1080 × 1920).
   for (final lang in ['zh', 'en']) {

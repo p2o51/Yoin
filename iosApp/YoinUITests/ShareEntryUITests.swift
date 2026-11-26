@@ -90,4 +90,37 @@ final class ShareEntryUITests: XCTestCase {
         sleep(2)
         shot("entry-note-sheet")
     }
+
+    /// Review shots of the sheet (51, 2026-11-26), only when `SHARE_TONES_SHOT_DIR` is set: About opening on its
+    /// tertiary tone with every family offered (five swatches), the tabs fixed while the rest scrolls under the
+    /// sheet's top edge, and Note opening on its primary tone. The runner's appearance decides light / dark.
+    func test_should_shootTheSheetsTonesAndTop_forReview() throws {
+        guard let dir = ProcessInfo.processInfo.environment["SHARE_TONES_SHOT_DIR"] else {
+            throw XCTSkip("set SHARE_TONES_SHOT_DIR to shoot the share sheet for review")
+        }
+        let mode = ProcessInfo.processInfo.environment["SHARE_TONES_SHOT_MODE"] ?? "light"
+        func save(_ name: String) {
+            let image = XCUIScreen.main.screenshot()
+            try? image.pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(name)-\(mode).png"))
+        }
+        for (lang, locale) in [("en", "en_US"), ("zh-Hans", "zh_CN")] {
+            for (tab, layout) in [("about", "AboutQuote"), ("note", "NoteBig")] {
+                app.terminate()
+                app.launchArguments = ["-silentAudio", "YES", "-screen", "np", "-AppleLanguages", "(\(lang))",
+                                       "-AppleLocale", locale, "-shareDemo", tab, "-shareLayout", layout]
+                app.launch()
+                let tabButton = app.buttons["shareTab:\(tab == "about" ? "About" : "Note")"]
+                XCTAssertTrue(tabButton.waitForExistence(timeout: 20), "the demo sheet opens on \(tab)")
+                sleep(2)
+                save("sheet-\(tab)-\(lang)")
+                // Scroll the content up under the fixed tabs: the swatch row comes into view.
+                let preview = app.otherElements["sharePreview"]
+                let from = (preview.exists ? preview : app.windows.firstMatch).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+                from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -260)))
+                sleep(2)
+                XCTAssertTrue(tabButton.isHittable, "the tabs stay at the top")
+                save("sheet-\(tab)-\(lang)-scrolled")
+            }
+        }
+    }
 }

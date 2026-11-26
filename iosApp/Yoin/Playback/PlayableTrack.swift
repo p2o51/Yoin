@@ -22,6 +22,8 @@ struct PlayableTrack: Identifiable, Hashable, Sendable {
     var sourceKbps: Int? = nil
     /// The format tags Now Playing shows after the artist (["FLAC 16/44.1", "5.1"]); empty when unknown.
     var formatTags: [String] = []
+    /// Explicit or clean as the service marked the song (Track.contentRating): Now Playing's "E" after the title.
+    var contentRating: ExplicitRating? = nil
 }
 
 /// A queue slot. The same track can sit in the queue twice, so lists and

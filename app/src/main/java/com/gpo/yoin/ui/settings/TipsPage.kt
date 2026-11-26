@@ -18,6 +18,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.home.HomeBubbleTip
+import com.gpo.yoin.ui.home.shownText
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.tips.InMemoryTipReadStore
 import com.gpo.yoin.ui.tips.LocalTipReadStore
@@ -77,7 +78,7 @@ internal fun TipsPageContent(modifier: Modifier = Modifier) {
                     SettingsItem(
                         icon = tip.icon,
                         title = stringResource(tip.title),
-                        summary = stringResource(tip.text),
+                        summary = stringResource(tip.shownText()),
                         onClick = { context.startActivity(TipActivity.intent(context, tip)) },
                         trailing = if (tip in read) {
                             {

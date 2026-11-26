@@ -1599,7 +1599,7 @@ struct AlbumItem<Mark: View>: View {
                 .overlay(alignment: .topTrailing) { if onCover { mark() } }
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 2) {
-                    AlbumVersionTitle(album: album, scheme: s) { name in
+                    AlbumVersionTitle(album: album, scheme: s, explicitSize: titleSize) { name in
                         Text(name)
                             .font(YoinFont.font(size: titleSize, YoinFont.Axes(weight: 600, round: 100)))
                             .homeLine(titleSize, titleLineHeight)

@@ -72,6 +72,7 @@ Map<String, Object?> _album(Album a) {
       addedAt: a.addedAt,
       releaseType: a.releaseType,
       version: a.version,
+      contentRating: a.contentRating,
     ),
   );
   final cover = _cover(a.coverArt);

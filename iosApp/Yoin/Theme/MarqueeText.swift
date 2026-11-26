@@ -12,6 +12,10 @@ struct MarqueeText: View {
     var initialDelay: Double = 2.5
     var repeatDelay: Double = 2
     var edgeFade: CGFloat = 28
+    /// Small tags after the text that travel with it as one unit (Now Playing's artist line on iOS, owner
+    /// 2026-11-26 option B: the release's EP / Single and its version, `AlbumVersionTag`s in [tagScheme]).
+    var tags: [String] = []
+    var tagScheme: CoverScheme? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var box: CGFloat = 0
     @State private var natural: CGFloat = 0
@@ -56,10 +60,21 @@ struct MarqueeText: View {
             }
             .onChange(of: text) { _, _ in start = Date() }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(text)
+            .accessibilityLabel(([text] + tags).joined(separator: ", "))
     }
 
-    private var line: some View { Text(text).font(font).foregroundStyle(color) }
+    @ViewBuilder private var line: some View {
+        if let tagScheme, !tags.isEmpty {
+            HStack(spacing: 6) {
+                Text(text).font(font).foregroundStyle(color)
+                ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in
+                    AlbumVersionTag(version: tag, scheme: tagScheme).fixedSize()
+                }
+            }
+        } else {
+            Text(text).font(font).foregroundStyle(color)
+        }
+    }
 
     /// Soft leading/trailing fade mask stops matching Android's 28dp edge fade (`horizontalFadeMask`).
     static func edgeMaskStops(width: CGFloat, edgeFade: CGFloat, scrollOffset: CGFloat) -> [Gradient.Stop] {

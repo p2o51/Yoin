@@ -1,5 +1,6 @@
 package com.gpo.yoin.shared.data.model
 
+import com.gpo.yoin.shared.release.ContentRating
 import kotlinx.serialization.Serializable
 
 /*
@@ -86,7 +87,28 @@ data class SongInfo(
     val created: String? = null,
     /** OpenSubsonic `displayComposer`: the song's composers as one line; null when blank. */
     val composer: String? = null,
+    /**
+     * OpenSubsonic `explicitStatus` (Navidrome: ITUNESADVISORY) as the song's Explicit / Clean mark; null when
+     * unknown ("" or absent; plain Subsonic never sends it). Android Track.contentRating.
+     */
+    val contentRating: ContentRating? = null,
 ) {
+    /**
+     * The constructor from before [contentRating] existed (Swift: the init that ends with `composer:`).
+     */
+    constructor(
+        ref: MediaRef, id: String, title: String?, artist: String?, artistId: String?, album: String?,
+        albumId: String?, track: Int?, disc: Int?, durationSec: Int?, coverArtId: String?, year: Int?,
+        genre: String?, starred: Boolean, starredAt: String?, userRating: Int?, suffix: String?,
+        contentType: String?, bitRate: Int?, size: Long?, path: String?, playCount: Int?, played: String?,
+        artists: List<SongArtist>, audio: SongAudio?, bpm: Int?, comment: String?, created: String?,
+        composer: String?,
+    ) : this(
+        ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
+        genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, played,
+        artists, audio, bpm, comment, created, composer, null,
+    )
+
     /**
      * The constructor from before [bpm], [comment], [created] and [composer] existed (Swift: the init that
      * ends with `audio:`).
@@ -100,7 +122,7 @@ data class SongInfo(
     ) : this(
         ref, id, title, artist, artistId, album, albumId, track, disc, durationSec, coverArtId, year,
         genre, starred, starredAt, userRating, suffix, contentType, bitRate, size, path, playCount, played,
-        artists, audio, null, null, null, null,
+        artists, audio, null, null, null, null, null,
     )
 
     /** The constructor from before [audio] existed (Swift: the init with `artists:` and no `audio:`). */
@@ -187,7 +209,25 @@ data class AlbumInfo(
     val releaseDate: String? = null,
     /** OpenSubsonic `originalReleaseDate`, ISO like [releaseDate]: a reissue's first release. Null when unknown. */
     val originalReleaseDate: String? = null,
+    /**
+     * OpenSubsonic `explicitStatus` (Navidrome: ITUNESADVISORY) as the release's Explicit / Clean mark; null when
+     * unknown ("" or absent; plain Subsonic never sends it). Android Album.contentRating.
+     */
+    val contentRating: ContentRating? = null,
 ) {
+    /** The constructor from before [contentRating] existed (Swift: the init ending at `originalReleaseDate:`). */
+    constructor(
+        ref: MediaRef, id: String, name: String, artist: String?, artistId: String?, year: Int?,
+        songCount: Int?, durationSec: Int?, coverArtId: String, starred: Boolean, starredAt: String?,
+        userRating: Int?, playCount: Int?, created: String?, genre: String?, releaseType: String?,
+        songs: List<SongInfo>, played: String?, version: String?, recordLabels: List<String>,
+        releaseDate: String?, originalReleaseDate: String?,
+    ) : this(
+        ref, id, name, artist, artistId, year, songCount, durationSec, coverArtId, starred, starredAt,
+        userRating, playCount, created, genre, releaseType, songs, played, version, recordLabels, releaseDate,
+        originalReleaseDate, null,
+    )
+
     /** [name] without the " (version)" a server appends to it (Android `albumNameWithoutVersion`). */
     val nameWithoutVersion: String
         get() = albumNameWithoutVersion(name, version)
@@ -211,7 +251,7 @@ data class AlbumInfo(
         songs: List<SongInfo>, played: String?, version: String?,
     ) : this(
         ref, id, name, artist, artistId, year, songCount, durationSec, coverArtId, starred, starredAt,
-        userRating, playCount, created, genre, releaseType, songs, played, version, emptyList(), null, null,
+        userRating, playCount, created, genre, releaseType, songs, played, version, emptyList(), null, null, null,
     )
 
     /** The constructor from before [version] existed (Swift: the init with `played:` and no `version:`). */

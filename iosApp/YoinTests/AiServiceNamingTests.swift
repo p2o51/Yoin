@@ -37,6 +37,13 @@ final class AiServiceNamingTests: XCTestCase {
              [.qwen: "缺少千问 API 密钥", .custom: "缺少 AI API 密钥"]),
             ("No %@ API key", [.gemini: "No Gemini API key", .qwen: "No Qwen API key"],
              [.deepSeek: "未设置 DeepSeek API 密钥", .qwen: "未设置千问 API 密钥"]),
+            // Settings (51, 2026-11-26): the AI row before a key, and cloud sync's "What syncs".
+            ("Song info, Ask %@, translation and Memory titles",
+             [.deepSeek: "Song info, Ask DeepSeek, translation and Memory titles",
+              .custom: "Song info, Ask AI, translation and Memory titles"],
+             [.qwen: "歌曲信息、问千问、歌词翻译与 Memories\u{00A0}标\u{2060}题", .custom: "歌曲信息、问 AI、歌词翻译与 Memories\u{00A0}标\u{2060}题"]),
+            ("Memory titles, About and Ask %@", [.gemini: "Memory titles, About and Ask Gemini", .custom: "Memory titles, About and Ask AI"],
+             [.qwen: "Memories 标题、歌曲信息与问千问", .deepSeek: "Memories 标题、歌曲信息与问 DeepSeek"]),
         ]
         for row in expected {
             for (provider, want) in row.en { XCTAssertEqual(text(row.key, provider, "en"), want, row.key) }
@@ -64,7 +71,7 @@ final class AiServiceNamingTests: XCTestCase {
     }
 
     /// No copy says "Gemini" for generated content any more: the only catalog strings naming it are its own key
-    /// field, the settings summary Android keeps, a debug lab label and the Tips line (Gemini Nano / Apple Intelligence
+    /// field, a debug lab label and the Tips line (Gemini Nano / Apple Intelligence
     /// copy is not in the catalog under Gemini).
     func test_should_leaveNoGeminiOnlyAiCopy_inTheCatalog() throws {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "Localizable", withExtension: "xcstrings")
@@ -74,7 +81,6 @@ final class AiServiceNamingTests: XCTestCase {
         let strings = try XCTUnwrap(root["strings"] as? [String: Any])
         let allowed: Set<String> = [
             "Gemini", "Gemini API key", "Gemini extras",
-            "Song info, Ask Gemini, translation and Memory titles", "Memory titles, About and Ask",
         ]
         var offenders: [String] = []
         for (key, value) in strings {

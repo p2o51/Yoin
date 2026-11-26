@@ -6,6 +6,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
 import '../data/source/music_source.dart';
 import '../platform/share/text_share.dart';
 import '../shell/detail_chrome.dart';
@@ -33,6 +34,7 @@ import 'detail_share.dart';
 import 'detail_strings.dart';
 import 'detail_track_rows.dart';
 import 'pull_up_reveal.dart';
+import 'release_kind_labels.dart';
 
 /// The Artist page (PushPage; Android ArtistDetailScreen, Compact): header
 /// with the active span and the favorite star, the open-ring portrait that
@@ -701,7 +703,7 @@ class _Discography extends ConsumerWidget {
     final colors = theme.colorScheme;
     final releases = content.filteredReleases;
     final latest = content.releases.firstOrNull?.id;
-    final kinds = content.kinds;
+    final filters = content.filters;
     final notifier = ref.read(artistDetailProvider(artistId).notifier);
     final first = releases.take(DetailTokens.artistCollapsedCount).toList();
     final rest = releases.skip(DetailTokens.artistCollapsedCount).toList();
@@ -734,22 +736,17 @@ class _Discography extends ConsumerWidget {
             ),
           ),
         ),
-        if (kinds.length >= 2) ...[
+        if (filters.isNotEmpty) ...[
           const SizedBox(height: 8),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                for (final (kind, label) in [
-                  (null, strings.filterAll),
-                  if (kinds.contains(ReleaseKind.album)) (ReleaseKind.album, strings.filterAlbums),
-                  if (kinds.contains(ReleaseKind.singlesAndEps)) (ReleaseKind.singlesAndEps, strings.filterSingles),
-                  if (kinds.contains(ReleaseKind.compilation)) (ReleaseKind.compilation, strings.filterCompilations),
-                ]) ...[
+                for (final f in filters) ...[
                   ExpressiveSegmentChip(
-                    label: label,
-                    selected: content.filter == kind,
-                    onTap: () => notifier.setFilter(kind),
+                    label: releaseKindFilterLabel(strings, f),
+                    selected: content.filter == f,
+                    onTap: () => notifier.setFilter(f),
                   ),
                   const SizedBox(width: LibraryTokens.chipGap),
                 ],
@@ -858,12 +855,7 @@ class _ReleaseRow extends ConsumerWidget {
     final source = ref.watch(activeSourceProvider).value;
     final cover = album.coverArt;
     final url = cover == null ? null : source?.resolveCoverUrl(cover);
-    final kind = switch (album.releaseType) {
-      ReleaseType.ep => strings.kindEp,
-      ReleaseType.single => strings.kindSingle,
-      ReleaseType.compilation => strings.kindCompilation,
-      ReleaseType.album || null => strings.kindAlbum,
-    };
+    final kind = releaseKindLabel(strings, ReleaseMarks.headerKind(album.releaseType));
     final songs = album.songCount;
     return Material(
       type: MaterialType.transparency,
@@ -910,10 +902,15 @@ class _ReleaseRow extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // The kind is on the meta line: the name without Apple Music's " - EP" / " - Single".
                       VersionTitleRow.orTitle(
-                        name: albumTitleWithoutVersion(album.name, album.version),
+                        name: ReleaseMarks.nameWithoutKindSuffix(
+                          albumTitleWithoutVersion(album.name, album.version),
+                          album.releaseType,
+                        ),
                         nameStyle: theme.textTheme.titleMedium!,
                         version: album.version,
+                        explicit: album.isExplicit,
                       ),
                       MetaLine(
                         groups: [

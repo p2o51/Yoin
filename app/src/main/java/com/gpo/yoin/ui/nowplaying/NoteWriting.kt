@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.IntOffset
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.component.NoteSaveRequest
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.player.PlaybackState
@@ -367,10 +368,10 @@ internal class NoteCollapseTapGuard {
 internal val LocalNoteDeletion = staticCompositionLocalOf<NoteDeletionState?> { null }
 
 /**
- * Re-anchors a note to a new moment (the page's "对齐到现在"); null where the
- * host can't — the menu then offers delete only.
+ * Saves the note menu's edits (new words, Align to now, an emptied note's delete) as an edit of the same
+ * note ([NoteSaveRequest.editingNoteId]); null where the host has nowhere to save them.
  */
-internal val LocalNoteRealign = compositionLocalOf<((SongNote, Long) -> Unit)?> { null }
+internal val LocalNoteMenuSave = compositionLocalOf<((NoteSaveRequest) -> Unit)?> { null }
 
 /** A tap on a to-do's box in a note: (note id, line). Null leaves the boxes read-only. */
 internal val LocalNoteChecklistToggle = compositionLocalOf<((String, Int) -> Unit)?> { null }

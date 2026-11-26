@@ -77,6 +77,12 @@ struct Track: Identifiable, Hashable, Sendable {
     /// storefront holds back, or a library song whose catalog song was pulled (Android
     /// `appleMusicCatalogUnavailable`). Its row is dimmed with the reason, and it never goes into a queue.
     var notStreamed: Bool = false
+    /// Explicit or clean as the service marks the song; nil = unknown (Android Track.contentRating; the readers
+    /// are :shared's `YoinReleaseMarks`). Only Explicit shows: the "E" after the title.
+    var contentRating: ExplicitRating? = nil
+
+    /// The service marks the song explicit: it wears the "E" badge after its title.
+    var isExplicit: Bool { contentRating == .explicit }
 
     /// The file's own format, codec first: ["FLAC 24/96"], ["MP3 320"], ["FLAC 16/44.1", "5.1"]; empty when
     /// the server says nothing (Spotify, Apple Music).
@@ -86,6 +92,13 @@ struct Track: Identifiable, Hashable, Sendable {
         #endif
         return FormatTags.tags(.subsonic(suffix: suffix, bitRateKbps: bitRateKbps, audio: audio))
     }
+}
+
+/// Whether a song or a release is marked explicit (Android `ContentRating`; named apart from YoinShared's): with an optional field a
+/// tri-state, nil = unknown. Only `.explicit` is ever drawn (the "E" badge); `.clean` is kept so the clean
+/// edition of an album is known as such. Raw values are the stored names (Kotlin's).
+enum ExplicitRating: String, Hashable, Sendable {
+    case explicit = "Explicit", clean = "Clean"
 }
 
 enum ReleaseKind: String, Hashable, Sendable {
@@ -128,6 +141,9 @@ struct Album: Identifiable, Hashable, Sendable {
     var tracks: [Track]
     var rating: Double?
     var kind: ReleaseKind = .album
+    /// Whether the service said what [kind] the release is (Android `releaseType` non-null). False: [kind] is
+    /// the `.album` default, and Library's kind filter shows it only under All (Android ReleaseKindFilter).
+    var kindKnown: Bool = true
     var artistId: String? = nil
     var starred: Bool = false
     var playCount: Int? = nil
@@ -153,6 +169,15 @@ struct Album: Identifiable, Hashable, Sendable {
     /// HTML stripped by :shared's `YoinAlbumAbout.editorialNotes`). The scrapbook's About paragraph uses them
     /// before asking any AI; never stored or synced.
     var editorialNotes: String? = nil
+    /// Explicit or clean as the service marks the release (Apple Music's own rating, OpenSubsonic
+    /// `explicitStatus`; on Spotify derived from the tracks already in hand); nil = unknown.
+    var contentRating: ExplicitRating? = nil
+
+    /// The service marks the release explicit: it wears the "E" badge after its name.
+    var isExplicit: Bool { contentRating == .explicit }
+
+    /// The release's kind as the service gave it; nil when it didn't say.
+    var releaseType: ReleaseKind? { kindKnown ? kind : nil }
 
     /// The name without the " (version)" the server appended, where the version shows as a tag.
     var titleWithoutVersion: String { Self.nameWithoutVersion(title, version) }

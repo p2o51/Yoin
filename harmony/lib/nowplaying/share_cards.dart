@@ -894,11 +894,13 @@ class _AboutQuote extends StatelessWidget {
           if (about.credits.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 18),
-              child: Row(
+              // The chips flow onto as many lines as they need, each as wide as its whole value (owner
+              // 2026-11-26: the AI's credits run long and were cut to "Re…"; Android #360's FlowRow).
+              child: Wrap(
                 spacing: 6,
+                runSpacing: 6,
                 children: [
-                  for (final credit in about.credits.take(YoinShareCards.quoteCredits))
-                    Flexible(child: _CreditChip(credit, colors)),
+                  for (final credit in about.credits.take(YoinShareCards.quoteCredits)) _CreditChip(credit, colors),
                 ],
               ),
             ),
@@ -919,6 +921,8 @@ class _AboutQuote extends StatelessWidget {
   }
 }
 
+/// A credit as a chip: the label, then the whole value — a value wider than
+/// the card wraps inside the chip, never cut (Android #360 CreditChip).
 class _CreditChip extends StatelessWidget {
   const _CreditChip(this.credit, this.colors);
 
@@ -933,35 +937,16 @@ class _CreditChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(color: colors.content.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // As Compose measures the row: the label at its own width first, the name in what is left (cut with
-          // an ellipsis); only a chip too narrow for the label itself cuts the label too.
-          final painter = TextPainter(
-            text: TextSpan(text: credit.label, style: labelStyle),
-            textDirection: Directionality.of(context),
-            textScaler: MediaQuery.textScalerOf(context),
-            maxLines: 1,
-          )..layout();
-          final labelFits = painter.width + 6 < constraints.maxWidth;
-          painter.dispose();
-          final label = Text(credit.label, maxLines: 1, overflow: TextOverflow.ellipsis, style: labelStyle);
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              labelFits ? label : Flexible(child: label),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text.rich(
-                  markdownBoldSpan(credit.value),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: valueStyle,
-                ),
-              ),
-            ],
-          );
-        },
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        // The label sits on the value's first line (Compose alignByBaseline).
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(credit.label, maxLines: 1, style: labelStyle),
+          const SizedBox(width: 6),
+          Flexible(child: Text.rich(markdownBoldSpan(credit.value), style: valueStyle)),
+        ],
       ),
     );
   }
@@ -981,7 +966,7 @@ class _AboutLiner extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final cells = about.credits.take(YoinShareCards.linerCredits).toList();
     final paragraph = about.paragraph;
-    final label = text.labelMedium!;
+    final label = text.labelLarge!;
     return _frameGround(
       frame,
       colors.card,
@@ -992,30 +977,35 @@ class _AboutLiner extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // The head (owner 2026-11-26, Android #360): "About" as written (sentence case, 关于) sits right on
+              // the title, and the cover's top lines up with the eyebrow + title + artist block beside it.
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        about.heading.toUpperCase(),
-                        style: shareWeight(label, 600).copyWith(letterSpacing: 1.6, color: colors.secondary),
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(about.heading, style: shareWeight(label, 600).copyWith(color: colors.secondary)),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            content.song.title,
+                            style: shareHeroStyle(36, 1.12).copyWith(color: colors.content),
+                          ),
+                        ),
+                        if (content.song.artist.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(content.song.artist, style: text.bodyMedium!.copyWith(color: colors.secondary)),
+                          ),
+                      ],
                     ),
                   ),
+                  const SizedBox(width: 16),
                   ShareCover(url: content.song.coverArtUrl, size: 72, tint: colors.content, radius: 8),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(content.song.title, style: shareHeroStyle(36, 1.12).copyWith(color: colors.content)),
-              ),
-              if (content.song.artist.trim().isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(content.song.artist, style: text.bodyMedium!.copyWith(color: colors.secondary)),
-                ),
               if (cells.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 20),

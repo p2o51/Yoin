@@ -72,7 +72,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberSearchBarState
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.gpo.yoin.data.model.albumNameWithoutVersion
+import com.gpo.yoin.ui.component.RowEndBadges
+import com.gpo.yoin.ui.component.coverKindTag
+import com.gpo.yoin.ui.component.nameWithoutKindSuffix
+import com.gpo.yoin.ui.home.WidgetShapeKind
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.unit.Dp
@@ -102,7 +111,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.AlbumVersionTitle
+import com.gpo.yoin.ui.component.ReleaseKindFilter
+import com.gpo.yoin.ui.component.releaseKindFilterLabel
 import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeAccountAvatarHold
@@ -1590,11 +1602,19 @@ private fun AlbumsTabContent(
         EmptyState(message = stringResource(R.string.library_empty_albums), modifier = modifier, pullable = true)
         return
     }
+    // The artist page's kind filter (owner 2026-11-26: "EP 和专辑能不能试着分开？"), offered only when
+    // the shelf holds at least two kinds the services named.
+    val filters = remember(albums) { ReleaseKindFilter.offeredFor(albums.map { it.releaseType }) }
+    var filter by rememberSaveable { mutableStateOf(ReleaseKindFilter.All) }
+    val activeFilter = filter.takeIf { it in filters } ?: ReleaseKindFilter.All
+    val shownAlbums = if (activeFilter == ReleaseKindFilter.All) albums else albums.filter { activeFilter.accepts(it.releaseType) }
+    val filterLabels = filters.associateWith { releaseKindFilterLabel(it) }
+    val readColors = libraryColorGate(gridState)
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = libraryGridCells(
-                itemCount = albums.size,
+                itemCount = shownAlbums.size,
                 viewportHeight = if (constraints.hasBoundedHeight) maxHeight - 8.dp - floatingBottomGroupContentPadding() else Dp.Unspecified,
                 leading = if (sortRow.shown) LibrarySparseSortRow else 0.dp,
             ),
@@ -1619,7 +1639,17 @@ private fun AlbumsTabContent(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             librarySortRow(sortRow)
-            itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
+            if (filters.isNotEmpty()) {
+                item(key = "library-kind-filter", span = { GridItemSpan(maxLineSpan) }, contentType = "library-kind-filter") {
+                    ExpressiveSegmentedTabs(
+                        items = filters,
+                        selectedItem = activeFilter,
+                        label = { filterLabels.getValue(it) },
+                        onSelectedChange = { filter = it },
+                    )
+                }
+            }
+            itemsIndexed(shownAlbums, key = { _, album -> album.id.toString() }) { index, album ->
                 val entranceProgress = rememberLibraryItemEntrance(
                     key = album.id,
                     index = index,
@@ -1632,6 +1662,7 @@ private fun AlbumsTabContent(
                         libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
                             ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                             ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                    extractColors = readColors.value,
                     modifier = Modifier
                         .animateItem(
                             fadeInSpec = YoinMotion.effectsSpring(),
@@ -1648,8 +1679,9 @@ private fun AlbumsTabContent(
         }
         LibraryGridFastScroller(
             state = gridState,
-            sections = scrollSections,
-            leadingItems = sortRow.leadingItems,
+            // A filtered shelf has no letter sections of its own: the bare scroller.
+            sections = if (activeFilter == ReleaseKindFilter.All) scrollSections else emptyList(),
+            leadingItems = sortRow.leadingItems + if (filters.isNotEmpty()) 1 else 0,
             anchor = anchor,
             endOverhang = scrollerEndOverhang,
             bottomInset = floatingBottomGroupContentPadding(),
@@ -1658,27 +1690,39 @@ private fun AlbumsTabContent(
     }
 }
 
+/**
+ * Library's palette gate, Home's rule: covers are read for their colour only while [state] rests, so a
+ * fling never decodes and quantises covers; the gate reopening reads the ones on screen once. Read
+ * `.value` inside the item, so only the cells recompose when it flips.
+ */
+@Composable
+internal fun libraryColorGate(state: ScrollableState): State<Boolean> =
+    remember(state) { derivedStateOf { !state.isScrollInProgress } }
+
 @Composable
 private fun AlbumGridItem(
     album: Album,
     onClick: () -> Unit,
     coverArtUrl: String?,
+    // The grid's scroll gate (libraryColorGate): the shape takes the cover's colour once scrolling
+    // stops, as Home's tiles do.
+    extractColors: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    // `extractBackdropColors = false` is intentional here. Enabling
-    // palette extraction on a LazyVerticalGrid with many cards triggers
-    // the same frame-drop issue that already plagues the Home Jump Back
-    // In row (independent-loader Coil requests + unbounded parallel
-    // Palette.generate() calls). Until that palette-extractor
-    // performance is fixed in its own PR, Library stays tint-less to
-    // keep the grid smooth. See `@palette-perf` follow-up.
-    com.gpo.yoin.ui.component.AlbumCard(
+    // The shape behind the cover wears the cover's colour, as on Home and in search (owner
+    // 2026-11-26). Off since 2026-04-19 (`e08ac3779`): each card then ran its own Coil loader and an
+    // unbounded Palette pass. Now the read is the shared one (the app's image loader, one read per
+    // cover across every card, the result cached by cover), runs at most two passes at once off the
+    // main thread (BackdropPaletteDispatcher), and waits for the grid to stop scrolling.
+    AlbumCard(
         coverArtUrl = coverArtUrl,
         title = album.name,
         subtitle = album.artist,
         version = album.version,
+        explicit = album.isExplicit,
+        releaseType = album.releaseType,
         onClick = onClick,
-        extractBackdropColors = false,
+        extractBackdropColors = extractColors,
         modifier = modifier.fillMaxWidth(),
         fixedWidth = null,
     )
@@ -1691,17 +1735,19 @@ private fun PlaylistGridItem(
     playlist: Playlist,
     onClick: () -> Unit,
     coverArtUrl: String?,
+    extractColors: Boolean,
     modifier: Modifier = Modifier
 ) {
-    com.gpo.yoin.ui.component.AlbumCard(
+    AlbumCard(
         coverArtUrl = coverArtUrl,
         title = playlist.name,
         subtitle = playlist.owner?.takeIf { it.isNotBlank() } ?: stringResource(R.string.library_playlist_fallback),
         onClick = onClick,
-        extractBackdropColors = false,
+        extractBackdropColors = extractColors,
         modifier = modifier.fillMaxWidth(),
         fixedWidth = null,
-        fallbackIcon = YoinSymbols.Playlist
+        fallbackIcon = YoinSymbols.Playlist,
+        backdropKind = WidgetShapeKind.Playlist,
     )
 }
 
@@ -1733,6 +1779,7 @@ private fun AllTabContent(
         EmptyState(message = stringResource(R.string.library_empty_all), modifier = modifier, pullable = true)
         return
     }
+    val readColors = libraryColorGate(gridState)
     val anchor = KeepGridAnchorAcrossWidthChanges(gridState)
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         LazyVerticalGrid(
@@ -1793,12 +1840,14 @@ private fun AllTabContent(
                         coverArtUrl = libraryCoverArtUrl(item.album.coverArt, coverArtUrlBuilder)
                             ?: item.album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                                 ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                        extractColors = readColors.value,
                         modifier = itemModifier
                     )
                     is LibraryItem.PlaylistItem -> PlaylistGridItem(
                         playlist = item.playlist,
                         onClick = { onPlaylistClick(item.playlist.id.toString()) },
                         coverArtUrl = playlistBackdropArtUrl(item.playlist, coverArtUrlBuilder),
+                        extractColors = readColors.value,
                         modifier = itemModifier
                     )
                 }
@@ -1939,6 +1988,7 @@ private fun SongsTabContent(
                         isPlaying = isPlaying,
                         extractBackdropColors = false,
                         hasNote = song.id.toString() in notedSongIds,
+                        isExplicit = song.isExplicit,
                         isUnavailable = song.isUnplayableAppleImport,
                         modifier = Modifier
                             .animateItem(
@@ -2340,6 +2390,7 @@ private fun FavoritesTabContent(
                     isPlaying = isPlaying,
                     extractBackdropColors = false,
                     hasNote = song.id.toString() in notedSongIds,
+                    isExplicit = song.isExplicit,
                     modifier = Modifier
                         .animateItem(
                             fadeInSpec = YoinMotion.effectsSpring(),
@@ -2354,7 +2405,7 @@ private fun FavoritesTabContent(
 }
 
 @Composable
-private fun AlbumListItem(
+internal fun AlbumListItem(
     album: Album,
     onClick: () -> Unit,
     coverArtUrl: String?,
@@ -2390,9 +2441,12 @@ private fun AlbumListItem(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f).seamFade()) {
+                // The title is the name alone (Apple Music's " - EP" / " - Single" too); the kind, the
+                // version tag and the "E" sit at the row's end (owner 2026-11-26; a 48dp thumb has no
+                // room for the backdrop band).
                 AlbumVersionTitle(
-                    name = album.name,
-                    version = album.version,
+                    name = nameWithoutKindSuffix(albumNameWithoutVersion(album.name, album.version), album.releaseType),
+                    version = null,
                     titleStyle = MaterialTheme.typography.titleSmall,
                 ) { text, titleModifier ->
                     Text(
@@ -2414,6 +2468,12 @@ private fun AlbumListItem(
                     )
                 }
             }
+            RowEndBadges(
+                version = album.version,
+                explicit = album.isExplicit,
+                kind = coverKindTag(album.releaseType),
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
     }
 }
@@ -2682,6 +2742,7 @@ private fun SearchAllResults(
     songRow: @Composable (Track, Modifier) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val readColors = libraryColorGate(listState)
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val windowInfo = LocalYoinWindowInfo.current
         val minimumAlbumWidth = when {
@@ -2767,6 +2828,7 @@ private fun SearchAllResults(
                                     libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
                                         ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                                             ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                                extractColors = readColors.value,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -2867,6 +2929,7 @@ private fun SearchSongRow(
             isPlaying = isPlaying,
             extractBackdropColors = false,
             hasNote = hasNote,
+            isExplicit = song.isExplicit,
             isUnavailable = song.isUnplayableAppleImport,
             trailingContent = if (canAddToLibrary && !song.isUnplayableAppleImport) {
                 {
@@ -2926,6 +2989,7 @@ private fun SearchResultsGrid(
     // comes back exactly where it was left (a result opened in a Wide column).
     KeepGridAnchorAcrossWidthChanges(gridState, anchor, exact = true)
     LoadMoreSongsEffect(gridState, more, results.artists.size + results.albums.size, onLoadMore)
+    val readColors = libraryColorGate(gridState)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyVerticalGrid(
         columns = libraryGridCells(),
@@ -2962,6 +3026,7 @@ private fun SearchResultsGrid(
                 coverArtUrl = libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
                     ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                         ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                extractColors = readColors.value,
                 modifier = Modifier.animateItem(
                     fadeInSpec = YoinMotion.effectsSpring(),
                     placementSpec = YoinMotion.spatialSpring(),

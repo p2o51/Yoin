@@ -63,7 +63,7 @@ enum SingDSP {
         let paddedCount = pad + nSig + pad
         var padded = [Float](repeating: 0, count: paddedCount)
         if nSig > 0 {
-            signal.withUnsafeBufferPointer { src in
+            _ = signal.withUnsafeBufferPointer { src in
                 padded.withUnsafeMutableBufferPointer { dst in
                     memcpy(dst.baseAddress!.advanced(by: pad), src.baseAddress!, nSig * MemoryLayout<Float>.size)
                 }
@@ -161,37 +161,49 @@ enum SingDSP {
         var splitImag = [Float](repeating: 0, count: halfFFT)
         var timeFrame = [Float](repeating: 0, count: nFFT)
         let invScale: Float = 1.0 / Float(nFFT)
+        let scaledHann: [Float] = periodicHann.map { $0 * invScale }
         let winSq: [Float] = periodicHann.map { $0 * $0 }
 
-        for t in 0..<frameCount {
-            // Pack DC into real[0] and Nyquist into imag[0] for vDSP_fft_zrip inverse.
-            // Because vDSP forward scaled by 2 and vDSP inverse returns N * x(n) (from 2*X),
-            // feeding unscaled X gives N/2 * x(n) — wait: for vDSP_fft_zrip, inverse(forward(x)) == 2*N * x.
-            // Since we multiplied forward by 0.5, feeding X directly into inverse yields N * x(n),
-            // so dividing by N (= 1024) recovers exact x(n)!
-            splitReal[0] = spec.real[0 * frameCount + t]
-            splitImag[0] = spec.real[halfFFT * frameCount + t]
-            for k in 1..<halfFFT {
-                splitReal[k] = spec.real[k * frameCount + t]
-                splitImag[k] = spec.imag[k * frameCount + t]
-            }
+        acc.withUnsafeMutableBufferPointer { accBuf in
+            winSqAcc.withUnsafeMutableBufferPointer { winAccBuf in
+                scaledHann.withUnsafeBufferPointer { shBuf in
+                    winSq.withUnsafeBufferPointer { wsqBuf in
+                        guard let accBase = accBuf.baseAddress,
+                              let winAccBase = winAccBuf.baseAddress,
+                              let shBase = shBuf.baseAddress,
+                              let wsqBase = wsqBuf.baseAddress else { return }
+                        let vLen = vDSP_Length(nFFT)
+                        for t in 0..<frameCount {
+                            splitReal[0] = spec.real[0 * frameCount + t]
+                            splitImag[0] = spec.real[halfFFT * frameCount + t]
+                            for k in 1..<halfFFT {
+                                splitReal[k] = spec.real[k * frameCount + t]
+                                splitImag[k] = spec.imag[k * frameCount + t]
+                            }
 
-            splitReal.withUnsafeMutableBufferPointer { rPtr in
-                splitImag.withUnsafeMutableBufferPointer { iPtr in
-                    var split = DSPSplitComplex(realp: rPtr.baseAddress!, imagp: iPtr.baseAddress!)
-                    vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Inverse))
-                    timeFrame.withUnsafeMutableBufferPointer { tPtr in
-                        tPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfFFT) { cPtr in
-                            vDSP_ztoc(&split, 1, cPtr, 2, vDSP_Length(halfFFT))
+                            splitReal.withUnsafeMutableBufferPointer { rPtr in
+                                splitImag.withUnsafeMutableBufferPointer { iPtr in
+                                    var split = DSPSplitComplex(realp: rPtr.baseAddress!, imagp: iPtr.baseAddress!)
+                                    vDSP_fft_zrip(fftSetup, &split, 1, log2n, FFTDirection(kFFTDirection_Inverse))
+                                    timeFrame.withUnsafeMutableBufferPointer { tPtr in
+                                        tPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: halfFFT) { cPtr in
+                                            vDSP_ztoc(&split, 1, cPtr, 2, vDSP_Length(halfFFT))
+                                        }
+                                    }
+                                }
+                            }
+
+                            let start = t * hopLength
+                            let accDst = accBase.advanced(by: start)
+                            let winDst = winAccBase.advanced(by: start)
+                            timeFrame.withUnsafeBufferPointer { tfBuf in
+                                guard let tfBase = tfBuf.baseAddress else { return }
+                                vDSP_vma(tfBase, 1, shBase, 1, accDst, 1, accDst, 1, vLen)
+                            }
+                            vDSP_vadd(winDst, 1, wsqBase, 1, winDst, 1, vLen)
                         }
                     }
                 }
-            }
-
-            let start = t * hopLength
-            for n in 0..<nFFT {
-                acc[start + n] += timeFrame[n] * invScale * periodicHann[n]
-                winSqAcc[start + n] += winSq[n]
             }
         }
 
@@ -207,8 +219,175 @@ enum SingDSP {
         return output
     }
 
-    /// Resamples stereo non-interleaved float PCM from `sourceRate` to `targetRate` using Apple's
-    /// highest-quality linear-phase polyphase `AVAudioConverter`.
+    /// Exact zero-phase polyphase FIR resampler matching `scipy.signal.resample_poly(x, up, down)`
+    /// and Android `PolyphaseResampler.kt`:
+    /// - Prototype filter: `firwin(2 * 10 * max(up, down) + 1, 1 / max(up, down), window=('kaiser', 5.0)) * up`
+    /// - Strictly linear-phase with **0 samples** of group delay (unlike `AVAudioConverter` Mastering mode,
+    ///   which leaves +2304 samples / +52.2 ms of uncompensated FIR latency across the 44.1 ↔ 22.05 kHz round-trip
+    ///   and turns `I = X - V` into vocal amplification + slapback echo).
+    struct PolyphaseResampler: Sendable {
+        let up: Int
+        let down: Int
+        let isIdentity: Bool
+        private let halfLength: Int
+        private let numTaps: Int
+        private let phaseTaps: [Float]
+        private let phaseOffsets: [Int]
+        private let phaseCounts: [Int]
+
+        private static let kaiserBeta: Double = 5.0
+
+        init(fromRate: Int, toRate: Int) {
+            precondition(fromRate > 0 && toRate > 0, "Sample rates must be positive")
+            let g = Self.gcd(fromRate, toRate)
+            self.up = toRate / g
+            self.down = fromRate / g
+            self.isIdentity = (self.up == 1 && self.down == 1)
+            if self.isIdentity {
+                self.halfLength = 0
+                self.numTaps = 0
+                self.phaseTaps = []
+                self.phaseOffsets = []
+                self.phaseCounts = []
+            } else {
+                let maxRate = max(self.up, self.down)
+                let half = 10 * maxRate
+                let count = 2 * half + 1
+                self.halfLength = half
+                self.numTaps = count
+                let taps = Self.lowPass(numTaps: count, cutoff: 1.0 / Double(maxRate), gain: self.up)
+
+                var flatTaps: [Float] = []
+                flatTaps.reserveCapacity(count)
+                var offsets = [Int](repeating: 0, count: self.up)
+                var counts = [Int](repeating: 0, count: self.up)
+                for p in 0..<self.up {
+                    let pCount = (count - 1 - p) / self.up + 1
+                    offsets[p] = flatTaps.count
+                    counts[p] = pCount
+                    // Store each phase reversed so output m reads taps forward while input j advances forward.
+                    for i in 0..<pCount {
+                        flatTaps.append(Float(taps[p + self.up * (pCount - 1 - i)]))
+                    }
+                }
+                self.phaseTaps = flatTaps
+                self.phaseOffsets = offsets
+                self.phaseCounts = counts
+            }
+        }
+
+        /// `ceil(inputLength * up / down)`, matching `scipy.signal.resample_poly`.
+        func outputLength(for inputLength: Int) -> Int {
+            guard inputLength > 0 else { return 0 }
+            let n = Int64(inputLength) * Int64(up)
+            let d = Int64(down)
+            return Int((n + d - 1) / d)
+        }
+
+        func resample(_ input: [Float]) -> [Float] {
+            let inputLength = input.count
+            guard inputLength > 0 else { return [] }
+            if isIdentity { return input }
+
+            let outLen = outputLength(for: inputLength)
+            var output = [Float](repeating: 0, count: outLen)
+            let lastTap = Int64(numTaps - 1)
+            let up64 = Int64(up)
+            let down64 = Int64(down)
+            let half64 = Int64(halfLength)
+            let maxIn = Int64(inputLength - 1)
+
+            input.withUnsafeBufferPointer { inBuf in
+                phaseTaps.withUnsafeBufferPointer { tapBuf in
+                    phaseOffsets.withUnsafeBufferPointer { offBuf in
+                        phaseCounts.withUnsafeBufferPointer { cntBuf in
+                            output.withUnsafeMutableBufferPointer { outBuf in
+                                guard let inBase = inBuf.baseAddress,
+                                      let tapBase = tapBuf.baseAddress,
+                                      let offBase = offBuf.baseAddress,
+                                      let cntBase = cntBuf.baseAddress,
+                                      let outBase = outBuf.baseAddress else { return }
+
+                                for m in 0..<outLen {
+                                    let c = Int64(m) * down64 + half64
+                                    let rawLow = c - lastTap
+                                    let jLow = rawLow <= 0 ? 0 : Int((rawLow + up64 - 1) / up64)
+                                    let jHigh = Int(min(maxIn, c / up64))
+                                    if jLow > jHigh { continue }
+
+                                    let p = Int(c % up64)
+                                    let pLen = cntBase[p]
+                                    let pOff = offBase[p]
+                                    let k = pLen - 1 - Int(c / up64 - Int64(jLow))
+                                    let n = jHigh - jLow + 1
+                                    var acc: Float = 0
+                                    vDSP_dotpr(
+                                        tapBase.advanced(by: pOff + k), 1,
+                                        inBase.advanced(by: jLow), 1,
+                                        &acc,
+                                        vDSP_Length(n)
+                                    )
+                                    outBase[m] = acc
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return output
+        }
+
+        /// `firwin(numTaps, cutoff, window=('kaiser', 5.0))` scaled by `gain`.
+        static func lowPass(numTaps: Int, cutoff: Double, gain: Int) -> [Double] {
+            let alpha = 0.5 * Double(numTaps - 1)
+            let i0Beta = besselI0(kaiserBeta)
+            var h = [Double](repeating: 0, count: numTaps)
+            var sum = 0.0
+            for n in 0..<numTaps {
+                let m = Double(n) - alpha
+                let ratio = m / alpha
+                let window = besselI0(kaiserBeta * sqrt(max(0.0, 1.0 - ratio * ratio))) / i0Beta
+                let v = cutoff * sinc(cutoff * m) * window
+                h[n] = v
+                sum += v
+            }
+            let scale = Double(gain) / sum
+            for n in 0..<numTaps { h[n] *= scale }
+            return h
+        }
+
+        private static func sinc(_ x: Double) -> Double {
+            x == 0.0 ? 1.0 : sin(Double.pi * x) / (Double.pi * x)
+        }
+
+        /// Modified Bessel function of the first kind, order 0 (exact match to `scipy.special.i0`).
+        static func besselI0(_ x: Double) -> Double {
+            let q = x * x / 4.0
+            var term = 1.0
+            var sum = 1.0
+            var k = 1.0
+            while term > sum * 1e-17 {
+                term *= q / (k * k)
+                sum += term
+                k += 1.0
+            }
+            return sum
+        }
+
+        private static func gcd(_ a: Int, _ b: Int) -> Int {
+            var x = abs(a)
+            var y = abs(b)
+            while y != 0 {
+                let r = x % y
+                x = y
+                y = r
+            }
+            return x
+        }
+    }
+
+    /// Resamples stereo non-interleaved float PCM from `sourceRate` to `targetRate` with strictly
+    /// zero-phase Kaiser-windowed polyphase FIR (`scipy.signal.resample_poly` / Android `PolyphaseResampler`).
     static func resampleStereo(
         left: [Float],
         right: [Float],
@@ -217,64 +396,18 @@ enum SingDSP {
     ) throws -> (left: [Float], right: [Float]) {
         let count = min(left.count, right.count)
         guard count > 0 else { return ([], []) }
-        if abs(sourceRate - targetRate) < 0.5 {
+        let fromInt = Int(sourceRate.rounded())
+        let toInt = Int(targetRate.rounded())
+        guard fromInt > 0, toInt > 0 else {
+            throw NSError(domain: "SingDSP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid sample rate"])
+        }
+        if fromInt == toInt {
             return (Array(left.prefix(count)), Array(right.prefix(count)))
         }
-        guard let inFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: sourceRate, channels: 2, interleaved: false),
-              let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: targetRate, channels: 2, interleaved: false),
-              let converter = AVAudioConverter(from: inFmt, to: outFmt) else {
-            throw NSError(domain: "SingDSP", code: -1, userInfo: [NSLocalizedDescriptionKey: "Cannot create AVAudioConverter"])
-        }
-        converter.sampleRateConverterAlgorithm = AVSampleRateConverterAlgorithm_Mastering
-        converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
-        converter.primeMethod = .none
-
-        let expectedOut = Int((Double(count) * targetRate / sourceRate).rounded())
-        var outL: [Float] = []
-        var outR: [Float] = []
-        outL.reserveCapacity(expectedOut + 256)
-        outR.reserveCapacity(expectedOut + 256)
-
-        let chunkSize = 32_768
-        final class OffsetBox: @unchecked Sendable { var value = 0 }
-        let inputOffset = OffsetBox()
-        let outCap = AVAudioFrameCount(32_768)
-        guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: outCap) else {
-            throw NSError(domain: "SingDSP", code: -2, userInfo: [NSLocalizedDescriptionKey: "Cannot allocate output buffer"])
-        }
-
-        while true {
-            var error: NSError?
-            let status = converter.convert(to: outBuf, error: &error) { requestedFrames, outStatus in
-                let remaining = count - inputOffset.value
-                if remaining <= 0 {
-                    outStatus.pointee = .endOfStream
-                    return nil
-                }
-                let take = min(Int(requestedFrames), min(chunkSize, remaining))
-                guard let inBuf = AVAudioPCMBuffer(pcmFormat: inFmt, frameCapacity: AVAudioFrameCount(take)),
-                      let ch = inBuf.floatChannelData else {
-                    outStatus.pointee = .noDataNow
-                    return nil
-                }
-                inBuf.frameLength = AVAudioFrameCount(take)
-                left.withUnsafeBufferPointer { memcpy(ch[0], $0.baseAddress!.advanced(by: inputOffset.value), take * 4) }
-                right.withUnsafeBufferPointer { memcpy(ch[1], $0.baseAddress!.advanced(by: inputOffset.value), take * 4) }
-                inputOffset.value += take
-                outStatus.pointee = .haveData
-                return inBuf
-            }
-            if let error { throw error }
-            let produced = Int(outBuf.frameLength)
-            if produced > 0, let ch = outBuf.floatChannelData {
-                outL.append(contentsOf: UnsafeBufferPointer(start: ch[0], count: produced))
-                outR.append(contentsOf: UnsafeBufferPointer(start: ch[1], count: produced))
-            }
-            if status == .endOfStream || (status == .inputRanDry && inputOffset.value >= count && produced == 0) {
-                break
-            }
-        }
-        return (outL, outR)
+        let resampler = PolyphaseResampler(fromRate: fromInt, toRate: toInt)
+        let srcL = left.count == count ? left : Array(left.prefix(count))
+        let srcR = right.count == count ? right : Array(right.prefix(count))
+        return (resampler.resample(srcL), resampler.resample(srcR))
     }
 
     /// Reads any AVFoundation-readable stereo/mono audio file (`flac`, `mp3`, `m4a`, `wav`) into a single

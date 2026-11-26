@@ -499,3 +499,32 @@ This replaces L14's "All = sectioned list" and its chip order. Android 0.6.3's s
 - **Taps.** A note on a returned song plays that song alone and seeks to the note's second once the song is current and prepared (`search_note_playback.dart`: engine phase `ready`, within `noteSeekTimeout` = 4 s); any other note opens its album's scrapbook at the song. An album with a memory opens on its scrapbook; a memory known only from the ledger opens its album's scrapbook. Another account's switches first, behind the Memories deck's one-off notice (`requestAccountSwitch` + `switchAccountThen`).
 - **Strings** are Android's `library_search_filter_memories`, `_show_all`, `_folded`, `_your_note`, `_your_memory`, `_no_memories` (EN + zh, verbatim).
 - **Not yet:** the `MemorySearch` tip; device QA (phone, foldable, MateBook window).
+
+## Since PR #343 parity (2026-11-27): the Explicit "E", release kinds, cover shapes
+
+Android PR #343 (docs/design.md「🅴 Explicit 标」) on HarmonyOS. Rules: `lib/data/release/release_marks.dart`, a Dart port of
+`:shared` `release/ReleaseMarks.kt` replaying `shared/src/commonTest/resources/golden/release-marks.json`.
+
+- **Data.** `Track` / `Album.contentRating` (Explicit / Clean / null = unknown): Apple Music `contentRating` (own, else the
+  catalog resource's), OpenSubsonic `explicitStatus`. Apple Music's kind: `isCompilation` / `isSingle` / the " - EP" /
+  " - Single" name (each flag own if present, else the catalog's). Stored as `'cr'` (Kotlin names) in the detail cache,
+  the Home snapshot, the grid pools and the player's item; old Apple Music album / artist cache rows (no `'fv': 2`) are
+  misses, old Subsonic rows are served and fill in on the next refresh.
+- **Library grid (All / Albums / search Albums).** Album and playlist cells are Home's backdrop cover
+  (`BackdropCover`, Bun / Ghostish, no press morph) in the cover's colour; the kind ("EP" / "Single"), version tag and
+  "E" sit on the shape's band above the cover (`CoverBandBadges`, `:shared` `coverBand`), never on the art; the title is
+  the name alone. Colours are read only while the grid rests (`LibraryPaletteGate`), at most two palette passes at once
+  (`PalettePasses`), 1024 cached. Favorites' album rows carry the marks at the row's end (`RowEndBadges`).
+- **Albums' kind filter.** All / Albums / Singles & EPs / Compilations under the sort row, only with 2+ kinds the
+  services named; an unknown kind is only under All; a filtered shelf has the bare fast scroller. The artist page's
+  discography uses the same `ReleaseKindFilter` (unknown kinds used to count as Albums there).
+- **Album page.** Header names the real kind (EP / Single / Compilation; Album when unknown), the name without " - EP" /
+  " - Single", the "E" after the version tag (meta ink, so white over the spectrum bar). Track rows (album, playlist,
+  `SongListItem`) wear the "E" after the title; the flowing headline does not (as Android).
+- **Search / Home.** Album tiles and Recently Added / Jump Back In covers carry the band; song tiles, Recently Added
+  track tiles and the best-match card set the "E" after the title.
+- **Now Playing.** The hero "E" (x-height, at most 18) after the title in the hero, dual pane (both forms), landscape and
+  tabletop; its room comes out of the marquee's width, it rides the hero's stretch and is left out when the title would
+  keep less than half the row. Not on the mini player, the shared flight or the queue (as Android).
+- **Screen reader.** "Explicit" / 「含不雅内容」 (`cmp_explicit_badge_cd`): said by the title on cards, tiles and Now
+  Playing (so a dropped badge is still read), by the badge in list rows and the album header.

@@ -978,6 +978,7 @@ final class LibraryStore {
     /// stored copy keeps the copy (offline). [fetch] returns what to store.
     private func cachedLoad<D: Codable & Sendable>(
         _ key: String, kind: DetailDiskCache.Kind, id: String, force: Bool, fresh: TimeInterval = 0,
+        outdated: @escaping @Sendable (D) -> Bool = { _ in false },
         inMemory: @escaping @MainActor () -> Bool,
         restore: @escaping @MainActor (D, DetailCacheCodec) -> Void,
         fetch: @escaping @MainActor () async throws -> D?
@@ -985,10 +986,13 @@ final class LibraryStore {
         await once(key, force: force) { [self] in
             let gen = generation, epoch = diskEpoch, scope = diskScope
             var storedAt: Date?
+            var stale = false
             if !inMemory(), let codec, let hit = await disk.read(D.self, scope: scope, kind: kind, id: id) {
                 guard gen == generation else { return }
                 restore(hit.value, codec)
                 storedAt = hit.cachedAt
+                // Written by an older build without a field the page now shows: painted, then read again.
+                stale = outdated(hit.value)
                 phases[key] = .loaded
             }
             @MainActor func fetchAndStore() async throws {
@@ -996,7 +1000,7 @@ final class LibraryStore {
                 guard gen == generation else { return }
                 persist(value, kind: kind, id: id, epoch: epoch, scope: scope)
             }
-            if !force, let storedAt, fresh > 0 {
+            if !force, !stale, let storedAt, fresh > 0 {
                 let age = Date().timeIntervalSince(storedAt)
                 if age <= fresh {
                     if age > Self.revalidateAfter { Task { try? await fetchAndStore() } }
@@ -1413,6 +1417,7 @@ final class LibraryStore {
 
     func loadAlbum(_ id: String, force: Bool = false) async {
         await cachedLoad("album:\(id)", kind: .album, id: id, force: force, fresh: Self.detailFresh,
+                         outdated: { (d: DetailCacheDTO.Album) in DetailCacheDTO.marksOutdated(d) },
                          inMemory: { self.albumDetails[id] != nil },
                          restore: { (d: DetailCacheDTO.Album, c) in self.albumDetails[id] = c.album(d) }) { [self] in
             var album: Album?
@@ -1445,6 +1450,7 @@ final class LibraryStore {
 
     func loadArtist(_ id: String, force: Bool = false) async {
         await cachedLoad("artist:\(id)", kind: .artist, id: id, force: force, fresh: Self.detailFresh,
+                         outdated: { (d: DetailCacheDTO.ArtistPage) in DetailCacheDTO.marksOutdated(d) },
                          inMemory: { self.artistPages[id] != nil },
                          restore: { (d: DetailCacheDTO.ArtistPage, c) in self.artistPages[id] = c.artistPage(d) }) { [self] in
             if let apple {
@@ -2171,7 +2177,7 @@ final class LibraryStore {
                                  albumId: e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId,
                                  durationSec: Double(e.track.durationSec),
                                  streamURL: AppleMusicMapping.streamURL(rawId: e.track.id.rawId),
-                                 coverURL: e.album.coverURL)
+                                 coverURL: e.album.coverURL, contentRating: e.track.contentRating)
         }
         if spotify != nil, e.track.id.provider == SpotifyMapping.provider {
             let albumId = e.album.id.rawId.hasPrefix("song:") ? nil : e.album.id.rawId
@@ -2184,6 +2190,7 @@ final class LibraryStore {
             // the Liked Songs read so far" isn't "not liked".
             let known = e.track.starred || hearts.hasReport(provider: SpotifyMapping.provider, songId: e.track.id.rawId)
             t.starred = known ? isStarred(e.track) : nil
+            t.contentRating = e.track.contentRating
             return t
         }
         guard let client, e.track.id.provider == MediaRef.companion.PROVIDER_SUBSONIC else { return nil }
@@ -2198,6 +2205,7 @@ final class LibraryStore {
         t.userRating = e.track.rating.map { SubsonicMapping.serverRating($0) }
         t.sourceKbps = e.track.bitRateKbps
         t.formatTags = e.track.formatTags
+        t.contentRating = e.track.contentRating
         ReplayGainSettings.shared.remember(e.track.audio, songId: e.track.id.rawId)
         return t
     }

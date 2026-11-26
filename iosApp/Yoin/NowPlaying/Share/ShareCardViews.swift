@@ -826,7 +826,9 @@ private struct QuoteBody: View {
                         .padding(.top, 18)
                 }
                 if !about.credits.isEmpty {
-                    HStack(spacing: 6) {
+                    // The chips flow onto as many lines as they need, each as wide as its whole value (owner
+                    // 2026-11-26: the AI's credits run long and were cut to "Re…"; Android #360 FlowRow).
+                    ChipFlow(spacing: 6, lineSpacing: 6) {
                         ForEach(Array(about.credits.prefix(Int(YoinShareCards.shared.quoteCredits)).enumerated()),
                                 id: \.offset) { _, credit in
                             CreditChip(ctx: ctx, credit: credit)
@@ -845,18 +847,66 @@ private struct QuoteBody: View {
     }
 }
 
+/// A credit as a chip: the label, then the whole value — a value wider than the card wraps inside the chip.
 private struct CreditChip: View {
     let ctx: ShareCtx
     let credit: ShareCredit
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             ctx.role(credit.label, Tokens.type.labelSmall, color: ctx.colors.secondary, lines: 1).fixedSize()
-            ctx.role(credit.value, Tokens.type.labelLarge, .semibold, color: ctx.colors.content, lines: 1)
+            ctx.role(credit.value, Tokens.type.labelLarge, .semibold, color: ctx.colors.content)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(ctx.colors.content.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+/// Rows of chips, wrapping when the width runs out (Android FlowRow). Each chip is offered the whole row's width,
+/// so one wider than the card wraps its value inside itself instead of being cut.
+private struct ChipFlow: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let rows = arrange(subviews, width: width)
+        let used = rows.map(\.width).max() ?? 0
+        let height = rows.map(\.height).reduce(0, +) + lineSpacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: proposal.width.map { min($0, used) } ?? used, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for (i, size) in zip(row.items, row.sizes) {
+                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + lineSpacing
+        }
+    }
+
+    private struct Row { var items: [Int] = []; var sizes: [CGSize] = []; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for i in subviews.indices {
+            let size = subviews[i].sizeThatFits(ProposedViewSize(width: width.isFinite ? width : nil, height: nil))
+            if !row.items.isEmpty, row.width + spacing + size.width > width {
+                rows.append(row)
+                row = Row()
+            }
+            row.width = row.items.isEmpty ? size.width : row.width + spacing + size.width
+            row.height = max(row.height, size.height)
+            row.items.append(i)
+            row.sizes.append(size)
+        }
+        if !row.items.isEmpty { rows.append(row) }
+        return rows
     }
 }
 
@@ -869,16 +919,20 @@ private struct LinerBody: View {
             let cells = Array(about.credits.prefix(Int(YoinShareCards.shared.linerCredits)))
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .top, spacing: 0) {
-                        ctx.role(about.heading.uppercased(), Tokens.type.labelMedium, .semibold,
-                                 color: ctx.colors.secondary, tracking: 1.6)
-                            .padding(.top, 2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    // The head (owner 2026-11-26, Android #360): "About" as written (sentence case, 关于) sits right
+                    // on the title, and the cover's top lines up with the eyebrow + title + artist block beside it.
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ctx.role(about.heading, Tokens.type.labelLarge, .semibold, color: ctx.colors.secondary)
+                            ctx.hero(ctx.song.title, size: 36, lineHeight: 1.12, color: ctx.colors.content)
+                                .padding(.top, 2)
+                            if !ctx.song.artist.isBlank {
+                                ctx.role(ctx.song.artist, Tokens.type.bodyMedium, color: ctx.colors.secondary)
+                                    .padding(.top, 6)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         ShareCover(image: ctx.render.cover, size: 72, tint: ctx.colors.content, corner: 8)
-                    }
-                    ctx.hero(ctx.song.title, size: 36, lineHeight: 1.12, color: ctx.colors.content).padding(.top, 8)
-                    if !ctx.song.artist.isBlank {
-                        ctx.role(ctx.song.artist, Tokens.type.bodyMedium, color: ctx.colors.secondary).padding(.top, 6)
                     }
                     if !cells.isEmpty {
                         VStack(spacing: 0) {

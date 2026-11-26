@@ -5,6 +5,7 @@ import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.ContentRating
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.lyrics.LyricCreditsExtractor
@@ -28,6 +29,7 @@ import com.gpo.yoin.data.remote.SearchResult as SubsonicSearchResult
 import com.gpo.yoin.data.remote.Song as SubsonicSong
 import com.gpo.yoin.data.remote.StarredResponse as SubsonicStarredResponse
 import com.gpo.yoin.data.model.Playlist as NeutralPlaylist
+import com.gpo.yoin.shared.release.YoinReleaseMarks
 
 internal fun SubsonicSong.toTrack(): Track {
     val extras = mutableMapOf<String, String>()
@@ -79,6 +81,7 @@ internal fun SubsonicSong.toTrack(): Track {
                 fallbackGainDb = it.fallbackGain,
             )
         },
+        contentRating = ContentRating.fromOpenSubsonic(explicitStatus),
     )
 }
 
@@ -129,6 +132,7 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     version = version?.trim()?.takeIf(String::isNotEmpty),
     recordLabels = recordLabels.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }.distinct(),
     originalReleaseDate = originalReleaseDate?.toReleaseDate(),
+    contentRating = ContentRating.fromOpenSubsonic(explicitStatus),
 )
 
 /**
@@ -150,15 +154,7 @@ private fun SubsonicItemDate.toReleaseDate(): ReleaseDate? = ReleaseDate.of(year
 
 /** OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins. */
 internal fun subsonicReleaseType(releaseTypes: List<String>): ReleaseType? =
-    releaseTypes.firstNotNullOfOrNull { type ->
-        when (type.trim().lowercase()) {
-            "album" -> ReleaseType.Album
-            "ep" -> ReleaseType.EP
-            "single" -> ReleaseType.Single
-            "compilation" -> ReleaseType.Compilation
-            else -> null
-        }
-    }
+    YoinReleaseMarks.subsonicReleaseType(releaseTypes)
 
 internal fun SubsonicArtist.toArtist(): Artist = Artist(
     id = MediaId.subsonic(id),

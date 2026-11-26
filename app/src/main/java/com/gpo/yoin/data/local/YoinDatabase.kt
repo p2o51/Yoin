@@ -39,7 +39,7 @@ import androidx.room.RoomDatabase
         LyricHighlight::class,
         AlbumAboutEntry::class,
     ],
-    version = 37,
+    version = 38,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {

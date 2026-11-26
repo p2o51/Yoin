@@ -30,6 +30,8 @@ struct LibraryView: View {
     @State private var naming = false
     @State private var newName = ""
     @State private var order = LibraryOrderMemo()
+    /// The Albums view's kind filter (Android PR #343: All / Albums / Singles & EPs / Compilations).
+    @State private var albumKind: ReleaseMarks.Filter = .all
 
     /// Filter, sorts and positions outlive the page (Android keeps them in
     /// its ViewModel): Home → Library comes back to the same view.
@@ -116,14 +118,23 @@ struct LibraryView: View {
     /// main thread (build 8: 89% CPU, then a watchdog kill).
     private var ordered: LibraryOrderMemo.Value {
         let sort = sort
-        return order.value(for: .init(filter: filter, sort: sort, byYou: memory.byYou, real: model.store.isReal)) {
+        let filter = filter, kind = albumKind
+        return order.value(for: .init(filter: filter, sort: sort, byYou: memory.byYou, real: model.store.isReal,
+                                      albumKind: filter == .albums ? kind : .all)) {
             var base = filtered
             if filter == .playlists, memory.byYou, byYouAvailable {
                 base = base.filter { $0.ownedByMe == true }
             }
+            // Albums: the kinds the shelf holds (the filter shows for two or more), then the picked one.
+            var kinds: [ReleaseMarks.Filter] = []
+            if filter == .albums {
+                kinds = ReleaseMarks.offeredFilters(base.map { $0.album?.releaseType })
+                if kinds.contains(kind), kind != .all { base = base.filter { kind.accepts($0.album?.releaseType) } }
+            }
             let sorter = sorter
             let items = sorter.sorted(base, by: sort)
-            return .init(items: items, sections: LibraryScrollIndex.sections(items, sort: sort, sorter: sorter))
+            return .init(items: items, sections: LibraryScrollIndex.sections(items, sort: sort, sorter: sorter),
+                         kindFilters: kinds)
         }
     }
 
@@ -389,13 +400,41 @@ struct LibraryView: View {
                         .transition(.opacity.animation(Yoin.effects))
                 }
             } header: {
-                sortRow
+                VStack(alignment: .leading, spacing: 0) {
+                    sortRow
+                    if filter == .albums { kindFilterRow(order: ordered) }
+                }
             }
         }
         .padding(.horizontal, 16)
         // Android animateItem: arrivals, removals and a new order move on the
         // spatial spring and fade on the effects one.
         .animation(Yoin.spatial, value: shown.map(\.id))
+    }
+
+    /// Albums' kind filter under the sort row (Android PR #343, the artist page's chips): only when the shelf
+    /// holds two or more kinds; a kind no longer on the shelf falls back to All.
+    @ViewBuilder
+    private func kindFilterRow(order: LibraryOrderMemo.Value) -> some View {
+        let kinds = order.kindFilters
+        if !kinds.isEmpty {
+            let current = kinds.contains(albumKind) ? albumKind : .all
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(kinds, id: \.self) { k in
+                        LibraryKindChip(title: k.label, on: current == k, scheme: scheme) {
+                            withAnimation(Yoin.spatial) { albumKind = k }
+                        }
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .contentMargins(.horizontal, 16, for: .scrollContent)
+            .padding(.horizontal, -16)
+            .padding(.bottom, 8)
+            .accessibilityElement(children: .contain)
+            .transition(.opacity)
+        }
     }
 
     /// The sort row: label + sort symbol, as the list's first row.
@@ -654,7 +693,7 @@ struct LibraryView: View {
                 if !albums.isEmpty {
                     sectionHeader(String(localized: "Albums"))
                     ForEach(albums) { a in
-                        LibraryListRow(title: a.title, subtitle: a.artist, scheme: scheme) {
+                        LibraryListRow(title: a.title, subtitle: a.artist, scheme: scheme, explicit: a.isExplicit) {
                             CoverArt(palette: a.palette, cornerRadius: 0, seed: a.seed)
                                 .frame(width: Tokens.library.ROW_THUMB.cg, height: Tokens.library.ROW_THUMB.cg)
                                 .clipShape(.rect(cornerRadius: Tokens.shape.THUMB.cg, style: .continuous))
@@ -881,12 +920,39 @@ struct EmptyPanel: View {
     }
 }
 
+/// A kind chip (the artist page's discography chips, Android ReleaseKindFilter): solid tonal, 44 tall, corner 18,
+/// labelLarge; on: secondaryContainer.
+struct LibraryKindChip: View {
+    var title: String
+    var on: Bool
+    var scheme: CoverScheme
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .lineLimit(1)
+                .yoinRole(Tokens.type.labelLarge)
+                .foregroundStyle(on ? scheme.onSecondaryContainer : scheme.onSurfaceVariant)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .frame(minHeight: 44)
+                .background(on ? scheme.secondaryContainer : scheme.surfaceContainerHigh,
+                            in: .rect(cornerRadius: 18, style: .circular))
+                .animation(Yoin.effects, value: on)
+        }
+        .buttonStyle(PressScale())
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
 /// Android ArtistListItem / AlbumListItem: 16 × 10, a 48 artwork, 12,
 /// titleSmall over bodySmall onSurfaceVariant.
 struct LibraryListRow<Art: View>: View {
     var title: String
     var subtitle: String
     var scheme: CoverScheme
+    /// The release is marked explicit: the "E" follows the title (Android PR #343; iOS option B).
+    var explicit = false
     @ViewBuilder var art: Art
     var action: () -> Void
 
@@ -895,7 +961,10 @@ struct LibraryListRow<Art: View>: View {
             HStack(spacing: Tokens.library.ROW_GAP.cg) {
                 art
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).lineLimit(1).yoinRole(Tokens.type.titleSmall).foregroundStyle(scheme.onSurface)
+                    ExplicitTitle(text: title, explicit: explicit, fontSize: Tokens.type.titleSmall.size.cg,
+                                  color: scheme.onSurfaceVariant) {
+                        Text(title).lineLimit(1).yoinRole(Tokens.type.titleSmall).foregroundStyle(scheme.onSurface)
+                    }
                     Text(subtitle).lineLimit(1).yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurfaceVariant)
                 }
                 Spacer(minLength: 0)
@@ -1189,11 +1258,14 @@ final class LibraryOrderMemo {
         var sort: LibrarySortOrder
         var byYou: Bool
         var real: Bool
+        var albumKind: ReleaseMarks.Filter = .all
     }
 
     struct Value {
         var items: [LibraryItem]
         var sections: [LibraryFastScroller.Section]
+        /// Albums: the kind filters the shelf offers (none under two kinds).
+        var kindFilters: [ReleaseMarks.Filter] = []
     }
 
     private var revision = 0
@@ -1315,7 +1387,7 @@ struct LibraryGridCellFace<Backdrop: View>: View {
             Spacer().frame(height: Tokens.library.COVER_TO_TITLE.cg)
             // AlbumCard / ArtistGridItem: titleSmall over bodySmall (12).
             if let album = item.album, !isArtist {
-                AlbumVersionTitle(album: album, scheme: scheme) { name in
+                AlbumVersionTitle(album: album, scheme: scheme, explicitSize: Tokens.type.titleSmall.size.cg) { name in
                     Text(name)
                         .lineLimit(1)
                         .yoinRole(Tokens.type.titleSmall)
@@ -1877,10 +1949,14 @@ struct LibrarySongRow: View {
                     if current {
                         YoinIcon("equalizer", size: 16).foregroundStyle(scheme.primary).padding(.trailing, 6)
                     }
-                    Text(track.title)
-                        .lineLimit(1)
-                        .yoinRole(Tokens.type.titleSmall)
-                        .foregroundStyle(current ? scheme.primary : scheme.onSurface)
+                    // The "E" right after the title when the service marks the song explicit (Android PR #343).
+                    ExplicitTitle(text: track.title, explicit: track.isExplicit,
+                                  fontSize: Tokens.type.titleSmall.size.cg, color: scheme.onSurfaceVariant) {
+                        Text(track.title)
+                            .lineLimit(1)
+                            .yoinRole(Tokens.type.titleSmall)
+                            .foregroundStyle(current ? scheme.primary : scheme.onSurface)
+                    }
                     // Android SongListItem: the song has notes (12, primary at 72 %, 6 after the title).
                     if hasNote {
                         YoinIcon("note", size: 12)

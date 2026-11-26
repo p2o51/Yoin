@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
 import '../ui/component/error_diagnostics.dart';
 import 'detail_cache.dart';
 
@@ -31,30 +32,36 @@ final class ArtistDetailError extends ArtistDetailState {
 }
 
 final class ArtistDetailContent extends ArtistDetailState {
-  const ArtistDetailContent({required this.artist, required this.releases, this.filter, this.showAll = false});
+  const ArtistDetailContent({
+    required this.artist,
+    required this.releases,
+    this.filter = ReleaseKindFilter.all,
+    this.showAll = false,
+  });
 
   final ArtistDetail artist;
 
   /// Newest first, undated last.
   final List<Album> releases;
 
-  /// The discography filter chip (null = All).
-  final ReleaseKind? filter;
+  /// The discography filter chip (the shared ReleaseKindFilter, as Android's artist page and Library's
+  /// Albums: a release of unknown kind is only under All).
+  final ReleaseKindFilter filter;
 
   /// "Show all" pressed.
   final bool showAll;
 
-  List<Album> get filteredReleases => filter == null
+  List<Album> get filteredReleases => filter == ReleaseKindFilter.all
       ? releases
       : [
           for (final r in releases)
-            if (releaseKindOf(r) == filter) r,
+            if (filter.accepts(r.releaseType)) r,
         ];
 
-  ArtistDetailContent copyWith({ReleaseKind? filter, bool clearFilter = false, bool? showAll}) => ArtistDetailContent(
+  ArtistDetailContent copyWith({ReleaseKindFilter? filter, bool? showAll}) => ArtistDetailContent(
     artist: artist,
     releases: releases,
-    filter: clearFilter ? null : (filter ?? this.filter),
+    filter: filter ?? this.filter,
     showAll: showAll ?? this.showAll,
   );
 
@@ -64,18 +71,9 @@ final class ArtistDetailContent extends ArtistDetailState {
   /// "2016 – 2025", a single year, or null.
   String? get activeSpan => artistActiveSpan(releases);
 
-  /// The distinct release kinds present (filter chips need two or more).
-  Set<ReleaseKind> get kinds => {for (final r in releases) releaseKindOf(r)};
+  /// The filter chips worth showing: none unless the releases hold two or more kinds.
+  List<ReleaseKindFilter> get filters => ReleaseKindFilter.offeredFor([for (final r in releases) r.releaseType]);
 }
-
-/// The discography filter buckets.
-enum ReleaseKind { album, singlesAndEps, compilation }
-
-ReleaseKind releaseKindOf(Album album) => switch (album.releaseType) {
-  ReleaseType.single || ReleaseType.ep => ReleaseKind.singlesAndEps,
-  ReleaseType.compilation => ReleaseKind.compilation,
-  ReleaseType.album || null => ReleaseKind.album,
-};
 
 /// Releases newest first (Android newestReleasesFirst): a list that came
 /// oldest-first (Navidrome) is reversed, then a stable sort by year
@@ -121,10 +119,10 @@ class ArtistDetailNotifier extends Notifier<ArtistDetailState> {
     return const ArtistDetailLoading();
   }
 
-  /// A filter chip: the one on, or null for All.
-  void setFilter(ReleaseKind? filter) {
+  /// A filter chip: the one on (All shows every release).
+  void setFilter(ReleaseKindFilter filter) {
     final s = state;
-    if (s is ArtistDetailContent) state = s.copyWith(filter: filter, clearFilter: filter == null);
+    if (s is ArtistDetailContent) state = s.copyWith(filter: filter);
   }
 
   void toggleShowAll() {

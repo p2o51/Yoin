@@ -31,6 +31,7 @@ import '../ui/component/user_message.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'library_cells.dart';
+import 'library_palette_gate.dart';
 import 'library_grid_anchor.dart';
 import 'library_search.dart';
 import 'library_search_memories.dart';
@@ -649,17 +650,20 @@ class _LibrarySearchSurfaceState extends ConsumerState<LibrarySearchSurface> {
           ),
           items.length,
         );
-        return GridView.builder(
-          controller: controller,
-          padding: EdgeInsets.fromLTRB(16, LibraryTokens.gridTopPadding, 16, bottom),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: LibraryTokens.gridGutterH,
-            mainAxisSpacing: LibraryTokens.gridGutterV,
-            mainAxisExtent: extent,
+        // Covers take their colour only while the grid rests (Android libraryColorGate).
+        return LibraryPaletteGate(
+          child: GridView.builder(
+            controller: controller,
+            padding: EdgeInsets.fromLTRB(16, LibraryTokens.gridTopPadding, 16, bottom),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: LibraryTokens.gridGutterH,
+              mainAxisSpacing: LibraryTokens.gridGutterV,
+              mainAxisExtent: extent,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, i) => _cell(context, items[i]),
           ),
-          itemCount: items.length,
-          itemBuilder: (context, i) => _cell(context, items[i]),
         );
       },
     );

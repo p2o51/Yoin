@@ -7,12 +7,15 @@ import os
 final class AVAudioOutput: AudioOutput {
     weak var events: AudioOutputEvents?
 
-    private let player = AVQueuePlayer()
+    private var player = AVQueuePlayer()
     private var current: AVPlayerItem?
     private var next: AVPlayerItem?
     private var nextURL: URL?
     private let singMixer = SingQuadDownmixer(initialGain: 1.0)
     private var singActive = false
+    /// Non-nil while `current` is playing a 4-channel Quad AAC Sing stream (`I + g*V`).
+    /// Kept loaded at `g = 1.0` after exiting Sing so exit has zero audio gap and re-entry is instant.
+    private var singLoadedSource: SingQuadSource?
     private var singOriginalURL: URL?
     private var singPrebufferTask: Task<Void, Never>?
     private var singExitTask: Task<Void, Never>?
@@ -23,6 +26,7 @@ final class AVAudioOutput: AudioOutput {
     private var observations: [NSKeyValueObservation] = []
     private var itemObservations: [NSKeyValueObservation] = []
     private var endObservers: [NSObjectProtocol] = []
+    private var replayGainObserver: NSObjectProtocol?
     static let log = Logger(subsystem: "com.gpo.yoin", category: "player")
 
     /// A stream URL as it may be logged (Android PlayTrace.describe): the scheme, the endpoint and the
@@ -38,35 +42,59 @@ final class AVAudioOutput: AudioOutput {
     }
 
     init() {
-        player.actionAtItemEnd = .advance
-        player.automaticallyWaitsToMinimizeStalling = true
+        configurePlayer(player)
+        attachPlayerObservers(to: player)
+        // Volume leveling changed: the song playing and the one preloaded follow at once (Android #139).
+        replayGainObserver = NotificationCenter.default.addObserver(forName: ReplayGainSettings.changed, object: nil,
+                                                                    queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let activeItems = [self.singLoadedSource != nil ? nil : self.current, self.next].compactMap { $0 }
+                for item in activeItems { self.applyGain(item) }
+            }
+        }
+    }
+
+    private func configurePlayer(_ p: AVQueuePlayer) {
+        p.actionAtItemEnd = .advance
+        p.automaticallyWaitsToMinimizeStalling = true
         // `-silentAudio YES`: play muted (silent QA runs; the clock still advances).
-        player.isMuted = LaunchConfig.silentAudio
+        p.isMuted = LaunchConfig.silentAudio
+    }
+
+    private func detachPlayerObservers(from p: AVQueuePlayer) {
+        if let obs = timeObserver {
+            p.removeTimeObserver(obs)
+            timeObserver = nil
+        }
+        observations.removeAll()
+    }
+
+    private func attachPlayerObservers(to p: AVQueuePlayer) {
         // ≤ 4 Hz: the progress UI and the scrobble clock are all that read it.
-        timeObserver = player.addPeriodicTimeObserver(
+        timeObserver = p.addPeriodicTimeObserver(
             forInterval: CMTime(value: 1, timescale: 4), queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated {
-                guard let self, self.player.currentItem != nil else { return }
+                guard let self, self.player === p, self.player.currentItem != nil else { return }
                 self.events?.outputTimeDidChange(time.seconds.isFinite ? time.seconds : 0)
             }
         }
-        observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-            let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-            Task { @MainActor in self?.events?.outputIsBufferingDidChange(waiting) }
-        })
-        observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor in self?.currentItemDidChange() }
-        })
-        // Volume leveling changed: the song playing and the one preloaded follow at once (Android #139).
-        endObservers.append(NotificationCenter.default.addObserver(forName: ReplayGainSettings.changed, object: nil,
-                                                                   queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                let activeItems = [self.singActive ? nil : self.current, self.next].compactMap { $0 }
-                for item in activeItems { self.applyGain(item) }
-            }
-        })
+        observations = [
+            p.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
+                let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                Task { @MainActor in
+                    guard let self, self.player === player else { return }
+                    self.events?.outputIsBufferingDidChange(waiting)
+                }
+            },
+            p.observe(\.currentItem, options: [.new]) { [weak self] player, _ in
+                Task { @MainActor in
+                    guard let self, self.player === player else { return }
+                    self.currentItemDidChange()
+                }
+            },
+        ]
     }
 
     /// The song id a stream URL names (Subsonic `id`); nil for other services.
@@ -103,6 +131,7 @@ final class AVAudioOutput: AudioOutput {
         PlayTrace.log("AV load \(Self.describe(url))")
         cancelSingTransitions()
         singActive = false
+        singLoadedSource = nil
         singOriginalURL = url
         singMixer.setVocalGain(1.0, rampSeconds: 0)
         player.removeAllItems()
@@ -149,6 +178,7 @@ final class AVAudioOutput: AudioOutput {
         PlayTrace.log("AV stop")
         cancelSingTransitions()
         singActive = false
+        singLoadedSource = nil
         singOriginalURL = nil
         singMixer.setVocalGain(1.0, rampSeconds: 0)
         player.pause()
@@ -184,10 +214,10 @@ final class AVAudioOutput: AudioOutput {
         return max(0, maxEnd - positionSec)
     }
 
-    /// Pre-buffers a 4-channel Quad AAC Sing stream (`[I_L, I_R, V_L, V_R]`) on a muted standby player
-    /// while the original stereo track keeps playing uninterrupted. Once buffered ahead of the live
-    /// playhead, swaps in frame-accurately at `g = 1.0` (inaudible cut-in), invokes `onHandoverReady`,
-    /// and smoothly glides vocals down along `.easeOutCubic` over `~0.95 s`.
+    /// Pre-buffers a 4-channel Quad AAC Sing stream (`[I_L, I_R, V_L, V_R]`) on a muted incoming player
+    /// while the original stereo track keeps playing uninterrupted, crossfades seamlessly at `g = 1.0`
+    /// (zero silence gap, zero lyric time jump), invokes `onHandoverReady`, and smoothly glides vocals
+    /// down along `.easeOutCubic` over `~0.95 s`.
     func enterSingMode(
         source: SingQuadSource,
         sliderPosition: Float = SingGainCurve.defaultSlider,
@@ -199,14 +229,31 @@ final class AVAudioOutput: AudioOutput {
             singOriginalURL = itemURLs[ObjectIdentifier(cur)] ?? (cur.asset as? AVURLAsset)?.url
         }
 
+        // Fast path: this track's quad.m4a is already the live item (e.g. re-entering Sing on the same song).
+        // Zero player swap, zero gap — just glide vocals down smoothly!
+        if singLoadedSource == source, current != nil {
+            singActive = true
+            onHandoverReady?()
+            singMixer.setSliderPosition(
+                sliderPosition,
+                rampSeconds: SingGainCurve.cutInRampSeconds,
+                curve: .easeOutCubic
+            )
+            PlayTrace.log("AV Sing re-engaged seamlessly (slider=\(Int((sliderPosition * 100).rounded()))%)")
+            return
+        }
+
         let asset = AVURLAsset(url: source.url)
         let isLocal = source.url.isFileURL
 
         singPrebufferTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            var adoptedIncoming = false
             defer {
-                self.singStandbyPlayer?.pause()
-                self.singStandbyPlayer?.replaceCurrentItem(with: nil)
+                if !adoptedIncoming {
+                    self.singStandbyPlayer?.pause()
+                    self.singStandbyPlayer?.replaceCurrentItem(with: nil)
+                }
                 self.singStandbyPlayer = nil
             }
 
@@ -218,93 +265,150 @@ final class AVAudioOutput: AudioOutput {
             }
             guard !Task.isCancelled else { return }
 
-            // For remote HTTP streams, warm the shared AVURLAsset on a muted standby player first,
-            // then discard the standby item and construct a FRESH AVPlayerItem for self.player
-            // (reusing an AVPlayerItem across two AVPlayer instances throws or drops its audioMix).
-            if !isLocal {
-                let standbyItem = AVPlayerItem(asset: asset)
-                standbyItem.preferredForwardBufferDuration = 30
-                standbyItem.allowedAudioSpatializationFormats = []
-                let standby = AVPlayer(playerItem: standbyItem)
-                standby.isMuted = true
-                standby.automaticallyWaitsToMinimizeStalling = false
-                self.singStandbyPlayer = standby
-
-                let initialPos = self.currentTimeSec
-                if initialPos > 0 {
-                    await standbyItem.seek(
-                        to: CMTime(seconds: initialPos, preferredTimescale: 600),
-                        toleranceBefore: .zero,
-                        toleranceAfter: .zero
-                    )
-                }
-
-                let deadline = ProcessInfo.processInfo.systemUptime + 8.0
-                while !Task.isCancelled {
-                    if standbyItem.status == .failed {
-                        PlayTrace.log("AV Sing prebuffer failed: \(standbyItem.error?.localizedDescription ?? "unknown")")
-                        onFailure?()
-                        return
-                    }
-                    if standbyItem.status == .readyToPlay {
-                        let ahead = Self.bufferedAheadSeconds(for: standbyItem, at: self.currentTimeSec)
-                        if standbyItem.isPlaybackLikelyToKeepUp || ahead >= 2.0 {
-                            break
-                        }
-                    }
-                    if ProcessInfo.processInfo.systemUptime >= deadline {
-                        if standbyItem.status == .readyToPlay { break }
-                        PlayTrace.log("AV Sing prebuffer timed out")
-                        onFailure?()
-                        return
-                    }
-                    try? await Task.sleep(for: .milliseconds(40))
-                }
-                guard !Task.isCancelled else { return }
-                standby.pause()
-                standby.replaceCurrentItem(with: nil)
-                self.singStandbyPlayer = nil
-            }
-
-            // Build a brand-new AVPlayerItem exclusively owned by self.player with the 4ch->2ch tap attached.
+            // Lock mixer at unity (1.0 = exact original stereo mix) BEFORE creating the tap/item so cut-in is inaudible.
+            self.singMixer.setVocalGain(1.0, rampSeconds: 0)
             guard let mix = SingQuadAudioTap.makeAudioMix(for: track, mixer: self.singMixer) else {
                 PlayTrace.log("AV Sing tap attach failed")
                 onFailure?()
                 return
             }
+
             let liveItem = AVPlayerItem(asset: asset)
             liveItem.preferredForwardBufferDuration = 30
             // Quad Sing channels are [I_L, I_R, V_L, V_R], never spatialized surround.
             liveItem.allowedAudioSpatializationFormats = []
             liveItem.audioMix = mix
 
-            let livePos = self.currentTimeSec
+            let incoming = AVQueuePlayer(playerItem: liveItem)
+            self.configurePlayer(incoming)
+            incoming.automaticallyWaitsToMinimizeStalling = false
+            incoming.volume = 0
+            self.singStandbyPlayer = incoming
+
+            // Wait for the incoming item to become ready (and buffered ahead for remote HTTP streams)
+            // while the original stereo track keeps playing uninterrupted.
+            let deadline = ProcessInfo.processInfo.systemUptime + 8.0
+            while !Task.isCancelled {
+                if liveItem.status == .failed {
+                    PlayTrace.log("AV Sing prebuffer failed: \(liveItem.error?.localizedDescription ?? "unknown")")
+                    onFailure?()
+                    return
+                }
+                if liveItem.status == .readyToPlay {
+                    if isLocal {
+                        break
+                    }
+                    let ahead = Self.bufferedAheadSeconds(for: liveItem, at: self.currentTimeSec)
+                    if liveItem.isPlaybackLikelyToKeepUp || ahead >= 2.0 {
+                        break
+                    }
+                }
+                if ProcessInfo.processInfo.systemUptime >= deadline {
+                    if liveItem.status == .readyToPlay { break }
+                    PlayTrace.log("AV Sing prebuffer timed out")
+                    onFailure?()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            guard !Task.isCancelled else { return }
+
             let wasPlaying = self.player.rate > 0
             let savedNext = self.nextURL
 
-            // Lock mixer at unity (1.0 = exact original stereo mix) BEFORE inserting so cut-in is inaudible.
-            self.singMixer.setVocalGain(1.0, rampSeconds: 0)
-            self.singActive = true
+            if wasPlaying {
+                // Schedule `incoming` on the shared host clock (`setRate(_:time:atHostTime:)`) after seeking
+                // + prerolling a ~0.45 s lead ahead of `oldPlayer`, so CoreAudio launches `incoming` in
+                // sub-millisecond phase lock with `oldPlayer` (zero stutter, zero double-echo, zero lyric jump).
+                let oldPlayer = self.player
+                var synced = false
+                for _ in 0..<2 {
+                    let leadSec: Double = 0.45
+                    let targetSec = max(0, oldPlayer.currentTime().seconds) + leadSec
+                    let targetTime = CMTime(seconds: targetSec, preferredTimescale: 600)
+                    await incoming.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                    guard !Task.isCancelled else { return }
+                    _ = await incoming.preroll(atRate: 1.0)
+                    guard !Task.isCancelled else { return }
 
-            if livePos > 0 {
-                await liveItem.seek(
-                    to: CMTime(seconds: livePos, preferredTimescale: 600),
-                    toleranceBefore: .zero,
-                    toleranceAfter: .zero
-                )
+                    let nowHost = CMClockGetTime(CMClockGetHostTimeClock())
+                    let nowItem = oldPlayer.currentTime()
+                    let waitSec = targetTime.seconds - nowItem.seconds
+                    if waitSec >= 0.05 && waitSec <= 1.2 {
+                        let launchHost = CMTimeAdd(
+                            nowHost,
+                            CMTime(seconds: waitSec, preferredTimescale: 1_000_000_000)
+                        )
+                        incoming.setRate(1.0, time: targetTime, atHostTime: launchHost)
+                        let sleepMs = max(0, Int((waitSec * 1000.0).rounded()))
+                        if sleepMs > 0 {
+                            try? await Task.sleep(for: .milliseconds(sleepMs))
+                        }
+                        synced = true
+                        break
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                if !synced {
+                    let pos = max(0, oldPlayer.currentTime().seconds)
+                    await incoming.seek(
+                        to: CMTime(seconds: pos, preferredTimescale: 600),
+                        toleranceBefore: .zero,
+                        toleranceAfter: .zero
+                    )
+                    guard !Task.isCancelled else { return }
+                    incoming.play()
+                }
+
+                // Crisp 60 ms micro-crossfade at unity vocal gain (1.0) while both players are phase-locked.
+                let steps = 6
+                for step in 1...steps {
+                    guard !Task.isCancelled else {
+                        oldPlayer.volume = 1
+                        return
+                    }
+                    let t = Float(step) / Float(steps)
+                    incoming.volume = t
+                    oldPlayer.volume = 1 - t
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+                incoming.volume = 1
+                oldPlayer.volume = 0
+            } else {
+                let initialPos = self.currentTimeSec
+                if initialPos > 0 {
+                    await incoming.seek(
+                        to: CMTime(seconds: initialPos, preferredTimescale: 600),
+                        toleranceBefore: .zero,
+                        toleranceAfter: .zero
+                    )
+                }
+                guard !Task.isCancelled else { return }
+                incoming.volume = 1
             }
-            guard !Task.isCancelled, self.singActive else { return }
+            guard !Task.isCancelled else { return }
 
-            self.player.removeAllItems()
+            // Atomically adopt `incoming` as `self.player` now that its clock matches the live playhead
+            // (so `timeObserver` never emits 0.0 and lyrics never jump).
+            let oldPlayer = self.player
+            adoptedIncoming = true
+            self.singStandbyPlayer = nil
+            self.detachPlayerObservers(from: oldPlayer)
+            oldPlayer.pause()
+            oldPlayer.removeAllItems()
+
+            incoming.automaticallyWaitsToMinimizeStalling = true
+            self.player = incoming
             self.current = liveItem
-            self.player.insert(liveItem, after: nil)
+            self.singLoadedSource = source
+            self.singActive = true
+            self.attachPlayerObservers(to: incoming)
             self.observeCurrent(liveItem)
             self.next = nil
             self.nextURL = nil
             self.preload(savedNext)
-            if wasPlaying { self.player.play() }
 
-            // Notify UI to expand capsule in exact sync with the ~0.95s ease-out vocal fade.
+            // Expand UI capsule and glide vocals smoothly from 1.0 → target over ~0.95 s.
             onHandoverReady?()
             self.singMixer.setSliderPosition(
                 sliderPosition,
@@ -321,11 +425,15 @@ final class AVAudioOutput: AudioOutput {
         singMixer.setSliderPosition(position, rampSeconds: SingGainCurve.smoothingWindowSeconds, curve: .linear)
     }
 
-    /// Smoothly raises vocals back to `1.0` (`~0.75 s`, `.easeInOut`) before restoring the original stereo
-    /// stream at the live playhead so exiting Sing has zero sudden jump.
+    /// Smoothly raises vocals back to `1.0` (`~0.75 s`, `.easeInOut`) without tearing down the live
+    /// quad stream (`I + 1.0 * V == original stereo`), eliminating exit silence gaps, premature ramp
+    /// cutoff, and lyric jumps. Normal stereo resumes automatically on the next track.
     func exitSingMode(originalURL: URL? = nil, completion: (@MainActor () -> Void)? = nil) {
+        _ = originalURL
         singPrebufferTask?.cancel()
         singPrebufferTask = nil
+        singExitTask?.cancel()
+        singExitTask = nil
         singStandbyPlayer?.pause()
         singStandbyPlayer?.replaceCurrentItem(with: nil)
         singStandbyPlayer = nil
@@ -335,24 +443,10 @@ final class AVAudioOutput: AudioOutput {
             return
         }
 
-        let restoreURL = originalURL ?? singOriginalURL
-        singExitTask?.cancel()
+        singActive = false
         singMixer.setVocalGain(1.0, rampSeconds: SingGainCurve.cutOutRampSeconds, curve: .easeInOut)
-
-        singExitTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int((SingGainCurve.cutOutRampSeconds * 1000).rounded())))
-            guard let self, !Task.isCancelled, self.singActive else { return }
-            let posSec = self.currentTimeSec
-            let wasPlaying = self.player.rate > 0
-            let savedNext = self.nextURL
-            self.singActive = false
-            self.singExitTask = nil
-            if let restoreURL {
-                self.load(restoreURL, next: savedNext, startSec: posSec)
-                if wasPlaying { self.play() }
-            }
-            completion?()
-        }
+        PlayTrace.log("AV Sing exiting smoothly (gliding vocals back to 1.0)")
+        completion?()
     }
 
     // MARK: -
@@ -418,6 +512,7 @@ final class AVAudioOutput: AudioOutput {
         if let now, now === next {
             cancelSingTransitions()
             singActive = false
+            singLoadedSource = nil
             singOriginalURL = itemURLs[ObjectIdentifier(now)] ?? (now.asset as? AVURLAsset)?.url
             singMixer.setVocalGain(1.0, rampSeconds: 0)
             current = now
@@ -429,6 +524,7 @@ final class AVAudioOutput: AudioOutput {
         } else if now == nil, current != nil {
             cancelSingTransitions()
             singActive = false
+            singLoadedSource = nil
             singOriginalURL = nil
             singMixer.setVocalGain(1.0, rampSeconds: 0)
             current = nil

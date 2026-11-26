@@ -1,8 +1,8 @@
 /// The share sheet (Android ShareSheet.kt, owner 2026-11-25, prototype round
 /// 2): 歌词 / 关于 / 笔记 on top (the Now Playing tabs' words and look; it
 /// opens on the tab it came from), then 版式 — a live thumbnail of each layout
-/// — then the preview in a fixed box, 卡片 / Story, the four tones of the tab's
-/// role, 保存 / 分享. Each tab remembers its last layout across opens
+/// — then the preview in a fixed box, 卡片 / Story, the tones (both colour
+/// families on every tab; each opens on its role's colour), 保存 / 分享. Each tab remembers its last layout across opens
 /// ([ShareLayoutStore]). At Expanded width the sheet is two panes: the preview
 /// large on the left (up to 1.5× — it is not the PNG), the controls on the
 /// right with larger thumbnails in two rows and Save / Share pinned at the
@@ -23,6 +23,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../platform/share/image_share.dart';
 import '../theme/motion.dart';
+import '../ui/component/seam/chrome_seam.dart';
 import '../ui/component/spring_cross_fade.dart';
 import 'haptics.dart';
 import 'lyrics_share.dart';
@@ -40,6 +41,7 @@ abstract final class ShareSheetMetrics {
   static const double thumbCorner = 12;
   static const double thumbRingInset = 4;
   static const double thumbRing = 2;
+  static const double thumbPressedScale = 0.94;
 
   /// Expanded: a two-pane sheet this wide at most, this share of the window tall; the preview may grow 1.5×.
   static const double wideMinWidth = 840;
@@ -141,7 +143,7 @@ Future<void> showShareSheet(
 enum _SaveStatus { idle, saving, saved, failed }
 
 /// Share as image: the tab ([initialTab] first, when it has something), its
-/// layout, Card / Story, a tone slot, then Save and Share.
+/// layout, Card / Story, a tone, then Save and Share.
 class ShareSheet extends ConsumerStatefulWidget {
   const ShareSheet({
     super.key,
@@ -170,8 +172,10 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
   final Map<ShareTab, ShareLayout> _layouts = {};
   ShareFormat _format = ShareFormat.card;
 
-  /// The tone is a slot (0–3), kept across tabs: the lyrics' fourth is Mist, About and Note's Paper.
-  int _toneSlot = 0;
+  /// The tone the listener picked, kept across tabs (null = none yet: each tab
+  /// opens on its own default). Every tab offers both colour families; the
+  /// tab's own colour is only its default (owner 2026-11-26).
+  ShareTone? _pickedTone;
   bool _sharing = false;
   _SaveStatus _save = _SaveStatus.idle;
 
@@ -191,7 +195,8 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
 
   ShareLayout get _layout => _layouts[_tab]!;
 
-  ShareTone get _tone => YoinShareCards.tone(_tab.role, _toneSlot);
+  /// Paper, which the lyrics don't have, falls back to their default there.
+  ShareTone get _tone => YoinShareCards.resolveTone(_tab, _pickedTone);
 
   GlobalKey _boundaryFor(ShareLayout layout, ShareFormat format, ShareTone tone) =>
       _boundaries.putIfAbsent((layout, format, tone), () => GlobalKey(debugLabel: 'share $layout $format $tone'));
@@ -225,11 +230,10 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
   }
 
   void _pickTone(ShareTone tone) {
-    final slot = _tab.role.tones().indexOf(tone);
-    if (slot < 0 || slot == _toneSlot) return;
+    if (!YoinShareCards.tones(_tab).contains(tone) || tone == _tone) return;
     YoinHaptics.segmentTick();
     setState(() {
-      _toneSlot = slot;
+      _pickedTone = tone;
       _save = _SaveStatus.idle;
     });
   }
@@ -364,24 +368,37 @@ class _ShareSheetState extends ConsumerState<ShareSheet> {
         ),
       );
     } else {
-      body = SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + navBottom),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            tabs,
-            const SizedBox(height: 12),
-            label,
-            thumbs(ShareSheetMetrics.thumbWidth, 1),
-            const SizedBox(height: 16),
-            preview(window.height * ShareSheetMetrics.previewHeightFraction, 1),
-            const SizedBox(height: 16),
-            formatAndTones,
-            const SizedBox(height: 16),
-            actions,
-          ],
-        ),
+      // The tabs name the sheet and stay put; the rest scrolls under the user's scroll edge (the tide line by
+      // default), never cut flat under the handle (Android #360 sheetScrollEdge; owner 2026-11-26).
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: tabs),
+          Flexible(
+            child: ChromeSeam(
+              background: SeamBackground([Theme.of(context).colorScheme.surfaceContainer]),
+              child: SingleChildScrollView(
+                key: const ValueKey('share-sheet-scroll'),
+                padding: EdgeInsets.fromLTRB(24, 12, 24, 16 + navBottom),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    label,
+                    thumbs(ShareSheetMetrics.thumbWidth, 1),
+                    const SizedBox(height: 16),
+                    preview(window.height * ShareSheetMetrics.previewHeightFraction, 1),
+                    const SizedBox(height: 16),
+                    formatAndTones,
+                    const SizedBox(height: 16),
+                    actions,
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       );
     }
     return Semantics(
@@ -553,7 +570,9 @@ class _ShareTabLabelState extends State<_ShareTabLabel> with TickerProviderState
 
 /// 版式: each layout the tab offers as a live thumbnail of the image (in the
 /// format and tone picked) with its name; the picked one wears a 2 primary
-/// ring and its name in primary. [rows] > 1 (the wide sheet) lays them out in
+/// ring and its name in primary, bold. Nothing square behind it: no splash or
+/// backdrop over the thumbnail-and-name block (owner 2026-11-26) — a press
+/// squeezes the thumbnail. [rows] > 1 (the wide sheet) lays them out in
 /// that many rows; one row scrolls sideways if it must.
 class _LayoutThumbs extends StatelessWidget {
   const _LayoutThumbs({
@@ -641,6 +660,9 @@ class _LayoutThumbState extends State<_LayoutThumb> with TickerProviderStateMixi
     spring: YoinSprings.defaultEffects,
   );
 
+  /// The press squeeze on the thumbnail alone (Android elasticPress, ThumbPressedScale).
+  late final SpringValue _press = SpringValue(vsync: this, initial: 1, spring: YoinSprings.standardDefaultSpatial);
+
   @override
   void didUpdateWidget(_LayoutThumb oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -650,6 +672,7 @@ class _LayoutThumbState extends State<_LayoutThumb> with TickerProviderStateMixi
   @override
   void dispose() {
     _on.dispose();
+    _press.dispose();
     super.dispose();
   }
 
@@ -667,6 +690,9 @@ class _LayoutThumbState extends State<_LayoutThumb> with TickerProviderStateMixi
       selected: widget.selected,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _press.animateTo(ShareSheetMetrics.thumbPressedScale),
+        onTapUp: (_) => _press.animateTo(1),
+        onTapCancel: () => _press.animateTo(1),
         onTap: widget.onTap,
         child: MouseRegion(
           cursor: SystemMouseCursors.click,
@@ -678,15 +704,21 @@ class _LayoutThumbState extends State<_LayoutThumb> with TickerProviderStateMixi
                 final t = _on.value.clamp(0.0, 1.0);
                 return Column(
                   children: [
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: scheme.primary.withValues(alpha: t),
-                          width: ShareSheetMetrics.thumbRing,
+                    ScaleTransition(
+                      scale: _press.animation,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: scheme.primary.withValues(alpha: t),
+                            width: ShareSheetMetrics.thumbRing,
+                          ),
+                          borderRadius: BorderRadius.circular(ShareSheetMetrics.thumbCorner + inset),
                         ),
-                        borderRadius: BorderRadius.circular(ShareSheetMetrics.thumbCorner + inset),
+                        child: Padding(
+                          padding: const EdgeInsets.all(inset - ShareSheetMetrics.thumbRing),
+                          child: child,
+                        ),
                       ),
-                      child: Padding(padding: const EdgeInsets.all(inset - ShareSheetMetrics.thumbRing), child: child),
                     ),
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
@@ -828,7 +860,7 @@ class _FormatPillState extends State<_FormatPill> with TickerProviderStateMixin 
   }
 }
 
-/// [role]'s four tones as swatches of the card colour; the picked one squares
+/// [role]'s tones as swatches of the card colour; the picked one squares
 /// off (corner on the spatial spring) and wears a check. Paper is the lowest
 /// surface: a ring of its ink keeps it from vanishing into the sheet.
 class _ToneSwatches extends StatelessWidget {
