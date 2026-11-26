@@ -50,7 +50,18 @@ void openHomeSettings(BuildContext context) => openSettings(context);
 /// Recommended entry; the header pill is retired). Rounded cut (ROND 100),
 /// Medium weight.
 class HomeHeader extends ConsumerWidget {
-  const HomeHeader({super.key, required this.accountTitle, required this.compactHeight, this.onEditHome, this.editProgress});
+  const HomeHeader({
+    super.key,
+    required this.accountTitle,
+    required this.compactHeight,
+    this.onEditHome,
+    this.editProgress,
+    this.editAction,
+  });
+
+  /// What stands where the account control was while editing: the switch to the compact list
+  /// (HomeEditViewToggle, Android HomeEditHeader).
+  final Widget? editAction;
 
   /// The account card's "Edit Home" entry.
   final VoidCallback? onEditHome;
@@ -137,7 +148,7 @@ class HomeHeader extends ConsumerWidget {
                         fallback: AccountMonogram(name: title),
                         onEditHome: onEditHome,
                       ),
-                editing: const SizedBox.shrink(),
+                editing: editAction ?? const SizedBox.shrink(),
               ),
             ),
           ],
