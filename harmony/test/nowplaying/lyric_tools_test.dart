@@ -365,18 +365,19 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('lyrics-select-share')));
       await _settle(tester);
-      expect(find.byKey(const ValueKey('lyrics-share-card')), findsOneWidget);
+      expect(find.byKey(const ValueKey('share-sheet')), findsOneWidget);
+      expect(find.byKey(const ValueKey('lyrics-share-card')), findsWidgets);
       expect(find.text('Card'), findsOneWidget);
       expect(find.text('Story'), findsOneWidget);
       expect(_tools(tester).selection.active, isTrue, reason: 'the pick waits behind the open sheet');
 
-      await tester.runAsync(() => tester.tap(find.byKey(const ValueKey('lyrics-share-share'))));
+      await tester.runAsync(() => tester.tap(find.byKey(const ValueKey('share-share'))));
       // The card's raster runs on real time: waited for, not guessed (200 ms ran out in loaded full runs).
       await _until(tester, () => share.shares > 0);
       await _settle(tester);
       expect(share.shares, 1);
       expect(share.last, isNotEmpty);
-      expect(find.byKey(const ValueKey('lyrics-share-card')), findsNothing);
+      expect(find.byKey(const ValueKey('share-sheet')), findsNothing);
       expect(_tools(tester).selection.active, isFalse);
     });
 

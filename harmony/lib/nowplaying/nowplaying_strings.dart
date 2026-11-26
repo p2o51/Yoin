@@ -121,8 +121,8 @@ class NowPlayingStrings {
     _ => _zh ? '已应用来自 $id 的歌词' : 'Lyrics applied from $id',
   };
 
-  // Share as image (LyricsShareCard).
-  String get shareTitle => _zh ? '分享歌词' : 'Share lyrics'; // np_share_title
+  // Share as image (ShareSheet / ShareCards).
+  String get shareSheetTitle => _zh ? '分享图片' : 'Share as image'; // np_share_sheet_title
   String get shareSave => _zh ? '保存' : 'Save'; // np_share_save
   String get shareSaving => _zh ? '正在保存…' : 'Saving…'; // np_share_saving
   String get shareSaved => _zh ? '已保存' : 'Saved'; // np_share_saved
@@ -135,12 +135,28 @@ class NowPlayingStrings {
   String get cdToneDeep => _zh ? '深色配色' : 'Deep colours'; // np_cd_tone_deep
   String get cdToneVivid => _zh ? '鲜艳配色' : 'Vivid colours'; // np_cd_tone_vivid
   String get cdToneMist => _zh ? '薄雾配色' : 'Mist colours'; // np_cd_tone_mist
+  String get cdTonePaper => _zh ? '纸' : 'Paper colours'; // np_cd_tone_paper
   String get shareBrand => 'Yoin'; // np_share_brand (not translatable)
-  String shareFileUntitled(String stamp) =>
-      _zh ? 'Yoin 歌词 $stamp.png' : 'Yoin lyrics $stamp.png'; // np_share_file_untitled
-  // np_share_file_named
-  String shareFileNamed(String title, String stamp) =>
-      _zh ? 'Yoin 歌词 - $title - $stamp.png' : 'Yoin lyrics - $title - $stamp.png';
+  String shareFileUntitled(String stamp) => 'Yoin $stamp.png'; // np_share_file_untitled
+  String shareFileNamed(String title, String stamp) => 'Yoin - $title - $stamp.png'; // np_share_file_named
+  String get shareLayout => _zh ? '版式' : 'Layout'; // np_share_layout
+  String get shareLayoutClassic => _zh ? '经典' : 'Classic'; // np_share_layout_classic
+  String get shareLayoutPoster => _zh ? '海报' : 'Poster'; // np_share_layout_poster
+  String get shareLayoutPlayer => _zh ? '播放器' : 'Player'; // np_share_layout_player
+  String get shareLayoutVertical => _zh ? '竖排' : 'Vertical'; // np_share_layout_vertical
+  String get shareLayoutReceipt => _zh ? '小票' : 'Receipt'; // np_share_layout_receipt
+  String get shareLayoutQuote => _zh ? '引文' : 'Quote'; // np_share_layout_quote
+  String get shareLayoutLiner => _zh ? '内页' : 'Liner notes'; // np_share_layout_liner
+  String get shareLayoutBig => _zh ? '大字' : 'Big type'; // np_share_layout_big
+  String get shareLayoutClipping => _zh ? '剪贴' : 'Clipping'; // np_share_layout_clipping
+  String get shareLayoutTimeline => _zh ? '时间线' : 'Timeline'; // np_share_layout_timeline
+  String shareLyricsGist(String gist) => _zh ? '歌词大意：$gist' : 'Gist: $gist'; // np_share_lyrics_gist
+  String shareAiSign(String name) => _zh ? '由 $name 整理' : 'By $name'; // np_share_ai_sign
+  String get shareAiGeneric => 'AI'; // np_share_ai_generic
+  String shareNoteWritten(String date) => _zh ? '写于 $date' : 'Written $date'; // np_share_note_written
+  String get aiProviderGemini => 'Gemini'; // ai_provider_gemini (not translatable)
+  String get aiProviderDeepSeek => 'DeepSeek'; // ai_provider_deepseek (not translatable)
+  String get aiProviderQwen => _zh ? '千问' : 'Qwen'; // ai_provider_qwen
 
   String get cdFullScreen => _zh ? '全屏' : 'Full screen'; // np_cd_full_screen
   String get cdBackToPanel => _zh ? '返回侧栏' : 'Back to side panel'; // np_cd_back_to_panel
