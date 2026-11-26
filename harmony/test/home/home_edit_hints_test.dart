@@ -33,7 +33,7 @@ void main() {
       expect(layout.newSections, {HomeSection.rediscover});
       expect(hiddenSections(layout), [HomeSection.rediscover]);
       // Appended enabled, or already known: not new.
-      expect(HomeLayout.reconcile(HomeLayout.defaultLayout.sections).newSections, isEmpty);
+      expect(HomeLayout.reconcile(HomeLayout.defaultLayout.toPrefs()).newSections, isEmpty);
       expect(HomeLayout.defaultLayout.newSections, isEmpty);
     });
 
@@ -171,7 +171,7 @@ void main() {
       if (legacy) {
         store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, id)] = jsonEncode({
           'version': 1,
-          'sections': [for (final p in _legacyPrefs()) p.toJson()],
+          'sections': [for (final p in _legacyPrefs()) HomeLayoutCodec.encodeEntry(p)],
         });
       }
       await tester.pumpWidget(

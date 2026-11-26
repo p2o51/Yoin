@@ -3,12 +3,11 @@ package com.gpo.yoin.ui.home.edit
 import com.gpo.yoin.testutil.runFrameClockTest
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.home.HomeEditSessionHints
-import com.gpo.yoin.ui.home.HomeFeedRow
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeLayout
 import com.gpo.yoin.ui.home.HomeRowPreset
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.homeFeedRows
-import com.gpo.yoin.ui.home.unitRange
 import kotlinx.coroutines.CoroutineScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame

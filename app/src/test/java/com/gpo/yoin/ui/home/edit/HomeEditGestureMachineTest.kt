@@ -1,46 +1,52 @@
 package com.gpo.yoin.ui.home.edit
 
 import androidx.compose.material3.MotionScheme
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Density
+import com.gpo.yoin.shared.home.HomeEditGestureAction
+import com.gpo.yoin.shared.home.HomeEditGestureAction.Abandon
+import com.gpo.yoin.shared.home.HomeEditGestureAction.BlockTap
+import com.gpo.yoin.shared.home.HomeEditGestureAction.CarryMove
+import com.gpo.yoin.shared.home.HomeEditGestureAction.CarryRelease
+import com.gpo.yoin.shared.home.HomeEditGestureAction.ConsumeOther
+import com.gpo.yoin.shared.home.HomeEditGestureAction.ConsumeRest
+import com.gpo.yoin.shared.home.HomeEditGestureAction.DragStartHaptic
+import com.gpo.yoin.shared.home.HomeEditGestureAction.DropLift
+import com.gpo.yoin.shared.home.HomeEditGestureAction.Enter
+import com.gpo.yoin.shared.home.HomeEditGestureAction.ExitBlank
+import com.gpo.yoin.shared.home.HomeEditGestureAction.LatchPlate
+import com.gpo.yoin.shared.home.HomeEditGestureAction.Lift
+import com.gpo.yoin.shared.home.HomeEditGestureAction.LongPressHaptic
+import com.gpo.yoin.shared.home.HomeEditGestureAction.OpenPlaceholders
+import com.gpo.yoin.shared.home.HomeEditGestureAction.PinchBy
+import com.gpo.yoin.shared.home.HomeEditGestureAction.PinchEnd
+import com.gpo.yoin.shared.home.HomeEditGestureAction.PinchStart
+import com.gpo.yoin.shared.home.HomeEditGestureAction.PointerDown
+import com.gpo.yoin.shared.home.HomeEditGestureAction.ReleaseCharge
+import com.gpo.yoin.shared.home.HomeEditGestureAction.StartCarry
+import com.gpo.yoin.shared.home.HomeEditGestureAction.StartCharge
+import com.gpo.yoin.shared.home.HomeEditGestureAction.Touch
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Cancel
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.CarryEnded
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Down
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.EditEnded
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Move
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.OtherPointer
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.PinchDown
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.PinchMove
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.PinchUp
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Timer
+import com.gpo.yoin.shared.home.HomeEditGestureEvent.Up
+import com.gpo.yoin.shared.home.HomeEditGestureMachine
+import com.gpo.yoin.shared.home.HomeEditGestureState
+import com.gpo.yoin.shared.home.HomeEditHit
+import com.gpo.yoin.shared.home.HomeEditTimer
+import com.gpo.yoin.shared.home.HomeEditTimerAt
+import com.gpo.yoin.shared.home.HomePoint
+import com.gpo.yoin.shared.home.HomeSize
 import com.gpo.yoin.testutil.virtualUptimeMs
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.home.HomeEditSessionHints
 import com.gpo.yoin.ui.home.HomeSection
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Abandon
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.BlockTap
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.CarryMove
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.CarryRelease
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.ConsumeOther
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.ConsumeRest
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.DragStartHaptic
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.DropLift
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Enter
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.ExitBlank
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.LatchPlate
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Lift
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.LongPressHaptic
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.OpenPlaceholders
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchBy
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchEnd
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PinchStart
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.PointerDown
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.ReleaseCharge
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.StartCarry
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.StartCharge
-import com.gpo.yoin.ui.home.edit.HomeEditGestureAction.Touch
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Cancel
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.CarryEnded
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Down
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.EditEnded
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Move
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.OtherPointer
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchDown
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchMove
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.PinchUp
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Timer
-import com.gpo.yoin.ui.home.edit.HomeEditGestureEvent.Up
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
@@ -56,11 +62,11 @@ import org.junit.Test
 class HomeEditGestureMachineTest {
 
     private val section = HomeSection.JumpBackIn
-    private val local = Offset(40f, 60f)
-    private val size = Size(328f, 420f)
-    private val point = Offset(100f, 300f)
+    private val local = HomePoint(40f, 60f)
+    private val size = HomeSize(328f, 420f)
+    private val point = HomePoint(100f, 300f)
     private val block = HomeEditHit.Block(section, local, size)
-    private val handle = HomeEditHit.Handle(section, Offset(300f, 20f), size)
+    private val handle = HomeEditHit.Handle(section, HomePoint(300f, 20f), size)
     private val machine = HomeEditGestureMachine(longPressMs = LongPressMs, slopPx = Slop)
     private val specs = HomeEditSpecs.create(MotionScheme.expressive(), reduced = false)
     private val density = Density(2f)
@@ -73,7 +79,7 @@ class HomeEditGestureMachineTest {
         secondaryClick: Boolean = false,
     ) = machine.handle(Down(hit, point, editing, fling, t, secondaryClick))
 
-    private fun moveBy(dx: Float, dy: Float, t: Long = 0L) = machine.handle(Move(point + Offset(dx, dy), t))
+    private fun moveBy(dx: Float, dy: Float, t: Long = 0L) = machine.handle(Move(point + HomePoint(dx, dy), t))
 
     private fun fireNext(): List<HomeEditGestureAction> = machine.handle(Timer(machine.pendingTimer!!.kind))
 
@@ -473,7 +479,7 @@ class HomeEditGestureMachineTest {
     @Test
     fun should_latchChargeBeforeReleasingIt_when_thresholdRuns() = runEditClockTest { scope ->
         val rig = Rig(scope, virtualUptimeMs())
-        rig.press.start(scope, section, local, specs)
+        rig.press.start(scope, section, local.toOffset(), specs)
         advanceTimeBy(200L)
         runCurrent()
         val charge = rig.press.charge.value
@@ -484,7 +490,7 @@ class HomeEditGestureMachineTest {
         rig.executor.run(fireNext(), machine)
 
         assertTrue(rig.controller.isEditing)
-        assertEquals(PlateFrom(section, pressRect(local, size, charge, density), charge), rig.motion.plateFrom)
+        assertEquals(PlateFrom(section, pressRect(local.toOffset(), size.toSize(), charge, density), charge), rig.motion.plateFrom)
         assertEquals(section, rig.engine.liftSection)
         advanceTimeBy(400L)
         runCurrent()

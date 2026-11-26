@@ -324,6 +324,9 @@ struct NoteComposer: View {
     var onSave: () -> Void
     /// Editing a saved note: Cancel beside Save leaves it as it was.
     var onCancel: (() -> Void)? = nil
+    /// A note opened for editing and not yet changed: Share as image in the card's top-right corner (owner
+    /// 2026-11-25; not in the formatting row, whose tools keep their room).
+    var onShare: (() -> Void)? = nil
     /// The words' editor: @ mentions, the formatting row (Android NoteEditorState).
     @State private var editor = NoteEditorModel(source: AccountMentionRows())
 
@@ -351,7 +354,20 @@ struct NoteComposer: View {
                 .accessibilityLabel(Text("Note"))
                 // First line centered on the 36 pt stamp (bodyLarge 24 pt line).
                 .padding(.top, 6)
+                if let onShare {
+                    Button(action: onShare) {
+                        YoinIcon("share", size: 20)
+                            .foregroundStyle(scheme.onSurfaceVariant)
+                            .frame(width: 36, height: 36)
+                            .contentShape(.circle)
+                    }
+                    .buttonStyle(PressScale())
+                    .accessibilityLabel(Text("Share as image"))
+                    .accessibilityIdentifier("noteShare")
+                    .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
+                }
             }
+            .animation(Yoin.effects, value: onShare != nil)
             HStack(spacing: 4) {
                 NoteFormatRow(model: editor, scheme: scheme)
                 Spacer(minLength: 0)

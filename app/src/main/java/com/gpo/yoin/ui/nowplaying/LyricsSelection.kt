@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -167,10 +168,8 @@ internal fun selectedLyricLines(lyrics: List<LyricLine>, selected: Set<Int>): Li
  * positions in that list whose line does not follow the previous one. Each
  * starts a new passage on the card and after a blank line in the copy.
  */
-internal fun lyricPassageStarts(lyrics: List<LyricLine>, selected: Set<Int>): Set<Int> {
-    val picked = selected.filter { it in lyrics.indices }.sorted()
-    return picked.indices.filterTo(mutableSetOf()) { i -> i > 0 && picked[i] != picked[i - 1] + 1 }
-}
+internal fun lyricPassageStarts(lyrics: List<LyricLine>, selected: Set<Int>): Set<Int> =
+    YoinShareCards.passageStarts(selected.toList(), lyrics.size).toSet()
 
 /**
  * Plain-text form for the clipboard: one lyric per line, each followed by its

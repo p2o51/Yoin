@@ -1,6 +1,7 @@
 // Kotlin's String semantics the album About core relies on, so the Dart port
 // answers exactly as :shared does (golden/album-about.json). Not exported from
-// the barrel: only lib/data/albumabout/ reads it.
+// the barrel: only the :shared ports read it (lib/data/albumabout/ and
+// lib/data/share/, golden/share-cards.json).
 
 /// Kotlin `Char.isWhitespace()` on the JVM: `Character.isWhitespace(c) ||
 /// Character.isSpaceChar(c)` — tabs and breaks, U+001C..U+001F, and every

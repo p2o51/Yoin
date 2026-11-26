@@ -5,9 +5,11 @@ library;
 import 'package:flutter/foundation.dart';
 
 import 'media_id.dart';
+import 'release_date.dart';
 import 'replay_gain.dart';
 
 export 'media_id.dart';
+export 'release_date.dart';
 export 'replay_gain.dart';
 
 /// Where artwork comes from: a full URL, or an id the active source resolves
@@ -320,6 +322,9 @@ final class Album {
   /// This release's date, ISO at the precision the service gives ("2023-10-27", "2023-10", "2023";
   /// OpenSubsonic `releaseDate`, Apple Music `releaseDate`). Null when the service gives no date.
   final String? releaseDate;
+
+  /// [releaseDate] read back at its precision; null when it doesn't read as a date.
+  ReleaseDate? get parsedReleaseDate => ReleaseDate.parseIso(releaseDate);
 
   /// The record label(s) as the service names them (OpenSubsonic `recordLabels`, Apple Music
   /// `recordLabel`): the scrapbook's credits line shows them before asking any AI. Empty when unknown.

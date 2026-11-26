@@ -14,9 +14,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.home.HomeSection.Activities
-import com.gpo.yoin.ui.home.HomeSection.JumpBackIn
-import com.gpo.yoin.ui.home.HomeSection.MemoryGrid
+import com.gpo.yoin.shared.home.HomeFeedRow
+import com.gpo.yoin.shared.home.HomeSection.Activities
+import com.gpo.yoin.shared.home.HomeSection.JumpBackIn
+import com.gpo.yoin.shared.home.HomeSection.MemoryGrid
 import com.gpo.yoin.ui.home.edit.rememberHomeRowKeys
 import org.junit.Assert.assertEquals
 import org.junit.Rule

@@ -8,7 +8,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.home.HomeSection
-import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -25,22 +24,24 @@ import kotlinx.coroutines.launch
 // Undo step); with nothing to pair with it springs back. ← / → on a focused
 // handle do the same. Phones keep the vertical axis only.
 
-/** Where a section sits in its row. */
-enum class HomeSpan { Full, LeftHalf, RightHalf }
+// The span rules are :shared's (com.gpo.yoin.shared.home.HomeEditRules.kt, golden home-drag.json).
 
-/** The axis a handle drag has locked to. */
-enum class HomeHandleAxis { Horizontal, Vertical }
+/** Where a section sits in its row ([com.gpo.yoin.shared.home.HomeSpan]). */
+typealias HomeSpan = com.gpo.yoin.shared.home.HomeSpan
 
-/** What a span drag or key writes. */
-enum class HomeSpanCommit { None, ToHalf, ToFull }
+/** The axis a handle drag has locked to ([com.gpo.yoin.shared.home.HomeHandleAxis]). */
+typealias HomeHandleAxis = com.gpo.yoin.shared.home.HomeHandleAxis
+
+/** What a span drag or key writes ([com.gpo.yoin.shared.home.HomeSpanCommit]). */
+typealias HomeSpanCommit = com.gpo.yoin.shared.home.HomeSpanCommit
 
 /** Numbers of the horizontal resize. */
 internal object HomeSpanTokens {
     /** The gap between the two halves of a row. */
-    val ColumnGap = 20.dp
+    val ColumnGap = com.gpo.yoin.shared.home.HomeSpanRules.ColumnGap.dp
 
     /** A drag can pull a block this much narrower than a half (a rubber band past it). */
-    const val UnderHalf = .82f
+    const val UnderHalf = com.gpo.yoin.shared.home.HomeSpanRules.UnderHalf
 
     /** The snap outline: dash, gap, stroke. */
     val OutlineDash = 8.dp
@@ -48,62 +49,23 @@ internal object HomeSpanTokens {
     val OutlineStroke = 2.dp
 }
 
-/**
- * The axis a drag locks to once it has moved past [slopPx] (the larger
- * component wins; a tie is vertical, today's axis), or null while it hasn't.
- * Without [horizontal] (one column, or a section that can't pair) it is
- * always vertical. Pure.
- */
-internal fun homeHandleAxis(dx: Float, dy: Float, slopPx: Float, horizontal: Boolean): HomeHandleAxis? {
-    if (abs(dx) <= slopPx && abs(dy) <= slopPx) return null
-    if (!horizontal) return HomeHandleAxis.Vertical
-    return if (abs(dx) > abs(dy)) HomeHandleAxis.Horizontal else HomeHandleAxis.Vertical
-}
+internal fun homeHandleAxis(dx: Float, dy: Float, slopPx: Float, horizontal: Boolean): HomeHandleAxis? =
+    com.gpo.yoin.shared.home.homeHandleAxis(dx, dy, slopPx, horizontal)
 
-/**
- * The dragged block's live width, px: [startPx] moved by the finger's [dx]
- * — a right half grows leftward, so its width follows −dx — held between a
- * little under [halfPx] ([HomeSpanTokens.UnderHalf]) and [fullPx]. Pure.
- */
-internal fun homeSpanDragWidth(from: HomeSpan, startPx: Float, dx: Float, halfPx: Float, fullPx: Float): Float {
-    val raw = if (from == HomeSpan.RightHalf) startPx - dx else startPx + dx
-    return raw.coerceIn(halfPx * HomeSpanTokens.UnderHalf, fullPx)
-}
+internal fun homeSpanDragWidth(from: HomeSpan, startPx: Float, dx: Float, halfPx: Float, fullPx: Float): Float =
+    com.gpo.yoin.shared.home.homeSpanDragWidth(from, startPx, dx, halfPx, fullPx)
 
-/** The span a block of [widthPx] snaps to: half below the midpoint of [halfPx] and [fullPx], else full. Pure. */
 internal fun homeSpanTarget(widthPx: Float, halfPx: Float, fullPx: Float): HomeSpan =
-    if (widthPx < (halfPx + fullPx) / 2f) HomeSpan.LeftHalf else HomeSpan.Full
+    com.gpo.yoin.shared.home.homeSpanTarget(widthPx, halfPx, fullPx)
 
-/**
- * What a release from [from] snapping to [target] writes: a full row turning
- * half needs a row after it ([hasNext]); a half turning full always can;
- * anything else is no change (the block springs back). Pure.
- */
-internal fun homeSpanCommit(from: HomeSpan, target: HomeSpan, hasNext: Boolean): HomeSpanCommit = when {
-    from == HomeSpan.Full && target != HomeSpan.Full -> if (hasNext) HomeSpanCommit.ToHalf else HomeSpanCommit.None
-    from != HomeSpan.Full && target == HomeSpan.Full -> HomeSpanCommit.ToFull
-    else -> HomeSpanCommit.None
-}
+internal fun homeSpanCommit(from: HomeSpan, target: HomeSpan, hasNext: Boolean): HomeSpanCommit =
+    com.gpo.yoin.shared.home.homeSpanCommit(from, target, hasNext)
 
-/**
- * ← / → on a focused handle: a full row ← turns half (with a row after it), a
- * left half → and a right half ← turn full. Null for a key that does nothing. Pure.
- */
-internal fun homeSpanKey(from: HomeSpan, left: Boolean, hasNext: Boolean): HomeSpanCommit? = when (from) {
-    HomeSpan.Full -> if (left && hasNext) HomeSpanCommit.ToHalf else null
-    HomeSpan.LeftHalf -> if (!left) HomeSpanCommit.ToFull else null
-    HomeSpan.RightHalf -> if (left) HomeSpanCommit.ToFull else null
-}
+internal fun homeSpanKey(from: HomeSpan, left: Boolean, hasNext: Boolean): HomeSpanCommit? =
+    com.gpo.yoin.shared.home.homeSpanKey(from, left, hasNext)
 
-/** Where [section]'s block sits now, for a span drag: its span, width, a half's and a full row's width (px). */
-internal data class HomeSpanInfo(
-    val span: HomeSpan,
-    val currentPx: Float,
-    val halfPx: Float,
-    val fullPx: Float,
-    /** A full row has a row after it to pull up beside it. */
-    val hasNext: Boolean,
-)
+/** Where a section's block sits now, for a span drag ([com.gpo.yoin.shared.home.HomeSpanInfo]). */
+internal typealias HomeSpanInfo = com.gpo.yoin.shared.home.HomeSpanInfo
 
 /**
  * The one horizontal drag in flight (there is one finger on one handle).

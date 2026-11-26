@@ -5,20 +5,8 @@ import com.gpo.yoin.ui.experience.YoinHaptics
 import com.gpo.yoin.ui.home.HomeLayout
 import com.gpo.yoin.ui.home.HomeSection
 
-/** Why Home edit mode ended. Only [Done] confirms with a haptic. */
-enum class HomeEditExitReason {
-    /** The bar's Done button. */
-    Done,
-
-    /** System back (discrete in P0). */
-    Back,
-
-    /** A tap on blank page space. */
-    Blank,
-
-    /** The app left edit mode on its own (profile switch, section change, stop). */
-    Programmatic,
-}
+/** Why Home edit mode ended ([com.gpo.yoin.shared.home.HomeEditExitReason]). Only Done confirms with a haptic. */
+typealias HomeEditExitReason = com.gpo.yoin.shared.home.HomeEditExitReason
 
 enum class HomeEditChangeKind {
     Hide,

@@ -66,6 +66,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import com.gpo.yoin.R
+import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.LocalSoftwareBitmaps
 import com.gpo.yoin.ui.component.NoteMarkupText
@@ -158,7 +159,7 @@ private fun ShareStory(content: ShareContent, layout: ShareLayout, colors: Share
             contentAlignment = Alignment.Center,
         ) {
             // A long note or pick zooms out rather than ever losing a line; the poster's foot sits at the bottom.
-            ZoomToFit(maxZoom = 1f, fillHeight = true) {
+            ZoomToFit(maxZoom = YoinShareCards.storyMaxZoom(layout), fillHeight = true) {
                 ShareBody(content, layout, colors, ShareFrame.Poster, Modifier)
             }
         }
@@ -170,7 +171,7 @@ private fun ShareStory(content: ShareContent, layout: ShareLayout, colors: Share
                 .padding(horizontal = StoryHorizontalMargin, vertical = StoryVerticalMargin),
             contentAlignment = Alignment.Center,
         ) {
-            ZoomToFit(maxZoom = StoryMaxZoom) {
+            ZoomToFit(maxZoom = YoinShareCards.storyMaxZoom(layout)) {
                 ShareBody(content, layout, colors, ShareFrame.StoryCard, Modifier)
             }
         }
@@ -398,7 +399,7 @@ private fun LyricsPosterBody(content: ShareContent, colors: ShareCardColors, fra
     val pick = content.lyrics ?: return
     val poster = posterLines(pick) ?: return
     val story = frame == ShareFrame.Poster
-    val lead = posterLeadSizeSp(poster.lead.text) + if (story) 6f else 0f
+    val lead = posterLeadSizeSp(poster.lead.text) + if (story) YoinShareCards.posterStoryLeadBoostSp else 0f
     Column(
         verticalArrangement = Arrangement.SpaceBetween,
         modifier = modifier
@@ -543,19 +544,9 @@ private fun Modifier.centredAt(fraction: Float): Modifier = layout { measurable,
 @Composable
 private fun LyricsVerticalBody(content: ShareContent, colors: ShareCardColors, frame: ShareFrame, modifier: Modifier) {
     val pick = content.lyrics ?: return
-    val translations = if (pick.showTranslation) {
-        pick.lines.mapNotNull { it.translation?.trim()?.takeIf(String::isNotEmpty) }
-    } else {
-        emptyList()
-    }
-    val footnoteWidth = if (translations.isEmpty()) 0f else VerticalFootnoteWidth
-    val plan = remember(pick.lines, footnoteWidth) {
-        verticalLyricsPlan(
-            lines = pick.lines.map { it.text },
-            columnHeightDp = VerticalColumnHeight,
-            widthDp = VerticalAvailableWidth - footnoteWidth,
-        )
-    }
+    val shared = remember(pick) { pick.toShared() }
+    val translations = YoinShareCards.verticalGist(shared)
+    val plan = remember(shared) { YoinShareCards.verticalLyricsPlan(shared) }
     Column(
         verticalArrangement = Arrangement.SpaceBetween,
         modifier = modifier
@@ -565,7 +556,8 @@ private fun LyricsVerticalBody(content: ShareContent, colors: ShareCardColors, f
         Row(Modifier.fillMaxWidth()) {
             // 「歌词大意：……」 — the translation as a footnote, the far left column, small and quiet.
             if (translations.isNotEmpty()) {
-                val note = stringResource(R.string.np_share_lyrics_gist, translations.joinToString("；"))
+                val gist = translations.joinToString(YoinShareCards.verticalGistSeparator)
+                val note = stringResource(R.string.np_share_lyrics_gist, gist)
                 VerticalText(
                     text = note,
                     sizeSp = 11f,
@@ -618,10 +610,10 @@ private fun LyricsVerticalBody(content: ShareContent, colors: ShareCardColors, f
 /** Short text set vertically: CJK stacked character by character, anything else turned on its side. */
 @Composable
 private fun VerticalText(text: String, sizeSp: Float, color: Color, columnHeightDp: Float, weight: FontWeight) {
-    if (isCjkLyric(text) || text.none { it.isLetter() }) {
-        val perColumn = (columnHeightDp / (sizeSp * VerticalCharAdvance)).toInt().coerceAtLeast(1)
+    val columns = YoinShareCards.verticalTextColumns(text, sizeSp, columnHeightDp)
+    if (columns != null) {
         Row(horizontalArrangement = Arrangement.spacedBy((sizeSp * 0.3f).dp)) {
-            text.chunked(perColumn).asReversed().forEach { column ->
+            columns.asReversed().forEach { column ->
                 VerticalColumn(column, sizeSp, color, weight, rounded = false)
             }
         }
@@ -745,7 +737,9 @@ private fun AboutQuoteBody(content: ShareContent, colors: ShareCardColors, frame
         }
         if (about.credits.isNotEmpty()) {
             Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                about.credits.take(QuoteChips).forEach { credit -> CreditChip(credit, colors, Modifier.weight(1f, fill = false)) }
+                about.credits.take(YoinShareCards.quoteCredits).forEach { credit ->
+                    CreditChip(credit, colors, Modifier.weight(1f, fill = false))
+                }
             }
         }
         Box(
@@ -813,7 +807,7 @@ private fun AboutLinerBody(content: ShareContent, colors: ShareCardColors, frame
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
-            val cells = about.credits.take(LinerCells)
+            val cells = about.credits.take(YoinShareCards.linerCredits)
             if (cells.isNotEmpty()) {
                 Column(Modifier.padding(top = 20.dp)) {
                     cells.chunked(2).forEach { pair ->
@@ -1012,8 +1006,8 @@ private val NarrowFamily = FontFamily(
 private fun NoteTimelineBody(content: ShareContent, colors: ShareCardColors, frame: ShareFrame, modifier: Modifier) {
     val note = content.note ?: return
     val at = note.positionMs ?: return
-    val duration = content.song.durationMs.takeIf { it > 0L } ?: return
-    val fraction = (at.toFloat() / duration).coerceIn(0f, 1f)
+    val duration = content.song.durationMs
+    val fraction = YoinShareCards.timelineFraction(at, duration) ?: return
     Column(modifier.frameGround(frame, colors.card)) {
         ShareHead(content.song, colors)
         Spacer(Modifier.height(22.dp))
@@ -1115,14 +1109,8 @@ private val PaddingValuesPoster = 28.dp
 private val PosterCardMinHeight = 400.dp
 private val VerticalCardMinHeight = 470.dp
 
-/** 竖排's column height and the width its lyric columns may take (the card minus padding and the title column). */
-private const val VerticalColumnHeight = 380f
-private const val VerticalAvailableWidth = 250f
-private const val VerticalFootnoteWidth = 22f
-
-/** Chips under the Quote, cells in the Liner notes' grid. */
-private const val QuoteChips = 3
-private const val LinerCells = 4
+/** 竖排's column height (the lyric columns' width and the footnote's are [YoinShareCards.verticalLyricsPlan]'s). */
+private const val VerticalColumnHeight = YoinShareCards.verticalColumnHeightDp
 
 /** The translation's footnote / bottom line: low contrast. */
 private const val QuietAlpha = 0.55f

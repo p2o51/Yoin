@@ -28,6 +28,23 @@ void main() {
     expect(idle.idle, isTrue);
   });
 
+  testWidgets('should_stayAwake_when_heldAndRearm_when_released', (tester) async {
+    final idle = FocusIdle();
+    addTearDown(idle.dispose);
+    idle.track(true);
+    idle.hold(true);
+    await tester.pump(const Duration(milliseconds: NowPlayingFocusTokens.idleMs * 2));
+    expect(idle.idle, isFalse, reason: 'a focused key holds them');
+    idle.onInteraction();
+    await tester.pump(const Duration(milliseconds: NowPlayingFocusTokens.idleMs * 2));
+    expect(idle.idle, isFalse);
+    idle.hold(false);
+    await tester.pump(const Duration(milliseconds: NowPlayingFocusTokens.idleMs - 100));
+    expect(idle.idle, isFalse, reason: 'a fresh count from the release');
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(idle.idle, isTrue);
+  });
+
   testWidgets('should_neverIdle_when_notEligible', (tester) async {
     final idle = FocusIdle();
     addTearDown(idle.dispose);

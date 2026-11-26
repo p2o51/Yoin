@@ -12,10 +12,10 @@ import com.gpo.yoin.testutil.virtualUptimeMs
 import com.gpo.yoin.ui.experience.HomeEditProgress
 import com.gpo.yoin.ui.home.HomeLayout
 import com.gpo.yoin.ui.home.HomeSection
-import com.gpo.yoin.ui.home.HomeSection.Activities
-import com.gpo.yoin.ui.home.HomeSection.JumpBackIn
-import com.gpo.yoin.ui.home.HomeSection.RecentlyAdded
-import com.gpo.yoin.ui.home.HomeSection.Rediscover
+import com.gpo.yoin.shared.home.HomeSection.Activities
+import com.gpo.yoin.shared.home.HomeSection.JumpBackIn
+import com.gpo.yoin.shared.home.HomeSection.RecentlyAdded
+import com.gpo.yoin.shared.home.HomeSection.Rediscover
 import kotlin.math.abs
 import kotlin.math.max
 import kotlinx.coroutines.CoroutineScope

@@ -11,6 +11,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import com.gpo.yoin.shared.home.homeDraftAtWidth
+import com.gpo.yoin.shared.home.homeEditStep
+import com.gpo.yoin.shared.home.homeLayoutEchoes
 import com.gpo.yoin.ui.component.BarEditLeftSlot
 import com.gpo.yoin.ui.component.resolveEditLeftSlot
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
@@ -118,11 +121,12 @@ class HomeEditController(
             // its memory (HomeLayout.widePairs) — never portrait's single column pinned in landscape.
             val current = draft
             if (current != null && layer?.isCarrying != true) {
-                draft = if (undoStack.isEmpty()) {
-                    (echoHold ?: latestVmLayout ?: HomeLayout.Default).forTwoColumn(value)
-                } else {
-                    current.shownAt(value)
-                }
+                draft = homeDraftAtWidth(
+                    draft = current,
+                    edited = undoStack.isNotEmpty(),
+                    base = echoHold ?: latestVmLayout ?: HomeLayout.Default,
+                    twoColumn = value,
+                )
             }
         }
     private val twoColumnState = mutableStateOf(false)
@@ -408,10 +412,9 @@ class HomeEditController(
     ): Boolean {
         val current = draft ?: return false
         if (!duringCarry && layer?.isCarrying == true) return false
-        val changed = transform(current)
-        if (changed === current) return false
-        // Two columns remember what they show; one column changes order and visibility only.
-        val next = if (twoColumn) changed.rememberingShownPairs() else changed
+        // Nothing changed (the same object): no step. Two columns remember what they show; one column
+        // changes order and visibility only.
+        val next = homeEditStep(current, transform(current), twoColumn) ?: return false
         haptic()
         undoStack.add(current)
         if (undoStack.size > HomeEditTokens.UndoMax) undoStack.removeAt(0)
@@ -421,8 +424,7 @@ class HomeEditController(
 
     // The VM's layout stands for [shown] when they are the same arrangement, or when it is the
     // stored "never customized" and [shown] is the default this width shows for it.
-    private fun HomeLayout.matches(shown: HomeLayout): Boolean =
-        sameSectionsAs(shown) || (isDefault && shown.isAnyDefault)
+    private fun HomeLayout.matches(shown: HomeLayout): Boolean = homeLayoutEchoes(this, shown)
 
     private fun apply(kind: HomeEditChangeKind, previous: HomeLayout, next: HomeLayout, subject: HomeSection?) {
         draft = next
