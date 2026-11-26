@@ -76,7 +76,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Yoin streams music from servers on your local network.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Yoin saves the images you share to your photo library.</string>
+	<string>Yoin saves your lyric, About, and note images to your photo library.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserActivityTypes</key>
