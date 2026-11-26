@@ -2854,6 +2854,16 @@
         }
       }
     },
+    "Full layout": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开版面"
+          }
+        }
+      }
+    },
     "Full screen": {
       "localizations": {
         "zh-Hans": {
@@ -3046,6 +3056,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已隐藏"
+          }
+        }
+      }
+    },
+    "Hide": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏"
           }
         }
       }
@@ -3682,6 +3702,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "更多播放选项"
+          }
+        }
+      }
+    },
+    "More rows": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加行数"
           }
         }
       }
@@ -5760,6 +5790,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "栏目"
+          }
+        }
+      }
+    },
+    "Section %lld of %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Section %1$lld of %2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$lld 个分区，共 %2$lld 个"
+          }
+        }
+      }
+    },
+    "Section %lld of %lld, %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Section %1$lld of %2$lld, %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %1$lld 个分区，共 %2$lld 个，%3$@"
           }
         }
       }
@@ -9888,6 +9950,16 @@
         }
       }
     },
+    "Compact list": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收成列表"
+          }
+        }
+      }
+    },
     "File": {
       "localizations": {
         "zh-Hans": {
@@ -11744,6 +11816,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "功能与外观"
+          }
+        }
+      }
+    },
+    "Fewer rows": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "减少行数"
           }
         }
       }
@@ -16248,6 +16330,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 正在写…"
+          }
+        }
+      }
+    },
+    "Half width": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "半宽"
+          }
+        }
+      }
+    },
+    "Full width": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全宽"
+          }
+        }
+      }
+    },
+    "Place beside previous": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放到上一个旁边"
+          }
+        }
+      }
+    },
+    "Make full width": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改为整行"
+          }
+        }
+      }
+    },
+    "Left half": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左半边"
+          }
+        }
+      }
+    },
+    "Right half": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右半边"
+          }
+        }
+      }
+    },
+    "Previous page": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一页"
+          }
+        }
+      }
+    },
+    "Next page": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一页"
           }
         }
       }

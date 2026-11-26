@@ -43,8 +43,8 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(rediscover?.enabled, false)
         XCTAssertEqual(l.newSections, [.rediscover])
         XCTAssertEqual(l.trayed, [.rediscover])
-        // Shown from the tray it is no longer new.
-        XCTAssertTrue(l.withEnabled(.rediscover, true).newSections.isEmpty)
+        // Shown from the tray it leaves it (the shared layout keeps the read's "New" set, as Android does).
+        XCTAssertTrue(l.withEnabled(.rediscover, true).trayed.isEmpty)
     }
 
     func test_should_moveAmongShownKeepingHiddenSlots_when_reordering() {
@@ -73,19 +73,19 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(r.retained.map(\.id), ["x"])
     }
 
-    func test_should_roundTripAndDecodeEntryByEntry_when_codingTheDocument() {
+    func test_should_roundTripAndDecodeEntryByEntry_when_codingTheDocument() throws {
         let prefs = [HomeSectionPref(id: "activities", enabled: false),
                      HomeSectionPref(id: "z", enabled: true, config: Data(#"{"rows":"s"}"#.utf8))]
-        let data = HomeLayoutCodec.encode(prefs)
-        let json = String(decoding: data, as: UTF8.self)
-        XCTAssertTrue(json.contains(#""version":1"#))
+        let layout = try XCTUnwrap(HomeLayoutCodec.decode(HomeLayoutCodec.document(prefs)))
+        let json = HomeLayoutCodec.encode(layout)
+        XCTAssertTrue(json.hasPrefix(#"{"version":1,"sections":[{"id":"activities","enabled":false}"#))
         XCTAssertFalse(json.contains("null"))
-        XCTAssertEqual(HomeLayoutCodec.decode(data)?.map(\.id), ["activities", "z"])
-        XCTAssertEqual(HomeLayoutCodec.decode(data)?.first?.enabled, false)
+        XCTAssertEqual(layout.retained.map(\.id), ["z"])
+        XCTAssertEqual(layout.retained.first?.configJson, #"{"rows":"s"}"#)
         // Android's document, one bad entry: only it drops.
         let android = #"{"sections":[{"id":"rediscover","enabled":true},{"id":5},{"id":"activities","enabled":"yes"}]}"#
-        XCTAssertEqual(HomeLayoutCodec.decode(Data(android.utf8))?.map(\.id), ["rediscover"])
-        XCTAssertNil(HomeLayoutCodec.decode(Data("nope".utf8)))
+        XCTAssertEqual(HomeLayoutCodec.decode(android)?.sections.first?.section, .rediscover)
+        XCTAssertNil(HomeLayoutCodec.decode("nope"))
     }
 
     /// Android's document with its two-column memory (`wide`, design.md「两栏的并排记忆」), a key no build
@@ -96,34 +96,37 @@ final class HomeLayoutTests: XCTestCase {
         + #""wide":{"pairs":[["activities","jump_back_in"],["lyric_highlight","future_section"]],"note":"keep"},"#
         + #""future":{"a":[1,2.5,true,null],"b":"x"}}"#
 
-    private func object(_ data: Data) -> NSDictionary {
-        (try? JSONSerialization.jsonObject(with: data)) as? NSDictionary ?? [:]
+    private func object(_ json: String) -> NSDictionary {
+        (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? NSDictionary ?? [:]
     }
 
-    func test_should_keepUnknownDocumentAndEntryKeys_when_reorderedAndHidden() throws {
-        let original = object(Data(androidWideDoc.utf8))
-        let d = try XCTUnwrap(HomeLayoutCodec.decodeDocument(Data(androidWideDoc.utf8)))
-        let layout = HomeLayout.reconcile(d.prefs).movedShown(.rediscover, to: 0).withEnabled(.activities, false)
-        let doc = object(HomeLayoutCodec.encode(layout.toPrefs(), extras: d.extras))
-        // The document's other keys, as they were.
-        XCTAssertEqual(doc["wide"] as? NSDictionary, original["wide"] as? NSDictionary)
+    func test_should_keepUnknownKeysAndDropStaleHalves_when_reorderedAndHidden() throws {
+        let original = object(androidWideDoc)
+        let layout = try XCTUnwrap(HomeLayoutCodec.decode(androidWideDoc)).movedShown(.rediscover, to: 0).withEnabled(.activities, false)
+        let doc = object(HomeLayoutCodec.encode(layout))
+        // The document's other keys, as they were; the memory keeps what it can't read.
         XCTAssertEqual(doc["future"] as? NSDictionary, original["future"] as? NSDictionary)
         XCTAssertEqual(doc["version"] as? Int, 1)
-        // The edit landed; each entry keeps its config and its other keys.
+        let wide = try XCTUnwrap(doc["wide"] as? NSDictionary)
+        XCTAssertEqual(wide["note"] as? String, "keep")
+        let pairs = try XCTUnwrap(wide["pairs"] as? [[String]])
+        XCTAssertTrue(pairs.contains(["activities", "jump_back_in"]), "order and visibility edits keep the memory")
+        XCTAssertTrue(pairs.contains(["lyric_highlight", "future_section"]))
+        // The edit landed; each entry keeps its other keys; the hidden one and its old partner lose `span`
+        // (the stale-half bug: a document iOS writes now says what two columns would show).
         let sections = try XCTUnwrap(doc["sections"] as? [NSDictionary])
         XCTAssertEqual(sections.prefix(4).map { $0["id"] as? String }, ["rediscover", "activities", "jump_back_in", "lyric_highlight"])
-        XCTAssertEqual(sections[1], ["id": "activities", "enabled": false, "config": ["span": "half"]] as NSDictionary)
-        XCTAssertEqual(sections[2], ["id": "jump_back_in", "enabled": true, "config": ["span": "half"],
-                                     "pinned": ["at": [1, 2]]] as NSDictionary)
+        XCTAssertEqual(sections[1], ["id": "activities", "enabled": false] as NSDictionary)
+        XCTAssertEqual(sections[2], ["id": "jump_back_in", "enabled": true, "pinned": ["at": [1, 2]]] as NSDictionary)
         // And it reads back the same.
-        let again = try XCTUnwrap(HomeLayoutCodec.decodeDocument(HomeLayoutCodec.encode(layout.toPrefs(), extras: d.extras)))
-        XCTAssertEqual(again.prefs, layout.toPrefs())
-        XCTAssertEqual(again.extras.map(object), d.extras.map(object))
+        let again = try XCTUnwrap(HomeLayoutCodec.decode(HomeLayoutCodec.encode(layout)))
+        XCTAssertTrue(again.sameSections(as: layout))
+        XCTAssertEqual(HomeLayoutCodec.encode(again), HomeLayoutCodec.encode(layout))
     }
 
-    func test_should_writeNoExtraKeys_when_documentHasNone() {
-        XCTAssertNil(HomeLayoutCodec.decodeDocument(Data(#"{"version":1,"sections":[{"id":"activities","enabled":true}]}"#.utf8))?.extras)
-        XCTAssertEqual(object(HomeLayoutCodec.encode([HomeSectionPref(id: "activities", enabled: true)])).allKeys.count, 2)
+    func test_should_writeOnlyItsOwnKeys_when_documentHasNone() throws {
+        let layout = try XCTUnwrap(HomeLayoutCodec.decode(#"{"version":1,"sections":[{"id":"activities","enabled":false}]}"#))
+        XCTAssertEqual(Set(object(HomeLayoutCodec.encode(layout)).allKeys as! [String]), ["version", "sections", "wide"])
     }
 
     func test_should_keepAndroidsWideMemory_when_syncedLayoutIsEditedOnIOS() throws {
@@ -140,15 +143,16 @@ final class HomeLayoutTests: XCTestCase {
         edit.hide(.lyricHighlight)
         let sent = try XCTUnwrap(reopened.synced("acc"))
         XCTAssertGreaterThan(sent.updatedAt, 700)
-        let doc = object(Data(sent.json.utf8))
-        let original = object(Data(androidWideDoc.utf8))
-        XCTAssertEqual(doc["wide"] as? NSDictionary, original["wide"] as? NSDictionary)
+        let doc = object(sent.json)
+        let original = object(androidWideDoc)
         XCTAssertEqual(doc["future"] as? NSDictionary, original["future"] as? NSDictionary)
+        XCTAssertEqual((doc["wide"] as? NSDictionary)?["note"] as? String, "keep")
+        XCTAssertTrue(((doc["wide"] as? NSDictionary)?["pairs"] as? [[String]])?.contains(["lyric_highlight", "future_section"]) == true)
         XCTAssertEqual(reopened.layout("acc").shownSections.first, .rediscover)
         XCTAssertEqual(reopened.layout("acc").trayed, [.lyricHighlight])
         // Still there after a reopen, and Reset clears it with the rest.
-        XCTAssertEqual(object(Data(try XCTUnwrap(HomeLayoutStore(fileURL: url).synced("acc")).json.utf8))["wide"] as? NSDictionary,
-                       original["wide"] as? NSDictionary)
+        XCTAssertEqual(object(try XCTUnwrap(HomeLayoutStore(fileURL: url).synced("acc")).json)["future"] as? NSDictionary,
+                       original["future"] as? NSDictionary)
         edit.reset()
         XCTAssertNil(reopened.synced("acc"))
     }
@@ -165,7 +169,7 @@ final class HomeLayoutTests: XCTestCase {
         let again = HomeLayoutStore(fileURL: url)
         XCTAssertEqual(again.layout("subsonic|https://a|me").shownSections.first, .rediscover)
         again.clear("subsonic|https://a|me")
-        XCTAssertNil(HomeLayoutStore(fileURL: url).prefs("subsonic|https://a|me"))
+        XCTAssertFalse(HomeLayoutStore(fileURL: url).isCustomized("subsonic|https://a|me"))
     }
 
     func test_should_keepSyncedTextAsReceived_when_anotherDeviceSendsLayout() {
@@ -231,16 +235,8 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(store.layout("acc").shownSections,
                        [.activities, .recentlyAdded, .rediscover, .recentlyPlayed, .yourPlaylists, .otherProfiles, .lyricHighlight, .memoryGrid, .madeForYou])
         edit.reset()
-        XCTAssertNil(store.prefs("acc"))
+        XCTAssertFalse(store.isCustomized("acc"))
         XCTAssertTrue(edit.layout.isDefault)
-    }
-
-    func test_should_countStripsAbove_when_choosingTheHole() {
-        let frames = [CGRect(x: 0, y: 0, width: 10, height: 56), CGRect(x: 0, y: 64, width: 10, height: 56),
-                      CGRect(x: 0, y: 128, width: 10, height: 56)]
-        XCTAssertEqual(HomeEditController.slot(centre: 10, others: frames), 0)
-        XCTAssertEqual(HomeEditController.slot(centre: 100, others: frames), 2)
-        XCTAssertEqual(HomeEditController.slot(centre: 500, others: frames), 3)
     }
 
     func test_should_rippleEachSectionABeatLater_when_entering() {

@@ -14,49 +14,59 @@ final class HomeRowPresetsTests: XCTestCase {
         + #"{"id":"jump_back_in","enabled":true,"config":{"rows":"s","future":{"a":[1,2]}}},"#
         + #"{"id":"recently_added","enabled":false},{"id":"rediscover","enabled":true,"config":{"rows":"huge"}}]}"#
 
+    /// [layout]'s document as written, as an object.
+    private func doc(_ layout: HomeLayout) -> NSDictionary { json(Data(HomeLayoutCodec.encode(layout).utf8)) }
+
+    /// An entry's config without the two-column `span` the shared layout sets from the pairing memory.
+    private func rowsConfig(_ entry: NSDictionary) -> NSDictionary? {
+        guard let c = entry["config"] as? NSDictionary else { return nil }
+        let m = c.mutableCopy() as! NSMutableDictionary
+        m.removeObject(forKey: "span")
+        return m.count == 0 ? nil : m
+    }
+
     func test_should_readPresetsAndKeepTheRest_when_decodingAndroidsDocument() throws {
-        let prefs = try XCTUnwrap(HomeLayoutCodec.decode(Data(androidDoc.utf8)))
-        let layout = HomeLayout.reconcile(prefs)
+        let layout = try XCTUnwrap(HomeLayoutCodec.decode(androidDoc))
         XCTAssertEqual(layout.rowsOf(.activities), .xl)
         XCTAssertEqual(layout.rowsOf(.jumpBackIn), .s)
         XCTAssertEqual(layout.rowsOf(.recentlyAdded), .l)
         // A rows value this build can't read is the default, and stays in the bag.
         XCTAssertEqual(layout.rowsOf(.rediscover), .l)
         // Re-encoded, nothing is lost: same document, same keys, the unknown ones verbatim.
-        let again = json(HomeLayoutCodec.encode(layout.toPrefs()))
-        let sections = try XCTUnwrap(again["sections"] as? [NSDictionary])
-        XCTAssertEqual(sections[0]["config"] as? NSDictionary, ["rows": "xl"])
-        XCTAssertEqual(sections[1]["config"] as? NSDictionary, ["rows": "s", "future": ["a": [1, 2]]])
+        let sections = try XCTUnwrap(doc(layout)["sections"] as? [NSDictionary])
+        XCTAssertEqual(rowsConfig(sections[0]), ["rows": "xl"])
+        XCTAssertEqual(rowsConfig(sections[1]), ["rows": "s", "future": ["a": [1, 2]]])
         XCTAssertNil(sections[2]["config"])
-        XCTAssertEqual(sections[3]["config"] as? NSDictionary, ["rows": "huge"])
+        XCTAssertEqual(rowsConfig(sections[3]), ["rows": "huge"])
     }
 
     func test_should_encodeAndroidsShape_when_resizing() throws {
         let layout = HomeLayout.default.withRows(.activities, .xl).withRows(.jumpBackIn, .s)
         XCTAssertEqual(layout.rowsOf(.activities), .xl)
-        let doc = json(HomeLayoutCodec.encode(layout.toPrefs()))
-        XCTAssertEqual(doc["version"] as? Int, 1)
-        let sections = try XCTUnwrap(doc["sections"] as? [NSDictionary])
+        let d = doc(layout)
+        XCTAssertEqual(d["version"] as? Int, 1)
+        let sections = try XCTUnwrap(d["sections"] as? [NSDictionary])
         XCTAssertEqual(sections.map { $0["id"] as? String }.prefix(3), ["activities", "jump_back_in", "recently_added"])
-        XCTAssertEqual(sections[0], ["id": "activities", "enabled": true, "config": ["rows": "xl"]] as NSDictionary)
-        XCTAssertEqual(sections[1], ["id": "jump_back_in", "enabled": true, "config": ["rows": "s"]] as NSDictionary)
+        // Activities | Jump Back In pair in two columns (the default memory): the span rides along.
+        XCTAssertEqual(sections[0], ["id": "activities", "enabled": true, "config": ["rows": "xl", "span": "half"]] as NSDictionary)
+        XCTAssertEqual(sections[1], ["id": "jump_back_in", "enabled": true, "config": ["rows": "s", "span": "half"]] as NSDictionary)
         // The default preset stores nothing: no config key at all.
         XCTAssertEqual(sections[2], ["id": "recently_added", "enabled": true] as NSDictionary)
         // And it reads back.
-        let back = HomeLayout.reconcile(HomeLayoutCodec.decode(HomeLayoutCodec.encode(layout.toPrefs())))
+        let back = try XCTUnwrap(HomeLayoutCodec.decode(HomeLayoutCodec.encode(layout)))
         XCTAssertEqual(back.rowsOf(.activities), .xl)
         XCTAssertEqual(back.rowsOf(.jumpBackIn), .s)
         XCTAssertTrue(back.sameSections(as: layout))
     }
 
     func test_should_dropTheKeyAndKeepOthers_when_goingBackToDefault() throws {
-        let prefs = try XCTUnwrap(HomeLayoutCodec.decode(Data(androidDoc.utf8)))
-        let layout = HomeLayout.reconcile(prefs)
+        let layout = try XCTUnwrap(HomeLayoutCodec.decode(androidDoc))
         let back = layout.withRows(.jumpBackIn, .l)
-        let config = json(try XCTUnwrap(back.sections.first { $0.section == .jumpBackIn }?.config))
-        XCTAssertEqual(config, ["future": ["a": [1, 2]]])
-        // Nothing left in the bag: no bag.
-        XCTAssertNil(HomeLayout.default.withRows(.activities, .m).withRows(.activities, .l).sections[0].config)
+        let jbi = try XCTUnwrap(back.sections.first { $0.section == .jumpBackIn })
+        XCTAssertEqual(jbi.rows, .l)
+        XCTAssertFalse(jbi.rowsSet)
+        XCTAssertEqual(json(Data(try XCTUnwrap(jbi.configExtrasJson).utf8)), ["future": ["a": [1, 2]]])
+        // Nothing left in the bag but the pair's span.
         XCTAssertEqual(HomeLayout.default.withRows(.activities, .m).withRows(.activities, .l), HomeLayout.default)
         // The unreadable value is overwritten by a real choice.
         let fixed = layout.withRows(.rediscover, .m)
@@ -151,8 +161,7 @@ final class HomeRowPresetsTests: XCTestCase {
         XCTAssertFalse(HomeSection.recentlyAdded.takesPresets)
         let layout = HomeLayout.default.withRows(.lyricHighlight, .lyricCards(2))
         XCTAssertEqual(layout.rowsOf(.lyricHighlight).lyricCards, 2)
-        let doc = json(HomeLayoutCodec.encode(layout.toPrefs()))
-        let sections = try XCTUnwrap(doc["sections"] as? [NSDictionary])
+        let sections = try XCTUnwrap(doc(layout)["sections"] as? [NSDictionary])
         let lyric = try XCTUnwrap(sections.first { $0["id"] as? String == "lyric_highlight" })
         XCTAssertEqual(lyric["config"] as? NSDictionary, ["rows": "s"])
         // Back to four: the default, nothing stored.
@@ -163,7 +172,7 @@ final class HomeRowPresetsTests: XCTestCase {
 
     func test_should_readAndroidsLyricCardsPreset_when_decoding() throws {
         let doc = #"{"version":1,"sections":[{"id":"lyric_highlight","enabled":true,"config":{"rows":"m"}}]}"#
-        let layout = HomeLayout.reconcile(try XCTUnwrap(HomeLayoutCodec.decode(Data(doc.utf8))))
+        let layout = try XCTUnwrap(HomeLayoutCodec.decode(doc))
         XCTAssertEqual(layout.rowsOf(.lyricHighlight).lyricCards, 3)
     }
 
