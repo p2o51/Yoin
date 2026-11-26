@@ -106,6 +106,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import com.gpo.yoin.ui.home.rememberHomeTwoColumnCapable
 import kotlinx.coroutines.CoroutineScope
 import kotlin.math.roundToInt
 
@@ -119,10 +120,12 @@ import kotlin.math.roundToInt
  * Rearranging Home on a tablet on its side (two columns): long-press Home into edit mode, pinch
  * the sections into a list and back out, long-press a section and drag it up, then drop one
  * beside another and the two share a row. The real header and bar; the sections are drawn
- * simply (plate, title, covers, handle), each step as the app answers it.
+ * simply (plate, title, covers, handle), each step as the app answers it. On a device whose Home
+ * never lays out in two columns ([twoColumn] false, a phone) it is a phone and leaves out the drop
+ * beside, as the tip's line does (owner 2026-11-26).
  */
 @Composable
-internal fun EditHomeDemo(playing: Boolean) {
+internal fun EditHomeDemo(playing: Boolean, twoColumn: Boolean = rememberHomeTwoColumnCapable()) {
     var editing by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
     val spatial = YoinMotion.spatialSpring<Float>()
@@ -131,7 +134,7 @@ internal fun EditHomeDemo(playing: Boolean) {
     LaunchedEffect(editing) {
         progress.animateTo(if (editing) 1f else 0f, spatial)
     }
-    DemoPhone(playing = playing, wide = true, script = {
+    DemoPhone(playing = playing, wide = twoColumn, script = {
         editing = false
         state.reset()
         delay(400)
@@ -152,15 +155,17 @@ internal fun EditHomeDemo(playing: Boolean) {
         drag(up.x, up.y, ms = 700) { p -> state.carry(scope, HomeSection.YourPlaylists, slot = 2f - p, left = 0f, width = 1f) }
         state.drop(scope, HomeSection.YourPlaylists, slot = 1f, left = 0f, width = 1f)
         delay(600)
-        // Drop beside: Recently Added onto the right of Your Playlists, and the two share a row.
-        moveTo(DemoEditFeed.keyOf(HomeSection.RecentlyAdded), fx = 0.5f, fy = 0.5f)
-        hold { state.pick(scope, HomeSection.RecentlyAdded) }
-        val beside = at(DemoEditFeed.keyOf(HomeSection.YourPlaylists), fx = 0.8f, fy = 0.5f)
-        drag(beside.x, beside.y, ms = 800) { p ->
-            state.carry(scope, HomeSection.RecentlyAdded, slot = 2f - p, left = 0.5f * p, width = 1f - 0.5f * p)
-            if (p > 0.6f) state.makeRoom(scope, HomeSection.YourPlaylists)
+        if (twoColumn) {
+            // Drop beside: Recently Added onto the right of Your Playlists, and the two share a row.
+            moveTo(DemoEditFeed.keyOf(HomeSection.RecentlyAdded), fx = 0.5f, fy = 0.5f)
+            hold { state.pick(scope, HomeSection.RecentlyAdded) }
+            val beside = at(DemoEditFeed.keyOf(HomeSection.YourPlaylists), fx = 0.8f, fy = 0.5f)
+            drag(beside.x, beside.y, ms = 800) { p ->
+                state.carry(scope, HomeSection.RecentlyAdded, slot = 2f - p, left = 0.5f * p, width = 1f - 0.5f * p)
+                if (p > 0.6f) state.makeRoom(scope, HomeSection.YourPlaylists)
+            }
+            state.drop(scope, HomeSection.RecentlyAdded, slot = 1f, left = 0.5f, width = 0.5f)
         }
-        state.drop(scope, HomeSection.RecentlyAdded, slot = 1f, left = 0.5f, width = 0.5f)
         lift()
         delay(1_600)
         moveTo("bar", fx = 0.75f)

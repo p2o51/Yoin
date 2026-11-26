@@ -1243,19 +1243,6 @@ class NowPlayingViewModel(
         viewModelScope.launch { repository.toggleNoteChecklist(id, lineIndex) }
     }
 
-    /**
-     * The Note page's "对齐到现在": files [note] at a new song moment. Words,
-     * id and creation time stay; [positionMs] replaces the anchor.
-     */
-    fun realignNote(note: SongNote, positionMs: Long) {
-        val content = note.content.trim()
-        if (content.isEmpty()) return
-        viewModelScope.launch {
-            // updateNote writes the whole row it is given, the new anchor with it.
-            repository.updateNote(note.copy(positionMs = positionMs.coerceAtLeast(0L)), content)
-        }
-    }
-
     fun refreshDevices() {
         refreshDevices(showLoading = true)
     }

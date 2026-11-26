@@ -67,6 +67,7 @@ import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.home.HomeBubbleTip
+import com.gpo.yoin.ui.home.shownText
 import com.gpo.yoin.ui.settings.SettingsBackButton
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -244,7 +245,7 @@ private fun TipPage(
             }
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = stringResource(tip.text),
+                text = stringResource(tip.shownText()),
                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Normal),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

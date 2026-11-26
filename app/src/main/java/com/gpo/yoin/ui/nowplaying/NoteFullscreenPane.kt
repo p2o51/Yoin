@@ -26,7 +26,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,7 +35,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,17 +59,15 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
-import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.NoteDraft
 import com.gpo.yoin.ui.component.NoteDraftState
+import com.gpo.yoin.ui.component.NoteSaveRequest
 import com.gpo.yoin.ui.component.NoteLine
 import com.gpo.yoin.ui.component.NoteLineEmphasis
 import com.gpo.yoin.ui.component.NoteSortMode
 import com.gpo.yoin.ui.component.NoteSortToggle
 import com.gpo.yoin.ui.component.NoteStampColumnWidth
 import com.gpo.yoin.ui.component.NoteTarget
-import com.gpo.yoin.ui.component.YoinDropdownMenu
-import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.currentAnchoredNoteId
 import com.gpo.yoin.ui.component.formatNoteDate
 import com.gpo.yoin.ui.component.formatNotePosition
@@ -80,7 +76,6 @@ import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
-import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.abs
 
 /**
@@ -88,9 +83,9 @@ import kotlin.math.abs
  * stamp, then the words, the line the playhead is inside lit up, the list
  * gliding to keep it ~22% down (Timeline order) — with the Timeline ⇄ Created
  * switch above. No cards, no rails, no per-row buttons: tap an anchored line
- * to seek to its moment, long-press it to rewrite it in the write bar
- * ([onEdit], owner 2026-11-24: its stamp re-aligns it, emptying it deletes it;
- * without [onEdit] the long press offers "对齐到现在" / "删除"). A deleted
+ * to seek to its moment, long-press it for the note menu ([NoteMenuSheet],
+ * the album scrapbook's note card, owner 2026-11-26: the words editable, then
+ * Delete, Align to now and Done, saved through [onSave]). A deleted
  * line offers 撤销 in its place for a few seconds. A finger on the list is
  * reported through [onListHeldChange] — the undo window waits for it to lift
  * — and when the undo row does collapse, a tap that comes down on a row still
@@ -116,10 +111,11 @@ fun NoteFullscreenPane(
     modifier: Modifier = Modifier,
     deleted: SongNote? = null,
     onUndoDelete: () -> Unit = {},
-    onRealign: ((SongNote, Long) -> Unit)? = null,
     onListHeldChange: (Boolean) -> Unit = {},
-    // A long press opens the note in the write bar (owner 2026-11-24); null keeps the 对齐到现在 / 删除 menu.
-    onEdit: ((SongNote) -> Unit)? = null,
+    // The note menu's edits: new words, a new moment (Align to now), or emptied (a delete).
+    onSave: (NoteSaveRequest) -> Unit = {},
+    // Share as image from the note menu; null where there is no share sheet (previews, tests).
+    onShare: ((noteId: String) -> Unit)? = null,
 ) {
     val density = LocalDensity.current
     val listMinPx = with(density) { NoteListMinViewport.roundToPx() }
@@ -134,8 +130,8 @@ fun NoteFullscreenPane(
         derivedStateOf { draftState.draft.belongsTo(current.songId) }
     }
     val showDraft = writing && draftHere
-    // The note open in the write bar for editing (only its id: typing doesn't recompose the list).
-    val editingId by remember(draftState) { derivedStateOf { draftState.draft.editingNoteId } }
+    // The long-pressed note whose menu is open (by id: a note deleted meanwhile closes it).
+    var menuNoteId by remember(current.songId) { mutableStateOf<String?>(null) }
     val rows = remember(notes, sortMode, deleted, draftAnchor, showDraft) {
         noteRows(notes, sortMode, deleted, draftAnchor, showDraft)
     }
@@ -194,16 +190,24 @@ fun NoteFullscreenPane(
                 currentIndex = currentIndex,
                 draftIndex = draftIndex,
                 writing = writing,
-                positionMs = positionMs,
                 onSeekToMs = onSeekToMs,
-                onDelete = onDelete,
                 onUndoDelete = onUndoDelete,
-                onRealign = onRealign,
                 onListHeldChange = onListHeldChange,
-                onEdit = onEdit,
-                editingId = editingId.takeIf { writing },
+                onOpenMenu = { note -> menuNoteId = note.id },
+                menuNoteId = menuNoteId,
             )
         }
+    }
+    notes.firstOrNull { it.id == menuNoteId }?.let { note ->
+        NoteMenuSheet(
+            note = note,
+            target = current,
+            positionMs = positionMs,
+            onSave = onSave,
+            onDelete = onDelete,
+            onShare = onShare,
+            onDismissRequest = { menuNoteId = null },
+        )
     }
 }
 
@@ -219,14 +223,11 @@ private fun ColumnScope.NoteRowsList(
     currentIndex: Int,
     draftIndex: Int,
     writing: Boolean,
-    positionMs: () -> Long,
     onSeekToMs: (Long) -> Unit,
-    onDelete: (String) -> Unit,
     onUndoDelete: () -> Unit,
-    onRealign: ((SongNote, Long) -> Unit)?,
     onListHeldChange: (Boolean) -> Unit,
-    onEdit: ((SongNote) -> Unit)?,
-    editingId: String?,
+    onOpenMenu: (SongNote) -> Unit,
+    menuNoteId: String?,
 ) {
     if (notes.isNotEmpty() || deleted != null) {
         Row(
@@ -315,12 +316,9 @@ private fun ColumnScope.NoteRowsList(
                     isActive = row.note.id == currentNoteId,
                     distance = if (currentIndex >= 0) abs(index - currentIndex) else null,
                     showDate = sortMode == NoteSortMode.Created,
-                    positionMs = positionMs,
                     onSeekToMs = onSeekToMs,
-                    onDelete = onDelete,
-                    onRealign = onRealign,
-                    onEdit = onEdit,
-                    editing = row.note.id == editingId,
+                    onOpenMenu = onOpenMenu,
+                    menuOpen = row.note.id == menuNoteId,
                     tapIgnored = { tapGuard.ignores(index) },
                     modifier = rowModifier,
                 )
@@ -341,29 +339,23 @@ private fun NotePageLine(
     isActive: Boolean,
     distance: Int?,
     showDate: Boolean,
-    positionMs: () -> Long,
     onSeekToMs: (Long) -> Unit,
-    onDelete: (String) -> Unit,
-    onRealign: ((SongNote, Long) -> Unit)?,
-    onEdit: ((SongNote) -> Unit)?,
-    editing: Boolean,
+    onOpenMenu: (SongNote) -> Unit,
+    menuOpen: Boolean,
     tapIgnored: () -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
     val noteDateResources = LocalContext.current.resources
     val interaction = remember { MutableInteractionSource() }
-    var menuOpen by remember { mutableStateOf(false) }
-    // "Now" as of the long-press: what the menu shows is what it files.
-    var menuNowMs by remember { mutableLongStateOf(0L) }
     val anchor = note.positionMs
-    // The line open in the write bar recedes: the bar holds its words now.
-    val editAlpha by animateFloatAsState(
-        targetValue = if (editing) EditingLineAlpha else 1f,
+    // The line whose menu is up recedes: the menu holds its words now.
+    val menuAlpha by animateFloatAsState(
+        targetValue = if (menuOpen) EditingLineAlpha else 1f,
         animationSpec = YoinMotion.effectsSpring(),
-        label = "noteEditingLine",
+        label = "noteMenuLine",
     )
-    Box(modifier = modifier.graphicsLayer { alpha = editAlpha }) {
+    Box(modifier = modifier.graphicsLayer { alpha = menuAlpha }) {
         val toggle = LocalNoteChecklistToggle.current
         NoteLine(
             stamp = anchor?.let(::formatNotePosition),
@@ -379,17 +371,10 @@ private fun NotePageLine(
                 onClickLabel = anchor?.let {
                     stringResource(R.string.np_cd_note_play_from, formatNotePosition(it))
                 },
-                onLongClickLabel = stringResource(
-                    if (onEdit != null) R.string.detail_scrap_edit_note else R.string.np_cd_note_actions,
-                ),
+                onLongClickLabel = stringResource(R.string.np_cd_note_actions),
                 onLongClick = {
                     haptics.performLongPress()
-                    if (onEdit != null) {
-                        onEdit(note)
-                    } else {
-                        menuNowMs = positionMs()
-                        menuOpen = true
-                    }
+                    onOpenMenu(note)
                 },
                 onClick = {
                     if (anchor != null && !tapIgnored()) {
@@ -399,39 +384,6 @@ private fun NotePageLine(
                 },
             ),
         )
-        YoinDropdownMenu(
-            expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-        ) {
-            if (onRealign != null) {
-                YoinDropdownMenuItem(
-                    text = stringResource(R.string.np_note_realign),
-                    leadingIcon = { Icon(YoinSymbols.MusicNote, contentDescription = null) },
-                    // The moment it would move to, quieter at the item's end: no dot.
-                    trailingIcon = {
-                        Text(
-                            text = formatNotePosition(menuNowMs),
-                            style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                    onClick = {
-                        menuOpen = false
-                        haptics.performTick()
-                        onRealign(note, menuNowMs)
-                    },
-                )
-            }
-            YoinDropdownMenuItem(
-                text = stringResource(R.string.np_note_delete),
-                leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
-                onClick = {
-                    menuOpen = false
-                    haptics.performReject()
-                    onDelete(note.id)
-                },
-            )
-        }
     }
 }
 
@@ -620,5 +572,5 @@ private fun NoteFullscreenPanePreview() {
     }
 }
 
-/** How far the line being rewritten in the write bar recedes. */
+/** How far the line whose note menu is up recedes. */
 private const val EditingLineAlpha = 0.38f

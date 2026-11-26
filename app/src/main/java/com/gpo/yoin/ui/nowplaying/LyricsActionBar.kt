@@ -85,15 +85,25 @@ internal fun LyricsActionBar(
         BoxWithConstraints(modifier = modifier) {
             val desiredCapsule = if (iconSize >= 50.dp) 124.dp else 108.dp
             val bounded = maxWidth.value.isFinite()
-            val tightSpace = singExpanded && bounded && (maxWidth < iconSize * 4 + LyricsKeyGap * 4 + desiredCapsule)
+            // The Sing key (a key, or its open capsule) after the four, and the gaps between them all.
+            val singSlot = when {
+                sing?.isSupported != true -> 0.dp
+                singExpanded -> desiredCapsule
+                else -> iconSize
+            }
+            val gapCount = if (sing?.isSupported == true) 4 else 3
+            val natural = iconSize * 4 + LyricsKeyGap * gapCount + singSlot
+            // Short of room (the open capsule, or the page's Share beside the keys on a narrow phone): the
+            // gaps give first, then the keys narrow.
+            val tightSpace = bounded && maxWidth < natural
             val targetGap = if (tightSpace) {
-                val extraNeeded = (iconSize * 4 + LyricsKeyGap * 4 + desiredCapsule) - maxWidth
-                (LyricsKeyGap - extraNeeded / 8f).coerceIn(LyricsKeyMinGap, LyricsKeyGap)
+                val extraNeeded = natural - maxWidth
+                (LyricsKeyGap - extraNeeded / (gapCount * 2f)).coerceIn(LyricsKeyMinGap, LyricsKeyGap)
             } else {
                 LyricsKeyGap
             }
-            val targetKeyWidth = if (singExpanded && bounded) {
-                val roomForKeys = maxWidth - targetGap * 4 - desiredCapsule
+            val targetKeyWidth = if (tightSpace) {
+                val roomForKeys = maxWidth - targetGap * gapCount - singSlot
                 (roomForKeys / 4f).coerceIn(LyricsKeyMinWidth, iconSize)
             } else {
                 iconSize

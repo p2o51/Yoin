@@ -1,6 +1,5 @@
 package com.gpo.yoin.ui.nowplaying
 
-import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -13,6 +12,7 @@ import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.component.NoteDraft
 import com.gpo.yoin.ui.component.NoteDraftState
+import com.gpo.yoin.ui.component.NoteSaveRequest
 import com.gpo.yoin.ui.component.NoteTarget
 import io.mockk.coVerify
 import io.mockk.every
@@ -126,20 +126,24 @@ class NowPlayingViewModelNoteTest {
     }
 
     @Test
-    fun should_refileNoteAtNewMoment_when_realigned() = runTest {
+    fun should_refileTheSameNoteAtTheNewMoment_when_theNoteMenuAlignsItToNow() = runTest {
         val song = track("nq-t1", "Harbour Lights")
         val (viewModel, repository) = viewModel(song, MutableStateFlow<String?>("p"))
-        val note = SongNote(
-            id = "n1", profileId = "p", trackId = "nq-t1", content = "placeholder words",
-            createdAt = 1L, updatedAt = 1L, title = "Harbour Lights", artist = "Night QA Band",
-            positionMs = 12_000L,
-        )
 
-        viewModel.realignNote(note, positionMs = 95_000L)
+        // The note menu's Align to now: an edit of note n1, its words and the playhead's moment.
+        viewModel.saveCurrentNote(
+            NoteSaveRequest(
+                content = "placeholder words",
+                anchorMs = 95_000L,
+                target = NoteTarget(songId = "subsonic:nq-t1", title = "Harbour Lights", artist = "Night QA Band"),
+                editingNoteId = "n1",
+            ),
+        )
         runCurrent()
 
-        // Same note (id, words, creation time), new moment.
-        coVerify(exactly = 1) { repository.updateNote(note.copy(positionMs = 95_000L), "placeholder words") }
+        // Same note (id), new moment; nothing new filed.
+        coVerify(exactly = 1) { repository.editNoteById("n1", "placeholder words", 95_000L) }
+        coVerify(exactly = 0) { repository.addNote(any(), any(), any()) }
     }
 
     private fun TestScope.viewModel(

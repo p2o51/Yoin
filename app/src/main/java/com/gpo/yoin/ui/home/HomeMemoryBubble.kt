@@ -1443,7 +1443,7 @@ private fun MemoryBubble(
     )
     val headline = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
     val description = if (shownSay is BubbleSay.Tip) {
-        stringResource(shownSay.tip.text)
+        stringResource(shownSay.tip.shownText())
     } else if (latest == null) {
         stringResource(R.string.home_cd_bubble_memories)
     } else {

@@ -37,7 +37,7 @@ data class NoteSaveRequest(
     val content: String,
     val anchorMs: Long?,
     val target: NoteTarget?,
-    /** The note this rewrites (a long-pressed line); null files a new one. Blank [content] then deletes it. */
+    /** The note this rewrites (Now Playing's note menu); null files a new one. Blank [content] then deletes it. */
     val editingNoteId: String? = null,
 )
 
@@ -52,32 +52,20 @@ data class NoteDraft(
     val text: String = "",
     val anchorMs: Long? = null,
     val target: NoteTarget? = null,
-    /** Rewriting this existing note (long-pressed on the Note page) instead of writing a new one. */
-    val editingNoteId: String? = null,
-    /** The note's words as they were when the edit began: an edit left unchanged closes without a trace. */
-    val editingOriginal: String? = null,
 ) {
-    /** An existing note is open in the bar. */
-    val isEditing: Boolean get() = editingNoteId != null
-
-    /** Editing, with nothing changed yet. */
-    val isUntouchedEdit: Boolean get() = isEditing && text == editingOriginal
-
     /** True while the draft carries words that belong to a song other than [current]. */
     fun isForOtherTrack(current: NoteTarget): Boolean =
         text.isNotEmpty() && target != null && target.songId != current.songId
 
     /** No words yet: (re)bind to [current] at [positionMs]. Written words keep their binding. */
     fun followIfEmpty(current: NoteTarget, positionMs: Long): NoteDraft =
-        if (text.isEmpty() && !isEditing) copy(anchorMs = positionMs, target = current) else this
+        if (text.isEmpty()) copy(anchorMs = positionMs, target = current) else this
 
     /**
      * Typing. An unbound draft — or an emptied one still bound to a song that
      * has since ended — binds to [current] at [positionMs] with its first word.
      */
     fun edit(newText: String, current: NoteTarget, positionMs: Long): NoteDraft = when {
-        // An edit stays the note it opened, emptied or not.
-        isEditing -> copy(text = newText)
         target == null || (text.isEmpty() && target.songId != current.songId) ->
             NoteDraft(text = newText, anchorMs = positionMs, target = current)
         else -> copy(text = newText)
@@ -86,22 +74,17 @@ data class NoteDraft(
     /** "This moment": the anchor chip re-aligns the draft to [current] at [positionMs], words kept. */
     fun realign(current: NoteTarget, positionMs: Long): NoteDraft = copy(anchorMs = positionMs, target = current)
 
-    /** Null while there is nothing worth saving. An edit always saves: emptied, it deletes its note. */
+    /** Null while there is nothing worth saving. */
     fun toSaveRequest(): NoteSaveRequest? {
         val words = text.trim()
-        if (editingNoteId != null) return NoteSaveRequest(words, anchorMs, target, editingNoteId)
         return words.takeIf { it.isNotEmpty() }?.let { NoteSaveRequest(content = it, anchorMs = anchorMs, target = target) }
     }
-
-    /** [noteId]'s words ([content], filed at [anchorMs]) opened for rewriting, bound to its song. */
-    fun beginEdit(noteId: String, content: String, anchorMs: Long?, song: NoteTarget): NoteDraft =
-        NoteDraft(text = content, anchorMs = anchorMs, target = song, editingNoteId = noteId, editingOriginal = content)
 
     /** After a save: an empty draft for what's playing now. */
     fun cleared(current: NoteTarget, positionMs: Long): NoteDraft = NoteDraft(anchorMs = positionMs, target = current)
 
     internal fun toSaveable(): List<Any?> =
-        listOf(text, anchorMs, target?.songId, target?.title, target?.artist, target?.coverArtUrl, editingNoteId, editingOriginal)
+        listOf(text, anchorMs, target?.songId, target?.title, target?.artist, target?.coverArtUrl)
 
     internal companion object {
         fun fromSaveable(saved: List<Any?>): NoteDraft {
@@ -117,8 +100,6 @@ data class NoteDraft(
                         coverArtUrl = saved.getOrNull(5) as? String,
                     )
                 },
-                editingNoteId = saved.getOrNull(6) as? String,
-                editingOriginal = saved.getOrNull(7) as? String,
             )
         }
     }
@@ -146,30 +127,6 @@ class NoteDraftState(initial: NoteDraft = NoteDraft()) {
     fun realign(current: NoteTarget, positionMs: Long) {
         draft = draft.realign(current, positionMs)
     }
-
-    /**
-     * A long press on a note line (Now Playing expanded, owner 2026-11-24): the note's words go into the write
-     * bar, which takes focus ([pendingEditFocus]); saving rewrites that note. Words not yet saved (a new note,
-     * or a changed edit of another one) are never dropped for it: the bar opens on them instead (false).
-     */
-    fun beginEdit(noteId: String, content: String, anchorMs: Long?, song: NoteTarget): Boolean {
-        if (draft.text.isNotBlank() && draft.editingNoteId != noteId && !draft.isUntouchedEdit) {
-            // Unsaved words of another note: they are not thrown away; the bar opens on them instead.
-            pendingEditFocus = true
-            return false
-        }
-        draft = draft.beginEdit(noteId, content, anchorMs, song)
-        pendingEditFocus = true
-        return true
-    }
-
-    /** An edit closed unchanged (the keyboard went away): back to an empty draft for [current]. */
-    fun cancelEdit(current: NoteTarget, positionMs: Long) {
-        if (draft.isEditing) draft = draft.cleared(current, positionMs)
-    }
-
-    /** The write bar takes focus for an edit just begun (it clears this once it has asked). */
-    var pendingEditFocus: Boolean by mutableStateOf(false)
 
     /** The request to save — and the draft reset for [current] — or null when blank. */
     fun takeSaveRequest(current: NoteTarget, positionMs: Long): NoteSaveRequest? {

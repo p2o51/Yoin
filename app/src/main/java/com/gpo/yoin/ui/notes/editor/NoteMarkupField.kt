@@ -82,6 +82,8 @@ fun NoteMarkupField(
     textStyle: TextStyle = MaterialTheme.typography.bodyLarge,
     colors: NoteEditorColors = noteEditorColors(),
     placeholder: String? = null,
+    // The placeholder's colour; null: the text colour, quieter.
+    placeholderColor: Color? = null,
     lineLimits: TextFieldLineLimits = TextFieldLineLimits.MultiLine(),
     onTextLayout: (TextLayoutResult) -> Unit = {},
     candidates: MentionCandidateSource = LocalMentionCandidates.current,
@@ -200,7 +202,7 @@ fun NoteMarkupField(
                     Text(
                         text = placeholder,
                         style = textStyle,
-                        color = colors.text.copy(alpha = 0.55f),
+                        color = placeholderColor ?: colors.text.copy(alpha = 0.55f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

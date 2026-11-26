@@ -4,7 +4,11 @@ package com.gpo.yoin.ui.nowplaying
 
 import com.gpo.yoin.ui.component.aiString
 import com.gpo.yoin.ui.component.pointerPressPreview
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
@@ -30,6 +34,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -61,10 +69,10 @@ import com.gpo.yoin.data.highlight.AboutFollowUpPrompt
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.QuickPrompts
-import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.quickPromptsFor
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import androidx.graphics.shapes.RoundedPolygon
 
 @Composable
 internal fun AskGeminiBar(
@@ -143,15 +151,16 @@ internal fun AskGeminiBar(
         label = "askBarHeight",
     )
 
-    // While Gemini thinks, the bar lightens toward the page so it sits in the
-    // pastel wash above instead of reading as a dark slab under it (gradient
-    // lab, owner 2026-11-03). Effects spring: a colour change.
+    // The AI's colour role is tertiary (docs/design.md: About and Ask are the AI's, the listener's own
+    // words primary). While the AI thinks, the bar lightens toward the page so it sits in the pastel wash
+    // above instead of reading as a dark slab under it (gradient lab, owner 2026-11-03). Effects spring: a
+    // colour change.
     val scheme = MaterialTheme.colorScheme
     val barColor by animateColorAsState(
         targetValue = if (askState is AskBarState.Loading) {
-            lerp(scheme.primaryContainer, scheme.background, 0.45f)
+            lerp(scheme.tertiaryContainer, scheme.background, 0.45f)
         } else {
-            scheme.primaryContainer
+            scheme.tertiaryContainer
         },
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Expressive),
         label = "askBarColor",
@@ -163,10 +172,8 @@ internal fun AskGeminiBar(
             .height(animatedHeight)
             .animateContentSize(),
         shape = RoundedCornerShape(AskBarCornerRadius),
-        // Primary family, softened — sits in the same hero palette as
-        // the rest of Now Playing but reads as calmer than a selected
-        // tab would. onPrimaryContainer gives enough contrast for the
-        // "Ask Gemini" label without fighting the hero title above.
+        // Tertiary, softened: the AI's own role. onTertiaryContainer gives
+        // the "Ask <AI>" label enough contrast without fighting the title.
         color = barColor,
         // No shadow: the bar is a solid colour block over a gradient;
         // an elevation shadow would fake depth that isn't earned.
@@ -174,20 +181,22 @@ internal fun AskGeminiBar(
         shadowElevation = 0.dp,
     ) {
         when (askState) {
+            // One row for idle, asking and a failed ask: the leading circle stays put and turns into the
+            // loading indicator while the AI answers (and back).
             is AskBarState.Idle,
-            is AskBarState.Error -> IdleOrErrorLayout(
+            is AskBarState.Loading,
+            is AskBarState.Error -> RestLayout(
                 message = (askState as? AskBarState.Error)?.message?.asString(),
-                onTap = {
-                    if (askState is AskBarState.Error) {
-                        onDismissError()
-                    } else {
-                        // Fire the state transition directly — don't try to
-                        // requestFocus on a FocusRequester that isn't
-                        // attached yet (it's scoped to the Focused layout
-                        // which hasn't composed). Once the state flips,
-                        // FocusedLayout's LaunchedEffect handles focusing.
-                        onFocus()
-                    }
+                loadingTitle = (askState as? AskBarState.Loading)?.title,
+                onTap = when (askState) {
+                    is AskBarState.Error -> onDismissError
+                    // Fire the state transition directly — don't try to
+                    // requestFocus on a FocusRequester that isn't
+                    // attached yet (it's scoped to the Focused layout
+                    // which hasn't composed). Once the state flips,
+                    // FocusedLayout's LaunchedEffect handles focusing.
+                    is AskBarState.Idle -> onFocus
+                    else -> null
                 },
             )
             AskBarState.Focused -> FocusedLayout(
@@ -207,7 +216,6 @@ internal fun AskGeminiBar(
                     }
                 },
             )
-            is AskBarState.Loading -> LoadingLayout(title = askState.title)
         }
     }
 }
@@ -215,33 +223,43 @@ internal fun AskGeminiBar(
 private val AskBarCornerRadius = 28.dp
 
 @Composable
-private fun IdleOrErrorLayout(
+private fun RestLayout(
     message: String?,
-    onTap: () -> Unit,
+    // Non-null while asking: the question (or, blank, the AI's name) beside the indicator.
+    loadingTitle: String?,
+    onTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxSize()
-            .pointerPressPreview(interactionSource)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-            ) { onTap() }
+            .then(
+                if (onTap != null) {
+                    Modifier
+                        .pointerPressPreview(interactionSource)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            onClick = onTap,
+                        )
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start,
     ) {
-        StaticIndicator()
+        AskMark(loading = loadingTitle != null)
         Spacer(modifier = Modifier.size(16.dp))
         Text(
-            text = message ?: aiString(R.string.ai_ask_provider),
+            text = message ?: loadingTitle?.takeIf { it.isNotBlank() } ?: aiString(R.string.ai_ask_provider),
             style = MaterialTheme.typography.titleMedium,
             color = if (message != null) {
                 MaterialTheme.colorScheme.error
             } else {
-                MaterialTheme.colorScheme.onPrimaryContainer
+                MaterialTheme.colorScheme.onTertiaryContainer
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -269,7 +287,7 @@ private fun FocusedLayout(
             .fillMaxSize()
             .padding(vertical = 16.dp),
     ) {
-        StaticIndicator(modifier = Modifier.padding(horizontal = 20.dp))
+        AskMark(loading = false, modifier = Modifier.padding(horizontal = 20.dp))
         Spacer(modifier = Modifier.height(12.dp))
         BasicTextField(
             value = draft,
@@ -282,7 +300,7 @@ private fun FocusedLayout(
             // Inherit the themed style (Google Sans Flex + its tracking) —
             // a bare TextStyle here fell back to the system font.
             textStyle = MaterialTheme.typography.titleMedium.copy(
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
             ),
             singleLine = false,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -293,7 +311,7 @@ private fun FocusedLayout(
                         Text(
                             text = aiString(R.string.ai_ask_provider),
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f),
                         )
                     }
                     inner()
@@ -325,38 +343,86 @@ internal fun AboutUiState.askedQuestions(): List<String> =
         .filter { it.kind == SongAboutEntry.KIND_ASK || it.kind == SongAboutEntry.KIND_OWN }
         .mapNotNull { row -> (row.promptText ?: row.titleText)?.takeIf(String::isNotBlank) }
 
+/**
+ * The bar's leading mark: a plain filled circle that becomes the M3 Expressive loading indicator while the
+ * AI answers (owner 2026-11-26: the circle back, no wand). The indicator's shape sequence starts on that very
+ * circle, drawn at the circle's size, so the first frame of asking IS the resting circle and it morphs on
+ * from there (Circle → Soft burst → Cookie → …, the official LoadingIndicator); when the answer lands the
+ * indicator fades back into the circle on the effects spring.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun LoadingLayout(title: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start,
-    ) {
-        YoinLoadingIndicator(size = 28.dp)
-        Spacer(modifier = Modifier.size(16.dp))
-        Text(
-            text = title.takeIf { it.isNotBlank() } ?: aiString(R.string.ai_ask_provider),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+internal fun AskMark(loading: Boolean, modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.tertiary
+    Box(modifier = modifier.size(AskMarkSize), contentAlignment = Alignment.Center) {
+        AnimatedContent(
+            targetState = loading,
+            transitionSpec = {
+                if (targetState) {
+                    // The indicator's first frame is the circle itself: no fade in.
+                    EnterTransition.None togetherWith ExitTransition.None
+                } else {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                } using null
+            },
+            contentAlignment = Alignment.Center,
+            label = "askMark",
+        ) { busy ->
+            if (busy) {
+                LoadingIndicator(
+                    color = color,
+                    polygons = AskMarkPolygons,
+                    // Unbounded: the indicator's box is larger than the circle it starts as.
+                    modifier = Modifier
+                        .wrapContentSize(unbounded = true)
+                        .size(AskIndicatorBox),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(AskMarkSize)
+                        .clip(CircleShape)
+                        .background(color),
+                )
+            }
+        }
     }
 }
 
+/** The resting circle. */
+private val AskMarkSize = 28.dp
+
+/** The indicator morphs from the circle through the official indeterminate shapes. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+internal val AskMarkPolygons = listOf(MaterialShapes.Circle.normalized()) + LoadingIndicatorDefaults.IndeterminateIndicatorPolygons
+
 /**
- * v1 placeholder for the pentagon shape in the mockups. A filled circle
- * in `primary` reads as a dot/seal. Swap for `MaterialShapes.Pentagon` as
- * soon as the M3 Expressive 1.4+ shape morph API stabilizes.
+ * The indicator's box, so that the circle it draws first is exactly [AskMarkSize]: the indicator draws its
+ * shapes at [loadingIndicatorShapeFraction] of its box.
  */
-@Composable
-private fun StaticIndicator(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .size(28.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary),
-    )
+private val AskIndicatorBox = AskMarkSize / loadingIndicatorShapeFraction(AskMarkPolygons)
+
+/**
+ * The fraction of a LoadingIndicator's box its shapes are drawn at — the component's own sizing: the active
+ * indicator ([LoadingIndicatorDefaults.IndicatorSize] of the [LoadingIndicatorDefaults.ContainerWidth]
+ * container) times the scale that makes every shape in the sequence look the same size (each shape's
+ * bounds over the bounds it sweeps when rotated; the smallest wins).
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+internal fun loadingIndicatorShapeFraction(polygons: List<RoundedPolygon>): Float {
+    val active = LoadingIndicatorDefaults.IndicatorSize.value /
+        minOf(LoadingIndicatorDefaults.ContainerWidth.value, LoadingIndicatorDefaults.ContainerHeight.value)
+    var scale = 1f
+    val bounds = FloatArray(4)
+    val maxBounds = FloatArray(4)
+    polygons.forEach { polygon ->
+        val normalized = polygon.normalized()
+        normalized.calculateBounds(bounds)
+        normalized.calculateMaxBounds(maxBounds)
+        val sx = (bounds[2] - bounds[0]) / (maxBounds[2] - maxBounds[0])
+        val sy = (bounds[3] - bounds[1]) / (maxBounds[3] - maxBounds[1])
+        scale = minOf(scale, maxOf(sx, sy))
+    }
+    return active * scale
 }
