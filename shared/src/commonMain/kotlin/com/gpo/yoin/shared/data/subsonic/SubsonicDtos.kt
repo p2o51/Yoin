@@ -120,6 +120,8 @@ internal data class AlbumDto(
     val originalReleaseDate: ItemDateDto? = null,
     /** OpenSubsonic: the record labels (LABEL / PUBLISHER tags); absent on older servers. */
     val recordLabels: List<RecordLabelDto> = emptyList(),
+    /** OpenSubsonic: "explicit", "clean", or "" when the tags don't say (Navidrome: ITUNESADVISORY). */
+    val explicitStatus: String? = null,
 )
 
 /** OpenSubsonic ItemDate: every part optional (Navidrome sends `{}` or just a year when that's all it has). */
@@ -182,6 +184,8 @@ internal data class SongDto(
     val created: String? = null,
     /** OpenSubsonic: the song's composers as one line. */
     val displayComposer: String? = null,
+    /** OpenSubsonic: "explicit", "clean", or "" when the tags don't say (Navidrome: ITUNESADVISORY). */
+    val explicitStatus: String? = null,
 )
 
 /** OpenSubsonic `ReplayGain`: gains in dB, peaks linear. */

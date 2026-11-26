@@ -532,6 +532,7 @@ owner：专辑和歌曲没有 Explicit 标，Apple Music 上同一张专辑的 E
   - **历史**：Library 封面下原来就有形状——2026-04 的 `ExpressiveBackdrop`（Bun / Circle / Ghostish 光晕，封面右下错位 8%）。2026-04-19 `78eac4ae2` 先砍掉了它的动画（形变、脉动、取色渐变），原因是 Jump Back In 播放时缩放溢出把旁边形状边缘切掉的那一串 bug；同日 `e08ac3779` 让 Library 网格不取色（大网格上 Palette 掉帧）。2026-06-14 `d71864023`（一个巨大的 NP/多 Activity 提交）把光晕整个从 `ExpressiveBackdropArtwork` 里删掉，提交说明没写原因；2026-07-11 `500b3667e` 清掉了它留下的空白边距。主页后来用 `WidgetBackdropArtwork` 只把静态形状加了回来（「没有形变、缩放、FFT 脉动——那些才费帧」），Library 一直没加回来。
 - **读屏**：读「Explicit」（中文「含不雅内容」，2026-11-26 owner 认可），整行合并读时和标题一起读。卡片、瓦片、NP 标题上这句话挂在标题上而不是标上，所以窄卡片没画标时照样读出来（2026-11-25 评审）；列表行里由标本身说。
 - **缓存**：详情缓存（专辑 / 艺人 / 歌单 JSON）带上了标；格式升到 2，之前写的 Apple Music / Spotify 专辑和艺人行当作未命中重新读一次。Subsonic 的行照用：它可能是离线下载的专辑页，没网也得打开；`explicitStatus` 等这一行下次后台刷新（stale-while-revalidate）时补上。Spotify 资料库镜像和 Jump Back In 候选池加了 `contentRating` 列（DB v38，旧行为未知，下次同步自然补上）；主页快照、NP 的 `MediaItem` extras 也带着。
+- **共享规则（2026-11-27）**：三态、各服务的读法、发行类型、去掉「 - EP」「 - Single」、类型筛选、E 的大小 / 间距 / 放不放得下、封面上沿带的排法，这些纯规则搬进了 `:shared`（`com.gpo.yoin.shared.release`，门面 `YoinReleaseMarks`，黄金向量 `shared/src/commonTest/resources/golden/release-marks.json`），Android 行为不变（`ReleaseMarksPinTest` 在搬之前和之后都过）；画法各平台自己写。
 - **其他平台**：iOS / iPadOS / macOS / HarmonyOS 还没有，见 [platforms.md](platforms.md)。iOS 的方向已定（2026-11-26 owner，后续单独 PR）：方案 B——E 跟在标题后面（Apple Music 那样），版本标签放到艺人那一行；owner 的修改：版本标签和艺人名作为一个整体一起跑马灯滚动，E 固定在标题后面不动。
 
 ### 💿 专辑详情（2026-10-05：评分徽记 + 第 2 页拼贴手册）

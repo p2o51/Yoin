@@ -84,15 +84,11 @@ fun albumNameWithoutVersion(name: String, version: String?): String {
 
 /**
  * Release kinds a provider can report (Spotify `album_type`, OpenSubsonic
- * `releaseTypes`). Only ever set from provider data — never guessed from the
- * track count — so a null means "don't label it".
+ * `releaseTypes`, Apple Music's flags and " - EP" / " - Single"). Only ever set from provider data — never
+ * guessed from the track count — so a null means "don't label it". The type and the readers live in :shared
+ * (`com.gpo.yoin.shared.release`, golden release-marks.json).
  */
-enum class ReleaseType {
-    Album,
-    EP,
-    Single,
-    Compilation,
-}
+typealias ReleaseType = com.gpo.yoin.shared.release.ReleaseType
 
 /**
  * A release date at the precision the service gave it: the year always, then

@@ -29,6 +29,7 @@ import com.gpo.yoin.data.remote.SearchResult as SubsonicSearchResult
 import com.gpo.yoin.data.remote.Song as SubsonicSong
 import com.gpo.yoin.data.remote.StarredResponse as SubsonicStarredResponse
 import com.gpo.yoin.data.model.Playlist as NeutralPlaylist
+import com.gpo.yoin.shared.release.YoinReleaseMarks
 
 internal fun SubsonicSong.toTrack(): Track {
     val extras = mutableMapOf<String, String>()
@@ -153,15 +154,7 @@ private fun SubsonicItemDate.toReleaseDate(): ReleaseDate? = ReleaseDate.of(year
 
 /** OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins. */
 internal fun subsonicReleaseType(releaseTypes: List<String>): ReleaseType? =
-    releaseTypes.firstNotNullOfOrNull { type ->
-        when (type.trim().lowercase()) {
-            "album" -> ReleaseType.Album
-            "ep" -> ReleaseType.EP
-            "single" -> ReleaseType.Single
-            "compilation" -> ReleaseType.Compilation
-            else -> null
-        }
-    }
+    YoinReleaseMarks.subsonicReleaseType(releaseTypes)
 
 internal fun SubsonicArtist.toArtist(): Artist = Artist(
     id = MediaId.subsonic(id),
