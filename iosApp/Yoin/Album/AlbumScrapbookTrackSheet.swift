@@ -17,10 +17,10 @@ enum ScrapSheetTab: Hashable { case about, notes }
 /// Page 2's track sheet (Android AlbumScrapbookTrackSheet, owner-approved
 /// prototype v3, 2026-11-02), About part: the number, title and score on top
 /// (ScrapScoreSheet), then every fact and question, each with a pencil (a
-/// long press edits too). The editor has Delete, Regenerate with Gemini (not
-/// on the listener's own entries) and Done; a delete or a regenerate can be
-/// undone from the toast. Under them, a new entry: a title first, then Ask
-/// Gemini, or Write it yourself.
+/// long press edits too). The editor has Delete, Regenerate (with the AI service
+/// in use; not on the listener's own entries) and Done; a delete or a regenerate
+/// can be undone from the toast. Under them, a new entry: a title first, then
+/// Ask <service>, or Write it yourself.
 ///
 /// Rows are `SongAboutStore` rows filed under the track's title and artist and
 /// this album's name, so what is written here shows in Now Playing's About too.
@@ -372,7 +372,8 @@ struct ScrapTrackSheet: View {
     private func byline(own: Bool, color: Color) -> some View {
         HStack(spacing: 4) {
             if !own { YoinIcon("sparkle", size: 14) }
-            Text(own ? String(localized: "Written by you") : String(localized: "Gemini"))
+            // The AI's answers are signed with the service in use (Android aiProviderName()).
+            Text(own ? String(localized: "Written by you") : AiProviderName.current)
                 .yoinRole(Tokens.type.labelMedium, weight: .semibold)
         }
         .foregroundStyle(color)
@@ -518,7 +519,7 @@ private struct ScrapNewEntry: View {
                     onAsk(title.trimmingCharacters(in: .whitespacesAndNewlines))
                     reset()
                 } label: {
-                    label(String(localized: "Ask Gemini"), icon: "sparkle", fill: scheme.tertiaryContainer,
+                    label(AiProviderName.ask(AiProviderName.current), icon: "sparkle", fill: scheme.tertiaryContainer,
                           content: scheme.onTertiaryContainer)
                 }
                 .buttonStyle(PressScale())

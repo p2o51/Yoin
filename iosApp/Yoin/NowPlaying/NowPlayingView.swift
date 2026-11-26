@@ -120,8 +120,13 @@ struct NowPlayingView: View, Equatable {
     /// Offscreen pager neighbours (`About`, `Note`) mount once the open morph has settled
     /// (or immediately on horizontal drag) so frame 0 of prewarm/open only builds `Lyrics`.
     @State private var neighboursWarm = false
-    /// Android auto-immersive lyric tools (LyricToolsIdleState): stepped away.
+    /// Android auto-immersive lyric tools (LyricToolsIdleState): stepping away (true from the start of the fade).
     @State private var lyricToolsIdle = false
+    /// Faded all the way (Android LyricToolsIdleState.hidden, #334): only then do the keys stop taking taps and
+    /// the first tap on their strip only wakes them. While they fade out they are still keys.
+    @State private var lyricToolsHidden = false
+    /// Bumps on every fade out and every return, so a fade that was interrupted can't mark the tools hidden later.
+    @State private var lyricToolsFade = 0
     @State private var lyricToolsTouchedAt = Date()
     /// iPad Full in a Wide window (Android DualPane): the two-column player.
     /// Its resting stage is `.expanded` (the right column is the expanded page).
@@ -136,6 +141,9 @@ struct NowPlayingView: View, Equatable {
     @State private var focusIdle = false
     @State private var focusTouchedAt = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// VoiceOver / Switch Control send no touches to wake the lyric tools: they never step away then (Android #334).
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControl
     /// Which way the lyric stream moves on a song change (forward in the queue = up).
     @State private var lyricsDirection = LyricsDirection()
     /// The room's lights (NowPlayingGlow.swift): the controls fire them, the layer behind the page draws them.
@@ -209,8 +217,8 @@ struct NowPlayingView: View, Equatable {
                 restoreDraft()
             }
             .onChange(of: keptDraft) { _, kept in NoteDraftStore.shared.save(kept, scope: model.store.homeScope) }
-            .task(id: lyricToolsIdleEligible) { await trackLyricToolsIdle(lyricToolsIdleEligible) }
-            .task(id: focusIdleEligible) { await trackFocusIdle(focusIdleEligible) }
+            .task(id: lyricToolsAutoHides) { await trackLyricToolsIdle(lyricToolsAutoHides) }
+            .task(id: focusAutoHides) { await trackFocusIdle(focusAutoHides) }
             // Any touch on the player re-arms the count (passive: it never
             // takes a touch from anything). Ignored while resident-closed.
             .background(TouchWatcher(
@@ -326,26 +334,53 @@ struct NowPlayingView: View, Equatable {
         return l.synced
     }
 
+    /// The count runs: eligible, and neither VoiceOver nor Switch Control is on (Android LyricToolsIdleEffect).
+    private var lyricToolsAutoHides: Bool {
+        LyricToolsIdleRules.autoHides(eligible: lyricToolsIdleEligible, voiceOver: voiceOver, switchControl: switchControl)
+    }
+
+    /// The two-column focus's at-ease count, under the same rule (Android: the same effect).
+    private var focusAutoHides: Bool {
+        LyricToolsIdleRules.autoHides(eligible: focusIdleEligible, voiceOver: voiceOver, switchControl: switchControl)
+    }
+
     /// Android LyricToolsIdleMs (3 s) and its 200 ms poll; a fresh count
     /// each time eligibility returns. Not eligible: the tools are back.
     private func trackLyricToolsIdle(_ eligible: Bool) async {
-        if lyricToolsIdle { withAnimation(Self.lyricToolsSpring) { lyricToolsIdle = false } }
+        if lyricToolsIdle || lyricToolsHidden { showLyricTools() }
         guard eligible else { return }
         lyricToolsTouchedAt = .now
         while !Task.isCancelled {
             let elapsed = Date.now.timeIntervalSince(lyricToolsTouchedAt)
-            if elapsed >= 3 {
-                if !lyricToolsIdle { withAnimation(Self.lyricToolsSpring) { lyricToolsIdle = true } }
+            if elapsed >= LyricToolsIdleRules.idleSeconds {
+                if !lyricToolsIdle {
+                    // Hidden only once the fade has run out (Android reads the tools' own alpha): until then a
+                    // tap on a key is still the key's.
+                    lyricToolsFade += 1
+                    let fade = lyricToolsFade
+                    withAnimation(Self.lyricToolsSpring, completionCriteria: .logicallyComplete) {
+                        lyricToolsIdle = true
+                    } completion: {
+                        if lyricToolsIdle, fade == lyricToolsFade { lyricToolsHidden = true }
+                    }
+                }
                 try? await Task.sleep(for: .milliseconds(200))
             } else {
-                try? await Task.sleep(for: .seconds(3 - elapsed))
+                try? await Task.sleep(for: .seconds(LyricToolsIdleRules.idleSeconds - elapsed))
             }
         }
     }
 
+    /// The tools back: interactive at once, faded in on the spring.
+    private func showLyricTools() {
+        lyricToolsFade += 1
+        lyricToolsHidden = false
+        withAnimation(Self.lyricToolsSpring) { lyricToolsIdle = false }
+    }
+
     private func wakeLyricTools() {
         lyricToolsTouchedAt = .now
-        if lyricToolsIdle { withAnimation(Self.lyricToolsSpring) { lyricToolsIdle = false } }
+        if lyricToolsIdle || lyricToolsHidden { showLyricTools() }
         focusTouchedAt = .now
         if focusIdle { withAnimation(focusIdleSpring) { focusIdle = false } }
     }
@@ -915,10 +950,11 @@ struct NowPlayingView: View, Equatable {
                 .offset(x: expanded ? -(pagerPosition - CGFloat(shownTab)) * pagerStride : 0)
                 .frame(height: accessory, alignment: .bottomLeading)
                 .overlay(alignment: .bottom) {
-                    // Android lyricToolsWakeGuard: while the tools are away,
-                    // the first tap where they stood only brings them back
-                    // (the title sank into that band).
-                    if lyricToolsIdle && expanded {
+                    // Android lyricToolsWakeGuard: once the tools have faded
+                    // away, the first tap where they stood only brings them
+                    // back (the title sank into that band). While they fade,
+                    // the keys still take their taps.
+                    if LyricToolsIdleRules.wakeGuardUp(hidden: lyricToolsHidden) && expanded {
                         Color.clear
                             .frame(height: NowPlayingExpanded.lyricTools)
                             .contentShape(.rect)
@@ -1407,11 +1443,12 @@ struct NowPlayingView: View, Equatable {
                 if tools, let t = engineTrack {
                     Spacer(minLength: 8)
                     lyricTools(t, keySize: Self.enlargedToolKey)
-                        // Idle, they fade in place (Android LyricToolsIdle); the
-                        // first tap on them only brings them back.
+                        // Idle, they fade in place (Android LyricToolsIdle); once
+                        // gone, the first tap on them only brings them back.
                         .opacity(lyricToolsIdle ? 0 : 1)
+                        .lyricKeysInteractive(LyricToolsIdleRules.keysInteractive(hidden: lyricToolsHidden))
                         .overlay {
-                            if lyricToolsIdle {
+                            if LyricToolsIdleRules.wakeGuardUp(hidden: lyricToolsHidden) {
                                 Color.clear.contentShape(.rect)
                                     .onTapGesture { wakeLyricTools() }
                                     .accessibilityHidden(true)
@@ -1447,7 +1484,7 @@ struct NowPlayingView: View, Equatable {
             if expanded && page == .lyrics, let t = engineTrack {
                 lyricTools(t)
                     .opacity(lyricToolsIdle ? 0 : 1)
-                    .allowsHitTesting(!lyricToolsIdle)
+                    .lyricKeysInteractive(LyricToolsIdleRules.keysInteractive(hidden: lyricToolsHidden))
                     .transition(.opacity.combined(with: .offset(y: 12)))
             }
             if expanded && page == .about {
@@ -3897,8 +3934,8 @@ extension NowPlayingView {
                         .frame(height: accessory, alignment: .bottomLeading)
                         .modifier(FocusRetreat(away: inFocus, lift: !reduceMotion))
                         .overlay(alignment: .bottom) {
-                            // Idle tools: the first tap where they stood only brings them back.
-                            if lyricToolsIdle && !inFocus {
+                            // Faded tools: the first tap where they stood only brings them back.
+                            if LyricToolsIdleRules.wakeGuardUp(hidden: lyricToolsHidden) && !inFocus {
                                 Color.clear
                                     .frame(height: F.accessoryHeight)
                                     .contentShape(.rect)

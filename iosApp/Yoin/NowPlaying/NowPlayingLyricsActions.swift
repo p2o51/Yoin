@@ -181,10 +181,8 @@ final class LyricsActions {
             return
         }
         guard settings.hasKey else {
-            let msg = settings.prefs.provider == .gemini
-                ? String(localized: "Gemini API key missing")
-                : String(localized: "Online AI API key missing")
-            return toast(msg)
+            // The AI service in use by name (Android ai_key_missing): "DeepSeek API key missing", 缺少千问 API 密钥.
+            return toast(AiProviderName.keyMissing(AiProviderName.name(settings.prefs.provider)))
         }
         let apiKey = settings.requestKey
         inFlight = .translate

@@ -53,7 +53,7 @@ struct AboutEntrySheet: View {
             })
         }
         if target.entry.kind != SongAboutStore.Kind.own {
-            out.append(Row(label: String(localized: "Regenerate with Gemini"), icon: "sparkle") { [target] in
+            out.append(Row(label: AiProviderName.regenerateWith(AiProviderName.current), icon: "sparkle") { [target] in
                 SongAboutLoader.shared.regenerateAndReport(target.entry.ref)
             })
             // Share as image (owner 2026-11-25): opens Now Playing's share sheet on 关于 with this row's paragraph;
@@ -184,6 +184,6 @@ struct ThinkingDots: View {
         }
         .onAppear { breathing = true }
         .accessibilityElement()
-        .accessibilityLabel("Gemini is thinking")
+        .accessibilityLabel(Text(verbatim: AiProviderName.writing(AiProviderName.current)))
     }
 }
