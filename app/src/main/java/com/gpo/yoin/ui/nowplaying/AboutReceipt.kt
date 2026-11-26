@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.theme.YoinContainerShapes
+import androidx.compose.ui.draw.clip
 import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
@@ -255,6 +257,8 @@ internal fun AboutReceipt(
                     modifier = Modifier
                         .fillMaxWidth()
                         .handPointer()
+                        // The press keeps a row's corners inside the card, never a square band.
+                        .clip(YoinContainerShapes.ListRow)
                         .clickable(role = Role.Button) { expanded = !expanded }
                         .padding(vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.landing
 
+import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.component.pointerPressPreview
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.gpo.yoin.ui.component.handPointer
 import android.app.Application
 import android.content.ClipboardManager
@@ -683,6 +686,7 @@ internal fun AppleConnectScene(
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val linkInteraction = remember { MutableInteractionSource() }
     val vm: AppleMusicValidationViewModel = viewModel(
         key = "landing-apple",
         factory = ViewModelProvider.AndroidViewModelFactory.getInstance(context.applicationContext as Application),
@@ -752,8 +756,11 @@ internal fun AppleConnectScene(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .padding(start = 6.dp, top = 8.dp)
-                            .handPointer()
-                            .clickable(role = Role.Button) { uriHandler.openUri(AppleDeveloperProgramUrl) },
+                            // A link: no square ripple behind the words (a pointer's wash keeps rounded corners).
+                            .pointerPressPreview(linkInteraction, shape = YoinShapeTokens.Small)
+                            .clickable(interactionSource = linkInteraction, indication = null, role = Role.Button) {
+                                uriHandler.openUri(AppleDeveloperProgramUrl)
+                            },
                     )
                 }
             }

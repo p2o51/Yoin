@@ -1,11 +1,11 @@
 package com.gpo.yoin.ui.landing
 
-import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +40,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.component.ScrollEdgePreview
 import com.gpo.yoin.ui.component.SeamTopStyle
+import com.gpo.yoin.ui.component.elasticPress
+import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.nameRes
 import com.gpo.yoin.ui.component.shortRes
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -116,6 +119,7 @@ private fun EdgeOption(
     val corner by animateDpAsState(if (selected) 26.dp else 18.dp, YoinMotion.defaultSpatialSpec(), label = "edgeCorner")
     val ring by animateColorAsState(if (selected) scheme.primary else Color.Transparent, YoinMotion.defaultEffectsSpec(), label = "edgeRing")
     val nameColor by animateColorAsState(if (selected) scheme.primary else scheme.onSurfaceVariant, YoinMotion.defaultEffectsSpec(), label = "edgeName")
+    val interaction = remember { MutableInteractionSource() }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
@@ -123,11 +127,14 @@ private fun EdgeOption(
                 this.selected = selected
             }
             .handPointer()
-            .clickable(role = Role.RadioButton, onClick = onClick),
+            // No ripple over the preview-and-name block (a square behind a rounded option): the ring, the
+            // corners and the name show the pick, a press squeezes the preview.
+            .clickable(interactionSource = interaction, indication = null, role = Role.RadioButton, onClick = onClick),
     ) {
         val shape = RoundedCornerShape(corner)
         Box(
             modifier = Modifier
+                .elasticPress(interaction)
                 .fillMaxWidth()
                 .aspectRatio(100f / 132f)
                 .clip(shape)
