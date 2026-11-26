@@ -209,7 +209,7 @@ class HomeEditController extends Notifier<HomeEditState> {
     final current = ref.read(homeLayoutProvider);
     final next = resetLayout(current);
     // Sections this build doesn't know stay in the saved layout (Android reset keeps retained ids).
-    if (next.sections.any((p) => p.section == null)) {
+    if (next.retained.isNotEmpty) {
       _apply(next);
       return;
     }
@@ -246,7 +246,7 @@ final homeEditProvider = NotifierProvider<HomeEditController, HomeEditState>(Hom
 /// The sections the tray offers back: hidden, and built in this port.
 List<HomeSection> hiddenSections(HomeLayout layout) => [
       for (final p in layout.sections)
-        if (!p.enabled && (p.section?.availableInV1 ?? false)) p.section!,
+        if (!p.enabled && p.section.availableInV1) p.section,
     ];
 
 double homeEditSmoothstep(double x) {

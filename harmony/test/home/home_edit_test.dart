@@ -51,11 +51,10 @@ void main() {
     });
 
     test('should_keepSettingsWithTheSection_when_moving', () {
-      final withRows = HomeLayout([
-        for (final p in layout.sections) p.id == 'jump_back_in' ? HomeSectionPref(id: p.id, enabled: true, config: const {'rows': 'xl'}) : p,
-      ]);
+      final withRows = withSectionRows(layout, HomeSection.jumpBackIn, HomeRowPreset.xl);
       final moved = withSectionMoved(withRows, withRows.visibleV1Sections, HomeSection.jumpBackIn, 4);
-      expect(moved.sections.firstWhere((p) => p.id == 'jump_back_in').config, {'rows': 'xl'});
+      // Its rows go with it; away from Activities it is no longer half of a pair.
+      expect(moved.sections.firstWhere((p) => p.id == 'jump_back_in').config(), {'rows': 'xl'});
       expect(moved.visibleV1Sections[4], HomeSection.jumpBackIn);
     });
 
@@ -66,9 +65,9 @@ void main() {
 
     test('should_offerOnlyBuiltSections_when_listingHidden', () {
       // Lyric Cards is built (the user's own picks, no Gemini Nano); an unknown id is not offered.
-      final hidden = HomeLayout([
+      final hidden = HomeLayout.reconcile([
         ...withSectionEnabled(withSectionEnabled(layout, HomeSection.jumpBackIn, false), HomeSection.lyricHighlight, false)
-            .sections,
+            .toPrefs(),
         const HomeSectionPref(id: 'future_section', enabled: false),
       ]);
       expect(hiddenSections(hidden), [HomeSection.jumpBackIn, HomeSection.lyricHighlight]);
@@ -91,7 +90,7 @@ void main() {
       expect(c.read(homeLayoutProvider).visibleV1Sections, isNot(contains(HomeSection.jumpBackIn)));
       await settle(() => false, rounds: 5);
       final key = h.store.values.keys.firstWhere((k) => k.startsWith('home_layout.v1.subsonic|'));
-      final saved = HomeLayout.fromJson((jsonDecode(h.store.values[key]!) as Map).cast<String, Object?>());
+      final saved = decodeHomeLayout(h.store.values[key]!);
       expect(saved.visibleV1Sections.first, HomeSection.yourPlaylists);
 
       expect(c.read(homeEditProvider).undo, hasLength(2));
@@ -138,7 +137,7 @@ void main() {
       final profiles = jsonDecode(h.store.values['profiles.v1']!) as List;
       final id = (profiles.single as Map)['id'] as String;
       final saved = withSectionEnabled(HomeLayout.defaultLayout, HomeSection.recentlyPlayed, false);
-      h.store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, id)] = jsonEncode(saved.toJson());
+      h.store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, id)] = saved.encode();
       h.container.listen(homeLayoutProvider, (_, _) {});
       await settle(() => !h.container.read(homeLayoutProvider).visibleV1Sections.contains(HomeSection.recentlyPlayed));
       expect(h.container.read(homeLayoutProvider).visibleV1Sections, isNot(contains(HomeSection.recentlyPlayed)));
