@@ -1,6 +1,7 @@
 package com.gpo.yoin.shared.sync.testing
 
 import com.gpo.yoin.shared.backup.PlaylistBackupRow
+import com.gpo.yoin.shared.sync.adapters.AlbumAboutEntryRow
 import com.gpo.yoin.shared.sync.adapters.AlbumNoteRow
 import com.gpo.yoin.shared.sync.adapters.AlbumRatingRow
 import com.gpo.yoin.shared.sync.adapters.AlbumTitleRow
@@ -36,6 +37,7 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     val albumTitles = LinkedHashMap<Triple<String, String, String>, AlbumTitleRow>()
     val memories = LinkedHashMap<List<String>, MemoryCopyRow>()
     val abouts = LinkedHashMap<List<String>, SongAboutRow>()
+    val albumAboutRows = LinkedHashMap<List<String>, AlbumAboutEntryRow>()
     val translations = LinkedHashMap<List<String>, LyricsTranslationRow>()
     val lyrics = LinkedHashMap<Pair<String, String>, LyricsCacheRow>()
     val homeLayouts = LinkedHashMap<String, HomeLayoutRow>()
@@ -151,6 +153,19 @@ class FakeSyncDomain(var language: String = "English") : SyncDomain {
     }
 
     override fun songAboutEntryCount() = abouts.size
+
+    override fun albumAbouts() = albumAboutRows.values.toList()
+
+    override fun albumAbout(provider: String, albumId: String, kind: String, entryKey: String) =
+        albumAboutRows[listOf(provider, albumId, kind, entryKey)]
+
+    override fun putAlbumAbout(row: AlbumAboutEntryRow): Boolean {
+        if (failWrites) return false
+        albumAboutRows[listOf(row.provider, row.albumId, row.kind, row.entryKey)] = row
+        return true
+    }
+
+    override fun albumAboutEntryCount() = albumAboutRows.size
 
     override fun putTranslationLanguage(language: String): Boolean {
         if (failWrites) return false

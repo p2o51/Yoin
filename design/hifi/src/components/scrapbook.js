@@ -9,6 +9,11 @@
    zig-zag foot) and Mentioned in / 被提及 backlinks. Lanes: 1 on a phone, 2 at ≥ 600 wide. */
 const SCRAP = {
   harbor: {
+    credits: [['Label', '厂牌', 'Harbor Records', 'Harbor Records'], ['Producer', '制作', 'Kiri Ono', 'Kiri Ono'], ['Mix', '混音', 'Kenji Sato', 'Kenji Sato']],
+    about: [
+      'A nocturnal chamber-pop record built around upright piano, tape echo, and close-miked brass recorded between Osaka and Kobe.',
+      '围绕立式钢琴、磁带回声与近距离录制的铜管乐构筑的夜间室内流行唱片，录制于大阪与神户之间，以细腻的潮汐叙事串联全专。',
+    ],
     stickies: [['Best with headphones, on the last ferry home.'], ['Side B is the morning after — start at ', { m: 'song', t: 'Slow Tide', k: 'harbor' }]],
     clusters: [
       { n: '01', t: 'Morning Static', d: '4:05', plays: 5, score: '8.6', notes: [['0:34', ['Static opening before the drums']], ['1:12', ['the ', { b: 'kick' }, ' finally lands here']]] },
@@ -54,16 +59,27 @@ function mentionedIn(list, album) {
     list.map((m, i) => `<div class="mi-c" style="${tilt(album + 'm' + i, .6)}"><div class="mi-top">${cover(m.k, 'mi-th')}<span class="col"><b>${m.t}</b><span class="mi-meta"><em>${loc(m.kind, { Note: '笔记', 'Album note': '专辑笔记', Review: '乐评' }[m.kind] || m.kind)}</em>${m.at ? `<span class="num">${m.at}</span>` : ''}<span class="dim">${loc(m.when, m.when.replace(/^(\d+) minutes ago$/, '$1 分钟前').replace(/^(\d+) days? ago$/, '$1 天前'))}</span></span></span>${ic('chevron_right', 20)}</div>` +
       `<p>${m.text.map((s, j) => (j % 2 ? `<mark>${s}</mark>` : s)).join('')}</p></div>`).join('') + '</section>';
 }
+function scrapbookCreditsLine(sb) {
+  if (!sb.credits || !sb.credits.length) return '';
+  return `<p class="sb-cred">${sb.credits.map(([enL, zhL, enV, zhV]) => `${loc(enL, zhL)}\u00a0${loc(enV, zhV)}`).join('\u00a0· ')}</p>`;
+}
+function scrapbookAboutCard(sb, album) {
+  if (!sb.about) return '';
+  const text = Array.isArray(sb.about) ? loc(sb.about[0], sb.about[1]) : sb.about;
+  return `<div class="sb-about" style="${tilt(album + 'ab', 1)}"><div class="sb-about-h">${ic('sparkle', 14)}<span>${loc('About', '关于')}</span></div><p>${text}</p><b>${loc('Read all', '阅读全部')}</b></div>`;
+}
 /** The whole page. wide = ≥ 600 (2 lanes, 184 cover, 72 emblem). editing = the sticky editor open. */
-function scrapbook(key, { wide = false, editing = false, popup = '' } = {}) {
+function scrapbook(key, { wide = false, editing = false, popup = '', about = true } = {}) {
   const al = ALBUMS[key], sb = SCRAP[key], cv = wide ? 184 : 148, em = wide ? 72 : 64;
   const rev = al.review ? `<div class="rclip" style="${tilt(key + 'r', 1)}"><p>${al.review[0]}</p><small>${al.review[1]}</small></div>` : `<button class="rpen" aria-label="Write a comment">${ic('edit', 20)}</button>`;
   const pile = `<div class="pile">${editing ? stickyEditor(key, { popup }) : dashedSticky()}${sb.stickies.map((s, i) => sticky(s, i, key)).join('')}</div>`;
+  const cred = about ? scrapbookCreditsLine(sb) : '';
+  const aboutEl = about ? scrapbookAboutCard(sb, key) : '';
   const open = `<div class="sb-open ${wide ? 'wide' : ''}"><div class="sb-cv" style="--sbc:${cv}px;--em:${em}px"><span class="sb-cvt" style="${tilt(key + 'c', 3)}">${cover(al.a.k)}</span><span class="sb-em">${albumEmblem(al, em)}</span></div>` +
-    `<div class="sb-side">${rev}${wide ? pile : ''}</div>${wide ? '' : pile}</div>`;
+    `<div class="sb-side">${cred}${rev}${wide ? pile : ''}</div>${wide ? '' : pile}</div>${aboutEl}`;
   const clusters = sb.clusters.map((c, i) => `<div class="cl ${i % 2 ? 'flip' : ''}">${ticket(c, key)}${noteClip(c, key)}</div>`);
   const lanes = wide ? `<div class="sb-lanes"><div>${clusters.filter((_, i) => i % 2 === 0).join('')}</div><div>${clusters.filter((_, i) => i % 2).join('')}</div></div>` : `<div class="sb-lanes one">${clusters.join('')}</div>`;
   const tags = sb.tags.length ? `<div class="sb-tags">${sb.tags.map(([l, v], i) => `<span class="tag" style="${tilt(key + 't' + i, 2.5)}"><small>${l}</small>${v}</span>`).join('')}</div>` : '';
   const empty = sb.clusters.length || sb.stickies.length || al.review ? '' : '<p class="sb-empty">Nothing yet</p>';
-  return `<div class="sb ${wide ? 'wide' : ''}">${open}${lanes}${tags}${empty}${receipt(al, [...receiptDateRows(al), ...sb.receipt])}${mentionedIn(sb.mentions, key)}</div>`;
+  return `<div class="sb ${about ? 'v34' : ''} ${wide ? 'wide' : ''}">${open}${lanes}${tags}${empty}${receipt(al, [...receiptDateRows(al), ...sb.receipt])}${mentionedIn(sb.mentions, key)}</div>`;
 }

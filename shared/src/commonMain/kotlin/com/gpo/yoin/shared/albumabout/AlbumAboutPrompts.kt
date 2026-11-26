@@ -1,8 +1,6 @@
-package com.gpo.yoin.data.remote
+package com.gpo.yoin.shared.albumabout
 
-import com.gpo.yoin.data.album.AlbumAboutGrounding
-import com.gpo.yoin.data.album.AlbumAiCredits
-import com.gpo.yoin.data.lyrics.isChineseTargetLanguage
+import com.gpo.yoin.shared.data.lyrics.isChineseTargetLanguage
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -18,6 +16,9 @@ import kotlinx.serialization.json.contentOrNull
  * "medium", anything missing and anything that reads like a placeholder is dropped, so the credits line
  * never shows a guess. [ABOUT] is the editorial paragraph in the AI language. The service's own facts
  * (label, dates, version, track list) go in as ground truth.
+ *
+ * Moved unchanged from Android's data/remote/AlbumAboutPrompts.kt (2026-11-25); every string is pinned by
+ * shared/src/commonTest/resources/golden/album-about.json. Reached through [YoinAlbumAbout].
  */
 internal object AlbumAboutPrompts {
 
@@ -29,6 +30,16 @@ internal object AlbumAboutPrompts {
 
     /** Names kept per credit item: the line stays a line. */
     const val MAX_NAMES = 4
+
+    /**
+     * The sentence that tells the model where its facts come from (every searched prompt, songs' too): the
+     * service's own search tool, the pages Yoin searched and appended, or neither.
+     */
+    fun searchLead(builtInSearch: Boolean, searchedPages: Int): String = when {
+        builtInSearch -> "Use the search tool to find accurate information."
+        searchedPages > 0 -> "Use the search results provided below to find accurate information."
+        else -> "Answer from what you reliably know; write \"N/A\" for anything you are not sure of."
+    }
 
     /** The search queries for [grounding] (the second only when the service allows two). */
     fun searchQueries(grounding: AlbumAboutGrounding, count: Int): List<String> = buildList {
@@ -180,14 +191,8 @@ Question: $question
     // Parsing
     // -----------------------------------------------------------------------------------------------
 
-    /**
-     * The credits and paragraph of one reply; either may be missing. [answered] tells "the model answered in
-     * the format and knew nothing" (a [CREDITS] or [ABOUT] block, even an empty or N/A one) from a reply that
-     * isn't an answer at all (empty, refused, off-format): only the first is kept as done.
-     */
-    data class Parsed(val credits: AlbumAiCredits, val blurb: String?, val answered: Boolean)
-
-    fun parseAboutResponse(rawText: String): Parsed = Parsed(
+    /** The credits and paragraph of one reply; either may be missing ([AlbumAboutReply.answered]). */
+    fun parseAboutResponse(rawText: String): AlbumAboutReply = AlbumAboutReply(
         credits = parseCredits(extractTag(rawText, "CREDITS")),
         blurb = cleanBlurb(extractTag(rawText, "ABOUT")),
         answered = hasTag(rawText, "CREDITS") || hasTag(rawText, "ABOUT"),

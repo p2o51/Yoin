@@ -1,6 +1,6 @@
 package com.gpo.yoin.data.repository
 
-import com.gpo.yoin.data.album.AlbumAiCredits
+import com.gpo.yoin.shared.albumabout.AlbumAiCredits
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.local.AlbumAboutEntry
 import com.gpo.yoin.data.local.AlbumAboutEntryDao

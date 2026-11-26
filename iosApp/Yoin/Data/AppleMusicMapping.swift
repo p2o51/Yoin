@@ -1,4 +1,5 @@
 import Foundation
+import YoinShared
 import SwiftUI
 
 /// Apple Music API resources (the JSON `MusicDataRequest` answers) → plain
@@ -100,6 +101,10 @@ struct AMAlbum: Hashable, Sendable {
     var isCompilation: Bool
     var genre: String?
     var tracks: [AMSong]
+    /// `recordLabel` (the catalog album's for a library album): the credits line's label.
+    var recordLabel: String? = nil
+    /// `editorialNotes` as plain text (`standard`, else `short`; the catalog album's for a library album).
+    var editorialNotes: String? = nil
 
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
 }
@@ -337,7 +342,20 @@ enum AppleMusicMapping {
             isSingle: AppleMusicJSON.bool(a, "isSingle") || AppleMusicJSON.bool(catalogAttributes, "isSingle"),
             isCompilation: AppleMusicJSON.bool(a, "isCompilation") || AppleMusicJSON.bool(catalogAttributes, "isCompilation"),
             genre: genre((a["genreNames"] ?? catalogAttributes?["genreNames"]) as? [String]),
-            tracks: tracks)
+            tracks: tracks,
+            recordLabel: AppleMusicJSON.string(a, "recordLabel") ?? AppleMusicJSON.string(catalogAttributes, "recordLabel"),
+            // A catalog album's default attributes carry Apple's notes; a library album has them only through
+            // its catalog relationship (Android appleEditorialNotes).
+            editorialNotes: editorialNotes(a["editorialNotes"] as? AppleMusicJSON.Object)
+                ?? editorialNotes(catalogAttributes?["editorialNotes"] as? AppleMusicJSON.Object))
+    }
+
+    /// Apple's `editorialNotes` as plain text: `standard`, else `short`; nil when neither has words (the rule and
+    /// the HTML stripping are :shared's, so iOS reads the same notes as Android).
+    static func editorialNotes(_ notes: AppleMusicJSON.Object?) -> String? {
+        guard let notes else { return nil }
+        return YoinAlbumAbout.shared.editorialNotes(standard: notes["standard"] as? String,
+                                                    short: notes["short"] as? String)
     }
 
     static func artist(_ r: AppleMusicJSON.Object) -> AMArtist? {
@@ -403,7 +421,10 @@ enum AppleMusicMapping {
                      created: a.dateAdded,
                      songCount: a.trackCount,
                      durationSec: tracks.isEmpty ? nil : tracks.map(\.durationSec).reduce(0, +),
-                     genre: a.genre)
+                     genre: a.genre,
+                     recordLabels: a.recordLabel.map { [$0] } ?? [],
+                     releaseDate: ReleaseDateISO.parse(a.releaseDate),
+                     editorialNotes: a.editorialNotes)
     }
 
     /// A loose song's album as far as the song knows it: no tracks, its own cover.

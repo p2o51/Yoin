@@ -192,6 +192,9 @@ class _ScrapTrackSheetState extends ConsumerState<ScrapTrackSheet> {
         _say(_Notice(strings.scrapRegenerated, icon: YoinSymbols.sparkle, undo: restore));
       case ScrapFailed(:final failure):
         _say(_Notice(scrapFailureText(strings, failure), icon: YoinSymbols.error));
+      case ScrapAlbumAboutFailed():
+        // The album's own About: its sheet or the page says it.
+        break;
     }
   }
 
@@ -2000,7 +2003,7 @@ class _NoteStamp extends StatelessWidget {
       fontWeight: FontWeight.w600,
       fontSize: 12,
       letterSpacing: 0.3,
-      color: colors.ink,
+      color: colors.noteMark,
     ),
   );
 }
@@ -2078,7 +2081,7 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ScrapSheetMetrics.noteCorner),
             side: BorderSide(
-              color: colors.ink.withValues(alpha: _ring.value.clamp(0.0, 1.0)),
+              color: colors.noteMark.withValues(alpha: _ring.value.clamp(0.0, 1.0)),
               width: ScrapSheetMetrics.focusRing,
             ),
           ),
@@ -2088,7 +2091,7 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
         child: InkWell(
           onTap: widget.onTap,
           child: CustomPaint(
-            painter: _Rail(colors.ink),
+            painter: _Rail(colors.noteMark),
             child: Padding(
               padding: const EdgeInsetsDirectional.fromSTEB(24, 10, 14, 12),
               child: Column(
@@ -2105,7 +2108,7 @@ class _NoteCardState extends State<_NoteCard> with TickerProviderStateMixin {
                         letterSpacing: 0,
                         color: colors.onNote,
                       ),
-                      mentionColor: colors.ink,
+                      mentionColor: colors.noteMark,
                     ),
                   ),
                 ],
@@ -2176,7 +2179,7 @@ class _NoteEditorState extends State<_NoteEditor> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ScrapSheetMetrics.noteCorner)),
         ),
         child: CustomPaint(
-          painter: _Rail(c.ink),
+          painter: _Rail(c.noteMark),
           child: Padding(
             padding: const EdgeInsetsDirectional.fromSTEB(24, 10, 14, 12),
             child: Column(
@@ -2191,17 +2194,17 @@ class _NoteEditorState extends State<_NoteEditor> {
                     maxLines: null,
                     textCapitalization: TextCapitalization.sentences,
                     style: userText?.copyWith(color: c.onNote),
-                    cursorColor: c.ink,
+                    cursorColor: c.noteMark,
                     decoration: InputDecoration(
                       isCollapsed: true,
                       hintText: at == null ? strings.scrapNoteHintPlain : strings.scrapNoteHint(at),
                       hintStyle: userText?.copyWith(color: c.onNote.withValues(alpha: 0.5)),
                       contentPadding: const EdgeInsets.only(bottom: 4),
                       enabledBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: c.ink.withValues(alpha: 0.6), width: 2),
+                        borderSide: BorderSide(color: c.noteMark.withValues(alpha: 0.6), width: 2),
                       ),
                       focusedBorder: UnderlineInputBorder(
-                        borderSide: BorderSide(color: c.ink.withValues(alpha: 0.6), width: 2),
+                        borderSide: BorderSide(color: c.noteMark.withValues(alpha: 0.6), width: 2),
                       ),
                     ),
                   ),

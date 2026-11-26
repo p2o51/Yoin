@@ -10,11 +10,13 @@ const AL_CTL = [
   { key: 'playing', label: 'Playing', options: [['yes', 'Something'], ['no', 'Nothing']], def: 'yes' },
   // the release date at the service's precision (0.6.3 (32)); 'year' = the album page before it, for before/after figures
   { key: 'date', label: 'Date', options: [['full', 'Release date'], ['year', 'Year only (before 0.6.3 (32))']], def: 'full' },
+  // Album About, credits line & primary listener paper (0.6.3 (34)); 'was' = before 0.6.3 (34)
+  { key: 'about', label: 'Album About', options: [['on', 'Album About (0.6.3 (34))'], ['was', 'Before 0.6.3 (34)']], def: 'on' },
   // the Scrapbook scrolled down to its receipt
   { key: 'at', label: 'Scrapbook at', options: [['top', 'Top'], ['receipt', 'Receipt']], def: 'top' },
 ];
 function renderAlbum(st, size) {
-  const page = st.page === 'scrapbook' ? 1 : 0, opts = { page, pulled: st.pull === 'up', editing: st.sticky === 'edit' };
+  const page = st.page === 'scrapbook' ? 1 : 0, opts = { page, pulled: st.pull === 'up', editing: st.sticky === 'edit', about: st.about !== 'was' };
   const playing = st.playing === 'yes' ? { k: NOW_PLAYING.k, s: NOW_PLAYING.s } : null, title = NOW_PLAYING.t;
   if (size.cls === 'expanded') {
     const shell = `<div class="lib">${libHeader('medium', 'albums')}<div class="lib-body">${libSort('Recents')}${libGrid(LIB_ALL.filter((x) => x.kind === 'album'), 5)}</div></div>`;

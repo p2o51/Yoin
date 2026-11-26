@@ -143,6 +143,7 @@ object SharedSyncAdapters {
         MemoryTitleSyncAdapter(domain),
         AlbumTitleSyncAdapter(domain),
         SongAboutSyncAdapter(domain),
+        AlbumAboutSyncAdapter(domain),
         HomeLayoutSyncAdapter(domain),
         PlaylistBackupSyncAdapter(domain),
         AccountDescriptorSyncAdapter(syncDb) { domain.profiles() },

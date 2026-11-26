@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
+import '../data/albumabout/album_credits.dart';
+import '../data/albumabout/yoin_album_about.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../data/memory/track_album_links.dart';
@@ -29,13 +31,15 @@ import '../notes/notes_strings.dart';
 import '../nowplaying/note_logic.dart' show formatNoteDate, formatNotePosition;
 import '../playback/playback_controller.dart';
 import '../theme/motion.dart';
-import '../nowplaying/about_widgets.dart' show markdownBoldSpan;
+import '../nowplaying/about_widgets.dart' show ThinkingDots, markdownBoldSpan;
+import '../data/ai/ai_settings.dart' show AiProvider, aiSettingsProvider;
 import '../ui/shapes/shape_path.dart';
 import '../theme/tokens.dart';
 import '../ui/component/artwork_image.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
+import 'album_about_sheet.dart';
 import 'album_page_flight.dart';
 import 'album_scrapbook.dart';
 import 'album_scrapbook_editor.dart';
@@ -47,6 +51,7 @@ import 'detail_play.dart';
 import 'detail_strings.dart';
 import 'scrapbook_focus.dart';
 
+part 'album_scrapbook_about.dart';
 part 'album_scrapbook_backlinks.dart';
 part 'album_scrapbook_stickies.dart';
 
@@ -149,6 +154,25 @@ abstract final class ScrapbookLayout {
   /// The editor's height in lines.
   static const int stickyMinLines = 3;
   static const int stickyMaxLines = 10;
+
+  /// Air above the cover and the title beside it (51, 2026-11-25: the header breathes).
+  static const double openingTopGap = 10;
+
+  /// The credits line beside the cover (AlbumCreditsLine): its type and line height.
+  static const double creditsFontSize = 13.5;
+  static const double creditsLineHeight = 1.5;
+
+  /// The album's About card (AlbumAboutCard): as wide as a reading column, never the whole tablet page; the
+  /// paragraph's lines on the paper, its type, the ✦ beside "About".
+  static const double aboutCardMaxWidth = 560;
+  static const int aboutCardLines = 4;
+  static const double aboutBodySize = 14.5;
+  static const double aboutBodyHeight = 1.55;
+  static const double aboutLabelGlyph = 14;
+
+  /// The dashed ✦ circle of an About the AI knew nothing for (the blank review's size).
+  static const double aboutMark = 48;
+  static const double aboutMarkGlyph = 20;
 }
 
 /// Whether [piece] shows [songId] (its own cluster, or a contact sheet frame).
@@ -182,6 +206,7 @@ final class ScrapbookColors {
     required this.stickyFold,
     required this.note,
     required this.onNote,
+    required this.noteMark,
     required this.ask,
     required this.onAsk,
     required this.askMark,
@@ -190,6 +215,9 @@ final class ScrapbookColors {
     required this.onTag,
     required this.receipt,
     required this.onReceipt,
+    required this.about,
+    required this.onAbout,
+    required this.aboutMark,
     required this.outline,
     required this.muted,
     required this.dots,
@@ -206,20 +234,33 @@ final class ScrapbookColors {
       onTicketNow: s.onSecondaryContainer,
       review: s.primaryContainer,
       onReview: s.onPrimaryContainer,
-      sticky: s.secondaryContainer,
-      onSticky: s.onSecondaryContainer,
-      // The folded corner: the sticky's paper with a third of the secondary ink (D3).
-      stickyFold: Color.lerp(s.secondaryContainer, s.secondary, ScrapbookLayout.stickyFoldInk)!,
-      note: s.surfaceContainerHighest,
-      onNote: s.onSurface,
+      // Everything the listener wrote is one colour family, primary (51, 2026-11-25: "上面是专辑 review、下面是
+      // 便利贴，为啥不是同一个颜色"): the review, the album stickies and the track notes. A sticky still reads as
+      // a sticky by its shape, fold and lean; a note by its rail and moments. AI and objective text is
+      // tertiary (Ask, About, the fact tags); secondary is left to the playing ticket.
+      sticky: s.primaryContainer,
+      onSticky: s.onPrimaryContainer,
+      // The folded corner: the sticky's paper with a third of the primary ink (D3).
+      stickyFold: Color.lerp(s.primaryContainer, s.primary, ScrapbookLayout.stickyFoldInk)!,
+      note: s.primaryContainer,
+      onNote: s.onPrimaryContainer,
+      // Marks on the listener's own papers (time stamps, rails, mention pills, "+N notes"): their own ink.
+      // The album ink (primary) on primaryContainer was nearly invisible on device covers (Android 2026-11-25).
+      noteMark: s.onPrimaryContainer,
       ask: s.tertiaryContainer,
       onAsk: s.onTertiaryContainer,
       askMark: s.tertiary,
       onAskMark: s.onTertiary,
-      tag: s.secondaryContainer,
-      onTag: s.onSecondaryContainer,
+      // A track's About facts are generated: tertiary, with the Ask card they sit under.
+      tag: s.tertiaryContainer,
+      onTag: s.onTertiaryContainer,
       receipt: s.surfaceContainer,
       onReceipt: s.onSurface,
+      // The album's About card: tertiary like the Ask cards (51, 2026-11-25: what the listener writes and what
+      // is objective or generated are two colours). On the card itself every mark is its own ink.
+      about: s.tertiaryContainer,
+      onAbout: s.onTertiaryContainer,
+      aboutMark: s.tertiary,
       outline: s.outline,
       muted: s.onSurfaceVariant,
       dots: s.outlineVariant.withValues(alpha: dark ? 0.35 : 0.45),
@@ -227,7 +268,8 @@ final class ScrapbookColors {
   }
 
   final Color ink, onInk, ticket, onTicket, ticketNow, onTicketNow, review, onReview, sticky, onSticky, stickyFold;
-  final Color note, onNote, ask, onAsk, askMark, onAskMark, tag, onTag, receipt, onReceipt, outline, muted, dots;
+  final Color note, onNote, noteMark, ask, onAsk, askMark, onAskMark, tag, onTag, receipt, onReceipt;
+  final Color about, onAbout, aboutMark, outline, muted, dots;
 
   static ScrapbookColors lerp(ScrapbookColors a, ScrapbookColors b, double t) {
     Color l(Color x, Color y) => Color.lerp(x, y, t)!;
@@ -245,6 +287,7 @@ final class ScrapbookColors {
       stickyFold: l(a.stickyFold, b.stickyFold),
       note: l(a.note, b.note),
       onNote: l(a.onNote, b.onNote),
+      noteMark: l(a.noteMark, b.noteMark),
       ask: l(a.ask, b.ask),
       onAsk: l(a.onAsk, b.onAsk),
       askMark: l(a.askMark, b.askMark),
@@ -253,6 +296,9 @@ final class ScrapbookColors {
       onTag: l(a.onTag, b.onTag),
       receipt: l(a.receipt, b.receipt),
       onReceipt: l(a.onReceipt, b.onReceipt),
+      about: l(a.about, b.about),
+      onAbout: l(a.onAbout, b.onAbout),
+      aboutMark: l(a.aboutMark, b.aboutMark),
       outline: l(a.outline, b.outline),
       muted: l(a.muted, b.muted),
       dots: l(a.dots, b.dots),
@@ -271,12 +317,29 @@ final class ScrapbookColors {
       other.ask == ask &&
       other.tag == tag &&
       other.receipt == receipt &&
+      other.about == about &&
+      other.aboutMark == aboutMark &&
+      other.noteMark == noteMark &&
       other.dots == dots &&
       other.onTicket == onTicket &&
       other.muted == muted;
 
   @override
-  int get hashCode => Object.hash(ink, ticket, ticketNow, review, sticky, note, receipt, dots, onTicket, muted);
+  int get hashCode => Object.hash(
+    ink,
+    ticket,
+    ticketNow,
+    review,
+    sticky,
+    note,
+    receipt,
+    about,
+    aboutMark,
+    noteMark,
+    dots,
+    onTicket,
+    muted,
+  );
 }
 
 /// The album's page 2 (AlbumScrapbookPage): dotted paper that scrolls with
@@ -334,6 +397,10 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     });
     widget.focus?.addListener(_scheduleFocus);
     _scheduleFocus();
+    widget.page.addListener(_onPage);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _onPage();
+    });
   }
 
   @override
@@ -343,6 +410,10 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
       oldWidget.focus?.removeListener(_scheduleFocus);
       widget.focus?.addListener(_scheduleFocus);
       _scheduleFocus();
+    }
+    if (oldWidget.page != widget.page) {
+      oldWidget.page.removeListener(_onPage);
+      widget.page.addListener(_onPage);
     }
   }
 
@@ -401,7 +472,9 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   }
 
   void _onEvent(ScrapEvent event) {
-    if (!mounted || ScrapTrackSheetScope.isOpen(widget.album.id)) return;
+    // An open sheet says what its own work came to.
+    final id = widget.album.id;
+    if (!mounted || ScrapTrackSheetScope.isOpen(id) || AlbumAboutSheetScope.isOpen(id)) return;
     final strings = DetailStrings.of(context);
     final say = ref.read(playbackControllerProvider.notifier).showMessage;
     final editor = ref.read(albumScrapbookEditorProvider(widget.album.id).notifier);
@@ -410,8 +483,24 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
         say(strings.scrapRegenerated, actionLabel: strings.scrapUndo, long: true, onAction: () => editor.edit(restore));
       case ScrapFailed(:final failure):
         say(scrapFailureText(strings, failure));
+      case ScrapAlbumAboutFailed(:final failure):
+        say(albumAboutFailureText(strings, failure, ref.read(aiSettingsProvider).value?.provider ?? AiProvider.gemini));
     }
   }
+
+  /// The page came to rest on the scrapbook: write the album's About if it was never written.
+  void _onPage() {
+    if ((widget.page.value - 1).abs() > _settledSlack) return;
+    ref.read(albumScrapbookEditorProvider(widget.album.id).notifier).edit(const ScrapEnsureAlbumAboutEdit());
+  }
+
+  static const double _settledSlack = 0.001;
+
+  void _openAbout() => showAlbumAboutSheet(
+    context,
+    album: widget.album,
+    colors: _colors.value ?? ScrapbookColors.of(Theme.of(context).colorScheme),
+  );
 
   /// The open sticky saved (Android StickyPile onSave): a new note, new words, or a delete with Undo.
   void _saveSticky(String open, String text) {
@@ -485,6 +574,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
   void dispose() {
     if (_flight?.pageScrolling == _scrollingToFocus) _flight?.pageScrolling = null;
     widget.focus?.removeListener(_scheduleFocus);
+    widget.page.removeListener(_onPage);
     _events?.cancel();
     _stickies.dispose();
     _scrollSpring.dispose();
@@ -616,6 +706,11 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
     ),
     ScrapTrackCluster() => _scrapFade(_TrackCluster(piece: piece, album: widget.album, wide: wide)),
     ScrapContactSheet() => _scrapFade(_ContactSheet(piece: piece, album: widget.album)),
+    ScrapAlbumAbout() => _AlbumAboutCard(
+      piece: piece,
+      albumName: albumTitleWithoutVersion(widget.album.name, widget.album.version),
+      onTap: _openAbout,
+    ),
     ScrapNotYet() => _scrapFade(const _NotYet()),
     ScrapReceipt() => _scrapFade(_Receipt(piece: piece)),
   };
@@ -723,6 +818,7 @@ class _Opening extends ConsumerWidget {
             weightedLength(NoteMarkup.plainText(review)) <= ScrapbookRules.openingBesideBudget) &&
         (wide || title == null);
     final url = coverUrl;
+    final hasCredits = albumCreditsLineFor(piece.credits, DetailStrings.of(context)) != null;
     return MemoryPaletteBuilder(
       cacheKey: url,
       image: url == null ? null : artworkImageProvider(url, cacheWidth: 200, cacheHeight: 200),
@@ -777,77 +873,89 @@ class _Opening extends ConsumerWidget {
             _ScrapSlot(
               cross: false,
               overlap: 0,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _CoverWithEmblem(
-                    album: album,
-                    coverUrl: url,
-                    side: coverSide,
-                    emblem: emblem,
-                    tilt: piece.coverTilt,
-                    palette: palette,
-                    onEmblemTap: openSheet,
-                  ),
-                  if (title != null) ...[
-                    SizedBox(width: besideGap),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SeamFade(
-                              fontSize: Theme.of(context).textTheme.headlineSmall?.fontSize ?? 24,
-                              child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
-                            ),
-                            const SizedBox(height: 16),
-                            _scrapFade(_ScrapLastPlay(albumId: album.id)),
-                            if (reviewBeside) ...[
-                              // Wide: the review (and the stickies tucked under it) follows the title in its column.
-                              const SizedBox(height: 16),
-                              reviewWithStickies(),
-                            ],
-                          ],
-                        ),
-                      ),
+              child: Padding(
+                padding: const EdgeInsets.only(top: ScrapbookLayout.openingTopGap),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _CoverWithEmblem(
+                      album: album,
+                      coverUrl: url,
+                      side: coverSide,
+                      emblem: emblem,
+                      tilt: piece.coverTilt,
+                      palette: palette,
+                      onEmblemTap: openSheet,
                     ),
-                  ] else if (reviewBeside && wide) ...[
-                    // Wide: the stickies stay in the review's column, tucked under it and clear of the emblem.
-                    SizedBox(width: besideGap),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            reviewWithStickies(),
-                            const SizedBox(height: 16),
-                            _scrapFade(_ScrapLastPlay(albumId: album.id)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ] else if (reviewBeside) ...[
-                    SizedBox(width: besideGap),
-                    Flexible(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: ScrapbookLayout.reviewMaxWidth),
+                    if (title != null) ...[
+                      SizedBox(width: besideGap),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 4),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              reviewPiece(),
-                              const SizedBox(height: 16),
-                              _scrapFade(_ScrapLastPlay(albumId: album.id)),
+                              SeamFade(
+                                fontSize: Theme.of(context).textTheme.headlineSmall?.fontSize ?? 24,
+                                child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                              ),
+                              // The credits line, where Last Play was (owner + Carbon 2026-11-25: Last Play
+                              // stays on page 1 and on the receipt).
+                              if (hasCredits) ...[const SizedBox(height: 12), _AlbumCreditsLine(items: piece.credits)],
+                              if (reviewBeside) ...[
+                                // Wide: the review (and the stickies tucked under it) follows the title in its column.
+                                const SizedBox(height: 16),
+                                reviewWithStickies(),
+                              ],
                             ],
                           ),
                         ),
                       ),
-                    ),
+                    ] else if (hasCredits) ...[
+                      // No title yet: the credits line still sits beside the cover, the review (when it fits
+                      // there) under it.
+                      SizedBox(width: besideGap),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _AlbumCreditsLine(items: piece.credits),
+                              if (reviewBeside) ...[
+                                const SizedBox(height: 12),
+                                if (wide)
+                                  reviewWithStickies()
+                                else
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(maxWidth: ScrapbookLayout.reviewMaxWidth),
+                                    child: reviewPiece(),
+                                  ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ] else if (reviewBeside && wide) ...[
+                      // Wide: the stickies stay in the review's column, tucked under it and clear of the emblem.
+                      SizedBox(width: besideGap),
+                      Expanded(
+                        child: Padding(padding: const EdgeInsets.only(top: 8), child: reviewWithStickies()),
+                      ),
+                    ] else if (reviewBeside) ...[
+                      SizedBox(width: besideGap),
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: ScrapbookLayout.reviewMaxWidth),
+                            child: reviewPiece(),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
             if (!reviewBeside) _ScrapSlot(cross: false, overlap: -4, child: reviewPiece()),
@@ -864,41 +972,6 @@ class _Opening extends ConsumerWidget {
           ],
         );
       },
-    );
-  }
-}
-
-/// Last Play in full, under the Memory title (AlbumScrapLastPlay).
-class _ScrapLastPlay extends ConsumerWidget {
-  const _ScrapLastPlay({required this.albumId});
-
-  final MediaId albumId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final strings = DetailStrings.of(context);
-    final theme = Theme.of(context);
-    final at = ref.watch(albumLastPlayedProvider(albumId));
-    final label = at == null ? null : lastPlayLabels(at, strings);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          strings.albumLastPlay,
-          style: theme.textTheme.labelLarge?.copyWith(
-            decoration: TextDecoration.underline,
-            decorationColor: theme.colorScheme.onSurface,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label == null ? strings.albumNever : '${label.$1} ${label.$2}',
-          maxLines: 1,
-          softWrap: false,
-          style: theme.textTheme.titleMedium?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
-        ),
-      ],
     );
   }
 }
@@ -1809,7 +1882,7 @@ class _NotesClipping extends StatelessWidget {
         shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.card)),
         clipBehavior: Clip.antiAlias,
         child: CustomPaint(
-          painter: _JournalRail(colors.ink),
+          painter: _JournalRail(colors.noteMark),
           child: Padding(
             padding: const EdgeInsetsDirectional.only(start: 24, end: 12, top: 8, bottom: 8),
             child: Column(
@@ -1832,7 +1905,7 @@ class _NotesClipping extends StatelessWidget {
                         style: theme.textTheme.labelLarge?.copyWith(
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0,
-                          color: colors.ink,
+                          color: colors.noteMark,
                         ),
                       ),
                     ),
@@ -1880,7 +1953,7 @@ class _NoteLine extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                     fontSize: 12,
                     letterSpacing: 0,
-                    color: colors.ink,
+                    color: colors.noteMark,
                     fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
@@ -1889,7 +1962,7 @@ class _NoteLine extends StatelessWidget {
                 child: NoteMarkupText(
                   note.content,
                   style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15, height: 1.5, color: colors.onNote),
-                  mentionColor: colors.ink,
+                  mentionColor: colors.noteMark,
                 ),
               ),
             ],

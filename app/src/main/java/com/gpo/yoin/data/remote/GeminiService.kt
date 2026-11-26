@@ -1,10 +1,11 @@
 package com.gpo.yoin.data.remote
 
-import com.gpo.yoin.data.album.AlbumAboutGrounding
-import com.gpo.yoin.data.album.AlbumAiCredits
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.remote.ai.AiClient
 import com.gpo.yoin.data.remote.ai.AiSettings
+import com.gpo.yoin.shared.albumabout.AlbumAboutGrounding
+import com.gpo.yoin.shared.albumabout.AlbumAiCredits
+import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -102,27 +103,28 @@ class GeminiService(
     )
 
     /**
-     * An album's credits and editorial paragraph in one searched call ([AlbumAboutPrompts]): the
-     * service's facts in [grounding] go in as ground truth; only items the model vouches for come back.
+     * An album's credits and editorial paragraph in one searched call (the prompts and the reply parser are
+     * :shared's [YoinAlbumAbout]): the service's facts in [grounding] go in as ground truth; only items the
+     * model vouches for come back.
      */
     suspend fun runAlbumAbout(
         ai: AiSettings,
         grounding: AlbumAboutGrounding,
         targetLanguage: String,
     ): AlbumAboutRun {
-        val queries = AlbumAboutPrompts.searchQueries(grounding, ai.searchQueries)
+        val queries = YoinAlbumAbout.searchQueries(grounding, ai.searchQueries)
         val searched = searchFor(ai, queries)
-        val prompt = AlbumAboutPrompts.buildAboutPrompt(grounding, targetLanguage, searchLead(ai, searched)) +
+        val prompt = YoinAlbumAbout.aboutPrompt(grounding, targetLanguage, searchLead(ai, searched)) +
             searched.appendix
         // Lower than the song About's 0.8: credits are facts first, and the paragraph is editorial, not lyrical.
         val rawText = this.ai.generate(ai, prompt, temperature = ALBUM_ABOUT_TEMPERATURE, useSearch = true)
-        val parsed = AlbumAboutPrompts.parseAboutResponse(rawText)
+        // The service's own notes are the paragraph (credits-only prompt): nothing of the AI's replaces them.
+        val reply = YoinAlbumAbout.storedReply(rawText, hasServiceNotes = grounding.serviceNotes != null)
         // Not an answer (empty, refused, off-format): a failure, so nothing is stored and the next visit asks again.
-        if (!parsed.answered) throw GeminiException("No album About in AI response")
+        if (!reply.answered) throw GeminiException("No album About in AI response")
         return AlbumAboutRun(
-            credits = parsed.credits,
-            // The service's own notes are the paragraph (credits-only prompt): nothing of the AI's replaces them.
-            blurb = parsed.blurb.takeIf { grounding.serviceNotes == null },
+            credits = reply.credits,
+            blurb = reply.blurb,
             rawText = rawText,
             searchQueries = if (ai.searchKind == AiSettings.SearchKind.External) queries else emptyList(),
         )
@@ -136,7 +138,7 @@ class GeminiService(
         targetLanguage: String,
     ): AskAnswer {
         val searched = searchFor(ai, listOf("${grounding.album} ${grounding.artist} $question"))
-        val prompt = AlbumAboutPrompts.buildAskPrompt(grounding, question, targetLanguage, searchLead(ai, searched)) +
+        val prompt = YoinAlbumAbout.askPrompt(grounding, question, targetLanguage, searchLead(ai, searched)) +
             searched.appendix
         val rawText = this.ai.generate(ai, prompt, temperature = 0.8f, useSearch = true)
         return parseAskResponse(rawText, fallbackQuestion = question)
@@ -339,11 +341,8 @@ class GeminiService(
         return Searched("\n\nSearch results:\n$block", hits.distinctBy { it.url }.size.coerceAtMost(AiClient.MAX_PAGES_IN_PROMPT))
     }
 
-    private fun searchLead(ai: AiSettings, searched: Searched): String = when {
-        ai.searchKind == AiSettings.SearchKind.BuiltIn -> "Use the search tool to find accurate information."
-        searched.pages > 0 -> "Use the search results provided below to find accurate information."
-        else -> "Answer from what you reliably know; write \"N/A\" for anything you are not sure of."
-    }
+    private fun searchLead(ai: AiSettings, searched: Searched): String =
+        YoinAlbumAbout.searchLead(builtInSearch = ai.searchKind == AiSettings.SearchKind.BuiltIn, searchedPages = searched.pages)
 
     private fun buildMemoryPrompt(
         albumName: String,

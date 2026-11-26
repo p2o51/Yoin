@@ -31,6 +31,13 @@ object SyncKinds {
      * carry the records opaquely and republish them. Same name as the Memories backup's `album_note` kind.
      */
     const val ALBUM_NOTE = "album_note"
+
+    /**
+     * `album_about_entries` (Album About, 2026-11-25): an album's AI credits, its paragraph and the questions asked
+     * about it. Android (its own adapter) and iOS (shared [com.gpo.yoin.shared.sync.adapters.AlbumAboutSyncAdapter])
+     * publish and apply it; an artifacts kind like [SONG_ABOUT].
+     */
+    const val ALBUM_ABOUT = "album_about"
 }
 
 /** Keys of [SyncKinds.SETTING] records. */

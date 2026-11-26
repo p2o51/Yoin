@@ -30,6 +30,11 @@ enum SpotifyDTO {
         var images: [Image]?
         var totalTracks: Int?
         var releaseDate: String?
+        /// "year", "month" or "day": how much of `releaseDate` is real.
+        var releaseDatePrecision: String?
+        /// The record label, on the full album object only (absent from list rows and possibly withdrawn by the
+        /// 2026 migration): the credits line asks the AI for the label when it is missing (Android SpotifyDtos).
+        var label: String?
         var albumType: String?
         var tracks: Paging<Track>?
     }

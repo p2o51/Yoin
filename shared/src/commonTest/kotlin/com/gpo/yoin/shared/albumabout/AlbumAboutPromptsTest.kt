@@ -1,13 +1,12 @@
-package com.gpo.yoin.data.remote
+package com.gpo.yoin.shared.albumabout
 
-import com.gpo.yoin.data.album.AlbumAboutGrounding
-import com.gpo.yoin.data.album.AlbumAiCredits
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
+/** Moved with the prompts from Android (app AlbumAboutPromptsTest); runs on the JVM and the iOS simulator. */
 class AlbumAboutPromptsTest {
 
     private val grounding = AlbumAboutGrounding(
@@ -25,7 +24,7 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_groundThePromptInTheServicesFacts_when_built() {
-        val prompt = AlbumAboutPrompts.buildAboutPrompt(grounding, "English", "Use the search tool to find accurate information.")
+        val prompt = YoinAlbumAbout.aboutPrompt(grounding, "English", "Use the search tool to find accurate information.")
 
         assertTrue(prompt.contains("Album: Tide Tables (10th Anniversary)"))
         assertTrue(prompt.contains("Artist: Morikawa"))
@@ -44,14 +43,14 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_leaveUnknownFactsOut_when_theServiceDoesNotSay() {
-        val lines = AlbumAboutPrompts.groundingLines(AlbumAboutGrounding(album = "A", artist = "B"))
+        val lines = YoinAlbumAbout.groundingLines(AlbumAboutGrounding(album = "A", artist = "B"))
 
         assertEquals("Album: A\nArtist: B", lines)
     }
 
     @Test
     fun should_askForChineseCharacters_when_theAiLanguageIsChinese() {
-        val prompt = AlbumAboutPrompts.buildAboutPrompt(grounding, "Simplified Chinese", "lead")
+        val prompt = YoinAlbumAbout.aboutPrompt(grounding, "Simplified Chinese", "lead")
 
         assertTrue(prompt.contains("One objective paragraph in Simplified Chinese, 180 to 240 Chinese characters"))
     }
@@ -60,7 +59,7 @@ class AlbumAboutPromptsTest {
     fun should_capTheTrackList_when_theAlbumIsLong() {
         val long = grounding.copy(tracks = (1..55).map { "Track $it" })
 
-        val lines = AlbumAboutPrompts.groundingLines(long)
+        val lines = YoinAlbumAbout.groundingLines(long)
 
         assertTrue(lines.contains("Tracks (55):"))
         assertTrue(lines.contains("40. Track 40"))
@@ -70,7 +69,7 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_askTheAlbumQuestion_withTheSameTaggedReplyAsSongs() {
-        val prompt = AlbumAboutPrompts.buildAskPrompt(grounding, "Who played the organ?", "English", "lead")
+        val prompt = YoinAlbumAbout.askPrompt(grounding, "Who played the organ?", "English", "lead")
 
         assertTrue(prompt.startsWith("Answer the following question about the album \"Tide Tables (10th Anniversary)\" by Morikawa."))
         assertTrue(prompt.contains("[TITLE]") && prompt.contains("[ANSWER]"))
@@ -97,7 +96,7 @@ class AlbumAboutPromptsTest {
             [/ABOUT]
         """.trimIndent()
 
-        val parsed = AlbumAboutPrompts.parseAboutResponse(reply)
+        val parsed = YoinAlbumAbout.parseReply(reply)
 
         assertEquals(
             AlbumAiCredits(
@@ -115,7 +114,7 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_dropLowAndMissingConfidence_when_parsing() {
-        val credits = AlbumAboutPrompts.parseCredits(
+        val credits = YoinAlbumAbout.parseCredits(
             """{"producers": {"names": ["Guess"], "confidence": "low"},
                "mastering": {"names": ["No confidence"]},
                "label": {"names": ["ECM"], "confidence": "high"}}""",
@@ -126,7 +125,7 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_dropPlaceholders_when_valuesSayUnknown() {
-        val credits = AlbumAboutPrompts.parseCredits(
+        val credits = YoinAlbumAbout.parseCredits(
             """{"producers": {"names": ["N/A", "unknown", " ", "Manfred Eicher", "Manfred Eicher"], "confidence": "high"},
                "mastering": {"names": ["未知"], "confidence": "high"},
                "recorded": {"time": "不详", "studios": [], "confidence": "high"},
@@ -140,7 +139,7 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_readTheJson_when_fencedOrSurroundedByProse() {
-        val credits = AlbumAboutPrompts.parseCredits(
+        val credits = YoinAlbumAbout.parseCredits(
             "Here you go:\n```json\n{\"producers\": {\"names\": \"A、B\", \"confidence\": \"high\"},}\n```",
         )
 
@@ -149,35 +148,35 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_returnNoCredits_when_theJsonIsBrokenOrMissing() {
-        assertEquals(AlbumAiCredits.None, AlbumAboutPrompts.parseCredits("{\"producers\": "))
-        assertEquals(AlbumAiCredits.None, AlbumAboutPrompts.parseCredits(null))
-        assertEquals(AlbumAiCredits.None, AlbumAboutPrompts.parseAboutResponse("no tags at all").credits)
-        assertNull(AlbumAboutPrompts.parseAboutResponse("no tags at all").blurb)
+        assertEquals(AlbumAiCredits.None, YoinAlbumAbout.parseCredits("{\"producers\": "))
+        assertEquals(AlbumAiCredits.None, YoinAlbumAbout.parseCredits(null))
+        assertEquals(AlbumAiCredits.None, YoinAlbumAbout.parseReply("no tags at all").credits)
+        assertNull(YoinAlbumAbout.parseReply("no tags at all").blurb)
     }
 
     @Test
     fun should_keepOnlyTheFirstNames_when_aModelListsTooMany() {
-        val credits = AlbumAboutPrompts.parseCredits(
+        val credits = YoinAlbumAbout.parseCredits(
             """{"producers": {"names": ["1", "2", "3", "4", "5", "6"], "confidence": "high"}}""",
         )
 
-        assertEquals(AlbumAboutPrompts.MAX_NAMES, credits.producers.size)
+        assertEquals(YoinAlbumAbout.maxNames, credits.producers.size)
     }
 
     @Test
     fun should_giveNoParagraph_when_theAiWritesNA() {
-        assertNull(AlbumAboutPrompts.parseAboutResponse("[CREDITS]{}[/CREDITS][ABOUT]N/A[/ABOUT]").blurb)
+        assertNull(YoinAlbumAbout.parseReply("[CREDITS]{}[/CREDITS][ABOUT]N/A[/ABOUT]").blurb)
     }
 
     @Test
     fun should_foldChineseLinesWithoutSpaces_when_cleaningTheParagraph() {
-        assertEquals("第一句。第二句。", AlbumAboutPrompts.cleanBlurb("第一句。\n第二句。"))
-        assertEquals("Bold text here.", AlbumAboutPrompts.cleanBlurb("**Bold** text\nhere."))
+        assertEquals("第一句。第二句。", YoinAlbumAbout.cleanBlurb("第一句。\n第二句。"))
+        assertEquals("Bold text here.", YoinAlbumAbout.cleanBlurb("**Bold** text\nhere."))
     }
 
     @Test
     fun should_readATruncatedReply_when_theClosingTagIsMissing() {
-        val parsed = AlbumAboutPrompts.parseAboutResponse("[CREDITS]{}[/CREDITS]\n[ABOUT]\nCut off mid")
+        val parsed = YoinAlbumAbout.parseReply("[CREDITS]{}[/CREDITS]\n[ABOUT]\nCut off mid")
 
         assertEquals("Cut off mid", parsed.blurb)
     }
@@ -186,7 +185,7 @@ class AlbumAboutPromptsTest {
     fun should_askForTheCreditsOnly_when_theServiceWroteTheNotes() {
         val withNotes = grounding.copy(serviceNotes = "Apple's own words about the album.")
 
-        val prompt = AlbumAboutPrompts.buildAboutPrompt(withNotes, "English", "lead")
+        val prompt = YoinAlbumAbout.aboutPrompt(withNotes, "English", "lead")
 
         assertTrue(prompt.contains("[CREDITS]") && prompt.contains("[/CREDITS]"))
         assertFalse(prompt.contains("[ABOUT]"))
@@ -196,19 +195,40 @@ class AlbumAboutPromptsTest {
 
     @Test
     fun should_capTheServicesNotes_inThePrompt() {
-        val lines = AlbumAboutPrompts.groundingLines(grounding.copy(serviceNotes = "x".repeat(5_000)))
+        val lines = YoinAlbumAbout.groundingLines(grounding.copy(serviceNotes = "x".repeat(5_000)))
 
         val notes = lines.lines().single { it.startsWith("Album notes (from the service): ") }
-        assertEquals(AlbumAboutPrompts.MAX_NOTES_CHARS, notes.removePrefix("Album notes (from the service): ").length)
+        assertEquals(YoinAlbumAbout.maxNotesChars, notes.removePrefix("Album notes (from the service): ").length)
     }
 
     @Test
     fun should_tellAnEmptyAnswer_fromNoAnswer() {
         // The model answered in the format and knew nothing: kept as done.
-        assertTrue(AlbumAboutPrompts.parseAboutResponse("[CREDITS]{}[/CREDITS]\n[ABOUT]N/A[/ABOUT]").answered)
-        assertTrue(AlbumAboutPrompts.parseAboutResponse("[CREDITS]\n{\"producers\": null}\n[/CREDITS]").answered)
+        assertTrue(YoinAlbumAbout.parseReply("[CREDITS]{}[/CREDITS]\n[ABOUT]N/A[/ABOUT]").answered)
+        assertTrue(YoinAlbumAbout.parseReply("[CREDITS]\n{\"producers\": null}\n[/CREDITS]").answered)
         // Not an answer (refused, off-format, empty): a failure, asked again next time.
-        assertFalse(AlbumAboutPrompts.parseAboutResponse("I'm sorry, I can't help with that.").answered)
-        assertFalse(AlbumAboutPrompts.parseAboutResponse("").answered)
+        assertFalse(YoinAlbumAbout.parseReply("I'm sorry, I can't help with that.").answered)
+        assertFalse(YoinAlbumAbout.parseReply("").answered)
+    }
+
+    @Test
+    fun should_dropTheAisParagraph_when_theServiceWroteTheNotes() {
+        val reply = YoinAlbumAbout.storedReply("[CREDITS]{}[/CREDITS]\n[ABOUT]An AI paragraph.[/ABOUT]", hasServiceNotes = true)
+
+        assertNull(reply.blurb)
+        assertTrue(reply.answered)
+        assertTrue(reply.isEmpty)
+    }
+
+    @Test
+    fun should_leadTheSearch_byWhereTheFactsComeFrom() {
+        assertEquals("Use the search tool to find accurate information.", YoinAlbumAbout.searchLead(true, 0))
+        assertEquals("Use the search results provided below to find accurate information.", YoinAlbumAbout.searchLead(false, 2))
+        assertTrue(YoinAlbumAbout.searchLead(false, 0).startsWith("Answer from what you reliably know"))
+    }
+
+    @Test
+    fun should_keyAQuestion_likeTheSongAbout() {
+        assertEquals("fake love", YoinAlbumAbout.questionKey("  Fake   Love (feat. X) "))
     }
 }

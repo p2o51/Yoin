@@ -6,6 +6,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseDate
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.shared.albumabout.AlbumAiCredits
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -40,7 +41,7 @@ class AlbumAboutContentTest {
 
     @Test
     fun should_readTheRowsAsThePageShowsThem() {
-        val content = AlbumAboutContent.from(
+        val content = albumAboutContent(
             listOf(
                 row(AlbumAboutEntry.KIND_CANONICAL, AlbumAboutEntry.CANON_CREDITS, AlbumAiCredits(producers = listOf("P")).encode()),
                 row(AlbumAboutEntry.KIND_CANONICAL, AlbumAboutEntry.CANON_BLURB, "  The paragraph.  "),
@@ -58,11 +59,11 @@ class AlbumAboutContentTest {
 
     @Test
     fun should_showNoParagraph_when_theAiWroteNothing() {
-        val content = AlbumAboutContent.from(listOf(row(AlbumAboutEntry.KIND_CANONICAL, AlbumAboutEntry.CANON_BLURB, "")))
+        val content = albumAboutContent(listOf(row(AlbumAboutEntry.KIND_CANONICAL, AlbumAboutEntry.CANON_BLURB, "")))
 
         assertNull(content.blurb)
         assertTrue(content.generated)
-        assertFalse(AlbumAboutContent.from(emptyList()).generated)
+        assertFalse(albumAboutContent(emptyList()).generated)
     }
 
     @Test

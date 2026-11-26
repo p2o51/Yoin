@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../data/about/album_about_repository.dart';
 import '../data/about/song_about_repository.dart';
 import '../data/lyrics/lyrics_repository.dart';
 import '../data/memory/memory_store.dart';
@@ -123,6 +124,79 @@ class AlbumScrapbookEditor extends Notifier<ScrapGemini> {
         final note = _deletedAlbumNotes.remove(noteId);
         if (note == null) return;
         unawaited(_write(() => _restoreAlbumNote(note)));
+      case ScrapEnsureAlbumAboutEdit():
+        unawaited(_ensureAlbumAbout());
+      case ScrapRegenerateAlbumAboutEdit():
+        unawaited(_regenerateAlbumAbout());
+      case ScrapRestoreAlbumAboutEdit(:final rows):
+        unawaited(_write(() => _albumAbout.restore(rows)));
+      case ScrapAskAlbumEdit(:final question):
+        unawaited(_askAlbum(question));
+    }
+  }
+
+  AlbumAboutRepository get _albumAbout => ref.read(albumAboutRepositoryProvider);
+
+  /// Whether this page already asked for the album's About (once per visit; the cache answers after).
+  bool _albumAboutEnsured = false;
+
+  /// The page came to rest (Android ensureAlbumAbout): one AI call when the album's About was never
+  /// written (here or synced in), and only with a key, so no card shows the dots on the way to nothing.
+  /// A failure stays quiet and stores nothing: the next visit asks again.
+  Future<void> _ensureAlbumAbout() async {
+    final album = _album;
+    if (album == null || _albumAboutEnsured || state.albumAbout) return;
+    _albumAboutEnsured = true;
+    final repository = _albumAbout;
+    if ((await repository.store.canonical(album.id.provider, album.id.rawId)).isNotEmpty) return;
+    if (!await repository.isAiReady() || !ref.mounted) return;
+    state = state.copyWith(albumAbout: true);
+    try {
+      final result = await repository.ensure(album);
+      if (result case AboutLoadError(:final message)) debugPrint('YoinScrapbook: album About failed: $message');
+    } finally {
+      if (ref.mounted) state = state.copyWith(albumAbout: false);
+    }
+  }
+
+  /// "Regenerate" / "Generate with …" from the About sheet: undoable; nothing new keeps what was there.
+  Future<void> _regenerateAlbumAbout() async {
+    final album = _album;
+    if (album == null || state.albumAbout) return;
+    state = state.copyWith(albumAbout: true);
+    try {
+      _emit(switch (await _albumAbout.regenerate(album)) {
+        AlbumAboutRegenerated(:final before) => ScrapRegenerated(ScrapRestoreAlbumAboutEdit(before)),
+        AlbumAboutNothingNew() => const ScrapAlbumAboutFailed(ScrapFailure.nothingNew),
+        AlbumAboutKeyMissing() => const ScrapAlbumAboutFailed(ScrapFailure.keyMissing),
+        AlbumAboutRegenerateError(:final message) => () {
+          debugPrint('YoinScrapbook: album About regenerate failed: $message');
+          return const ScrapAlbumAboutFailed(ScrapFailure.failed);
+        }(),
+      });
+    } finally {
+      if (ref.mounted) state = state.copyWith(albumAbout: false);
+    }
+  }
+
+  /// A question about the album: pending in the sheet until the answer lands in the store.
+  Future<void> _askAlbum(String question) async {
+    final text = question.trim();
+    final album = _album;
+    if (album == null || text.isEmpty) return;
+    state = state.copyWith(albumAsking: [...state.albumAsking, text]);
+    try {
+      switch (await _albumAbout.ask(album, text)) {
+        case AskSuccess():
+          break;
+        case AskKeyMissing():
+          _emit(const ScrapFailed(ScrapFailure.keyMissing));
+        case AskError(:final message):
+          debugPrint('YoinScrapbook: ask about the album failed: $message');
+          _emit(const ScrapFailed(ScrapFailure.failed));
+      }
+    } finally {
+      if (ref.mounted) state = state.copyWith(albumAsking: [...state.albumAsking]..remove(text));
     }
   }
 
