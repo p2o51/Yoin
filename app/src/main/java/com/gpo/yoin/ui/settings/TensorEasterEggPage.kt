@@ -54,7 +54,6 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -68,13 +67,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.view.WindowCompat
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.player.sing.TensorGeneration
+import com.gpo.yoin.ui.component.SystemBarIconsOverride
 import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.detail.DetailBackButton
-import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -120,19 +118,7 @@ internal fun TensorEasterEggPage(
 
 @Composable
 private fun TensorDarkSystemBarsEffect() {
-    val view = LocalView.current
-    val window = view.context.findActivityOrNull()?.window ?: return
-    DisposableEffect(window, view) {
-        val controller = WindowCompat.getInsetsController(window, view)
-        val status = controller.isAppearanceLightStatusBars
-        val navigation = controller.isAppearanceLightNavigationBars
-        controller.isAppearanceLightStatusBars = false
-        controller.isAppearanceLightNavigationBars = false
-        onDispose {
-            controller.isAppearanceLightStatusBars = status
-            controller.isAppearanceLightNavigationBars = navigation
-        }
-    }
+    SystemBarIconsOverride(lightStatusBars = false, lightNavigationBars = false)
 }
 
 /**
