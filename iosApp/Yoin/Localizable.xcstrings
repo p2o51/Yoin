@@ -1121,6 +1121,17 @@
       }
     },
     "AIza…": {},
+    "Explicit": {
+      "comment": "VoiceOver for the E badge after an explicit song's or release's title (Android cmp_explicit_badge_cd; zh owner 2026-11-26)",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含不雅内容"
+          }
+        }
+      }
+    },
     "Album": {
       "localizations": {
         "zh-Hans": {

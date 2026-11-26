@@ -14,7 +14,7 @@ struct ArtistDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var kindFilter: ReleaseKind?
+    @State private var kindFilter: ReleaseMarks.Filter = .all
     @State private var showAll = false
     @State private var scroll = ArtistScrollModel()
     @State private var scrollPosition = ScrollPosition(edge: .top)
@@ -339,30 +339,23 @@ struct ArtistDetailView: View {
     // MARK: Discography
 
     private var discography: some View {
-        let kinds = [ReleaseKind.album, .ep, .compilation].filter { k in
-            releases.contains { k == .ep ? ($0.kind == .ep || $0.kind == .single) : $0.kind == k }
-        }
-        let shown = releases.filter { r in
-            switch kindFilter {
-            case nil: true
-            case .ep, .single: r.kind == .ep || r.kind == .single
-            case let k?: r.kind == k
-            }
-        }
+        // :shared's ReleaseKindFilter (Android PR #343, shared with Library's Albums): kinds from the service only,
+        // an unknown kind only under All; offered for two or more kinds.
+        let kinds = ReleaseMarks.offeredFilters(releases.map(\.releaseType))
+        let active = kinds.contains(kindFilter) ? kindFilter : .all
+        let shown = active == .all ? releases : releases.filter { active.accepts($0.releaseType) }
         let collapsed = Int(Tokens.detail.ARTIST_COLLAPSED_COUNT)
         let visible = showAll ? shown : Array(shown.prefix(collapsed))
         return VStack(alignment: .leading, spacing: 0) {
             sectionHeader(String(localized: "Discography"), releases.count == 1 ? String(localized: "1 release") : String(localized: "\(releases.count) releases"))
-            if kinds.count >= 2 {
+            if !kinds.isEmpty {
                 // Full-bleed with the 16 page margin inside the scroll, so the
                 // chips run off the screen edge instead of stopping mid-page
                 // (owner rule; Android clips at the section padding with a fade).
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
-                        chip("All", on: kindFilter == nil) { kindFilter = nil }
                         ForEach(kinds, id: \.self) { k in
-                            chip(k == .album ? "Albums" : k == .ep ? String(localized: "Singles & EPs") : String(localized: "Compilations"),
-                                 on: kindFilter == k) { kindFilter = k }
+                            chip(k.label, on: active == k) { kindFilter = k }
                         }
                     }
                 }
@@ -438,7 +431,7 @@ struct ArtistDetailView: View {
                 EntityBackdrop(entity: .album, palette: r.palette, seed: r.seed, size: 56, stroke: app.primary)
                 Spacer().frame(width: 12)
                 VStack(alignment: .leading, spacing: 2) {
-                    AlbumVersionTitle(album: r, scheme: app) { name in
+                    AlbumVersionTitle(album: r, scheme: app, explicitSize: Tokens.type.titleMedium.size.cg) { name in
                         Text(name).lineLimit(1)
                             .yoinRole(Tokens.type.titleMedium)
                             .foregroundStyle(app.onSurface)

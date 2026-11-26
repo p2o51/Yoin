@@ -52,6 +52,12 @@ enum AppleMusicJSON {
     }
 
     static func bool(_ o: Object?, _ key: String) -> Bool { (o?[key] as? NSNumber)?.boolValue ?? false }
+
+    /// A flag of the resource's own when it has the key, else its catalog resource's; nil when neither says
+    /// (Android `appleReleaseType`'s `flag`).
+    static func flag(_ own: Object, _ catalog: Object?, _ key: String) -> Bool? {
+        own[key] != nil ? (own[key] as? NSNumber)?.boolValue : (catalog?[key] as? NSNumber)?.boolValue
+    }
 }
 
 // MARK: - Plain values
@@ -79,6 +85,8 @@ struct AMSong: Hashable, Sendable {
     var isrc: String? = nil
     /// Apple lists the song but won't stream it (Android AppleMusicSong.catalogUnavailable): see [Track.notStreamed].
     var catalogUnavailable: Bool = false
+    /// `contentRating` ("explicit" / "clean"); a library song without one takes its catalog song's.
+    var contentRating: ExplicitRating? = nil
 
     /// Catalog id, else `library:<id>` (Android `Track.id`).
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
@@ -97,14 +105,18 @@ struct AMAlbum: Hashable, Sendable {
     var releaseDate: String?
     var dateAdded: String?
     var trackCount: Int?
-    var isSingle: Bool
-    var isCompilation: Bool
+    /// `isSingle` / `isCompilation`: the resource's own when it has them, else its catalog album's; nil when
+    /// neither says (a library album without its catalog album).
+    var isSingle: Bool?
+    var isCompilation: Bool?
     var genre: String?
     var tracks: [AMSong]
     /// `recordLabel` (the catalog album's for a library album): the credits line's label.
     var recordLabel: String? = nil
     /// `editorialNotes` as plain text (`standard`, else `short`; the catalog album's for a library album).
     var editorialNotes: String? = nil
+    /// `contentRating` ("explicit" / "clean"); a library album without one takes its catalog album's.
+    var contentRating: ExplicitRating? = nil
 
     var rawId: String { catalogId ?? AppleMusicMapping.libraryPrefix + resourceId }
 }
@@ -180,15 +192,12 @@ enum AppleMusicMapping {
         return Int(releaseDate.prefix(4)) ?? 0
     }
 
-    /// Apple names EPs and singles in the title ("Name - EP"): the kind, and
-    /// the title without the suffix.
-    static func release(title: String, isSingle: Bool, isCompilation: Bool) -> (ReleaseKind, String) {
-        for (suffix, kind) in [(" - EP", ReleaseKind.ep), (" - Single", ReleaseKind.single)] where title.hasSuffix(suffix) {
-            return (kind, String(title.dropLast(suffix.count)))
-        }
-        if isSingle { return (.single, title) }
-        if isCompilation { return (.compilation, title) }
-        return (.album, title)
+    /// Apple has no release-type field: `isCompilation`, `isSingle`, or the " - EP" / " - Single" Apple ends the
+    /// name with (:shared's rule, Android `appleReleaseType`); nil when nothing says. The title is the name
+    /// without that suffix for an EP or a single, which show the kind instead (owner 2026-11-26).
+    static func release(title: String, isSingle: Bool?, isCompilation: Bool?) -> (ReleaseKind?, String) {
+        let kind = ReleaseMarks.appleMusicKind(name: title, isCompilation: isCompilation, isSingle: isSingle)
+        return (kind, ReleaseMarks.nameWithoutKindSuffix(title, kind))
     }
 
     /// The first genre that says something ("Music" is every song's).
@@ -274,7 +283,9 @@ enum AppleMusicMapping {
             // a catalog id; an import names none and stays an import), or a catalog song Apple won't stream.
             catalogUnavailable: isLibrary && catalogRelationship?.isEmpty == true
                 && catalogId.map(isCatalogSongId) == true
-                || (isLibrary ? catalog : r).map(isUnreleased) == true)
+                || (isLibrary ? catalog : r).map(isUnreleased) == true,
+            contentRating: ReleaseMarks.appleMusic(AppleMusicJSON.string(a, "contentRating"))
+                ?? ReleaseMarks.appleMusic(AppleMusicJSON.string(catalogAttributes, "contentRating")))
     }
 
     /// A catalog song Apple lists but won't stream yet: an album's pre-release tracks, or one the storefront
@@ -343,7 +354,7 @@ enum AppleMusicMapping {
             resourceId: id,
             isLibrary: isLibrary,
             catalogId: catalogId.flatMap { isCatalogSongId($0) ? $0 : nil },
-            title: AppleMusicJSON.string(a, "name") ?? "",
+            title: AppleMusicJSON.string(a, "name") ?? AppleMusicJSON.string(catalogAttributes, "name") ?? "",
             artist: AppleMusicJSON.string(a, "artistName") ?? "",
             artistId: AppleMusicJSON.related(r, "artists")?.first.flatMap(relatedRawId),
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")
@@ -352,15 +363,18 @@ enum AppleMusicMapping {
                                             catalog: AppleMusicJSON.string(catalogAttributes, "releaseDate")),
             dateAdded: AppleMusicJSON.string(a, "dateAdded"),
             trackCount: AppleMusicJSON.int(a, "trackCount"),
-            isSingle: AppleMusicJSON.bool(a, "isSingle") || AppleMusicJSON.bool(catalogAttributes, "isSingle"),
-            isCompilation: AppleMusicJSON.bool(a, "isCompilation") || AppleMusicJSON.bool(catalogAttributes, "isCompilation"),
+            isSingle: AppleMusicJSON.flag(a, catalogAttributes, "isSingle"),
+            isCompilation: AppleMusicJSON.flag(a, catalogAttributes, "isCompilation"),
             genre: genre((a["genreNames"] ?? catalogAttributes?["genreNames"]) as? [String]),
             tracks: tracks,
             recordLabel: AppleMusicJSON.string(a, "recordLabel") ?? AppleMusicJSON.string(catalogAttributes, "recordLabel"),
             // A catalog album's default attributes carry Apple's notes; a library album has them only through
             // its catalog relationship (Android appleEditorialNotes).
             editorialNotes: editorialNotes(a["editorialNotes"] as? AppleMusicJSON.Object)
-                ?? editorialNotes(catalogAttributes?["editorialNotes"] as? AppleMusicJSON.Object))
+                ?? editorialNotes(catalogAttributes?["editorialNotes"] as? AppleMusicJSON.Object),
+            // A library album without its own rating takes its catalog album's, like the genre (Android).
+            contentRating: ReleaseMarks.appleMusic(AppleMusicJSON.string(a, "contentRating"))
+                ?? ReleaseMarks.appleMusic(AppleMusicJSON.string(catalogAttributes, "contentRating")))
     }
 
     /// Apple's `editorialNotes` as plain text: `standard`, else `short`; nil when neither has words (the rule and
@@ -416,7 +430,8 @@ enum AppleMusicMapping {
               artist: s.artist == albumArtist ? nil : s.artist,
               disc: s.disc,
               credits: s.credits,
-              notStreamed: s.catalogUnavailable)
+              notStreamed: s.catalogUnavailable,
+              contentRating: s.contentRating)
     }
 
     static func album(_ a: AMAlbum) -> Album {
@@ -429,7 +444,8 @@ enum AppleMusicMapping {
                      palette: palette(a.artwork, key: a.rawId),
                      tracks: tracks,
                      rating: nil,
-                     kind: kind,
+                     kind: kind ?? .album,
+                     kindKnown: kind != nil,
                      artistId: a.artistId,
                      created: a.dateAdded,
                      songCount: a.trackCount,
@@ -437,7 +453,8 @@ enum AppleMusicMapping {
                      genre: a.genre,
                      recordLabels: a.recordLabel.map { [$0] } ?? [],
                      releaseDate: ReleaseDateISO.parse(a.releaseDate),
-                     editorialNotes: a.editorialNotes)
+                     editorialNotes: a.editorialNotes,
+                     contentRating: a.contentRating)
     }
 
     /// A loose song's album as far as the song knows it: no tracks, its own cover.
@@ -448,6 +465,7 @@ enum AppleMusicMapping {
               year: year(s.releaseDate),
               palette: palette(s.artwork, key: s.albumId ?? s.rawId),
               tracks: [],
+              kindKnown: false,
               artistId: s.artistId,
               genre: s.genre)
     }

@@ -554,7 +554,8 @@ struct AlbumDetailView: View {
                 Color.clear.frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 0) {
                     // The version as a tag after the name (Android AlbumHeader, #154).
-                    AlbumVersionTitle(album: album, scheme: s, onBar: white) { name in
+                    AlbumVersionTitle(album: album, scheme: s, onBar: white,
+                                      explicitSize: Tokens.type.headlineSmall.size.cg) { name in
                         Text(name)
                             .lineLimit(1)
                             .yoinRole(Tokens.type.headlineSmall)
@@ -583,7 +584,10 @@ struct AlbumDetailView: View {
                                 Text(album.artist).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
                             }
                             .buttonStyle(.plain).pointerHighlight()
-                            Text("Album").yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
+                            // The real kind (EP / Single / Compilation; Album when the service doesn't say),
+                            // Android PR #343.
+                            Text(ReleaseMarks.headerKind(album.releaseType).label)
+                                .yoinRole(Tokens.type.bodyMedium, weight: .medium).foregroundStyle(kind)
                             // The release date as precisely as the service dates it: "22.6.12" / "22.6" / "2022".
                             if let date = AlbumReleaseDateText.header(album.releaseDate, year: album.year) {
                                 Text(verbatim: date).yoinRole(Tokens.type.bodyMedium).foregroundStyle(plain)
@@ -1090,10 +1094,13 @@ struct AlbumDetailView: View {
             .frame(minWidth: 18, alignment: .trailing)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(t.title)
-                        .lineLimit(1)
-                        .yoinRole(Tokens.type.titleMedium)
-                        .foregroundStyle(playing ? s.primary : app.onSurface)
+                    ExplicitTitle(text: t.title, explicit: t.isExplicit, fontSize: Tokens.type.titleMedium.size.cg,
+                                  color: app.onSurfaceVariant) {
+                        Text(t.title)
+                            .lineLimit(1)
+                            .yoinRole(Tokens.type.titleMedium)
+                            .foregroundStyle(playing ? s.primary : app.onSurface)
+                    }
                     // The song has notes (they live on the scrapbook page).
                     if hasNote(t) {
                         YoinIcon("note", size: 12)
@@ -1293,9 +1300,12 @@ struct AlbumDetailView: View {
                 }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(e.track.title).lineLimit(1)
-                        .yoinRole(Tokens.type.titleMedium)
-                        .foregroundStyle(app.onSurface)
+                    ExplicitTitle(text: e.track.title, explicit: e.track.isExplicit,
+                                  fontSize: Tokens.type.titleMedium.size.cg, color: app.onSurfaceVariant) {
+                        Text(e.track.title).lineLimit(1)
+                            .yoinRole(Tokens.type.titleMedium)
+                            .foregroundStyle(app.onSurface)
+                    }
                     // The album row's note marker (Android PlaylistNoteMarker, parity B-U14).
                     if hasNote(e.track) {
                         YoinIcon("note", size: 12)

@@ -29,13 +29,25 @@ enum SpotifyMapping {
     }
 
     /// Spotify `album_type` → kind. It files EPs under "single"; its own clients
-    /// show a single with 4+ tracks as an EP, so this does too (Android spotifyReleaseType).
+    /// show a single with 4+ tracks as an EP, so this does too (:shared's rule, Android spotifyReleaseType);
+    /// `.album` when Spotify doesn't say ([knownKind] nil).
     static func kind(albumType: String?, totalTracks: Int?) -> ReleaseKind {
-        switch albumType?.lowercased() {
-        case "compilation": .compilation
-        case "single": (totalTracks ?? 0) >= 4 ? .ep : .single
-        default: .album
-        }
+        knownKind(albumType: albumType, totalTracks: totalTracks) ?? .album
+    }
+
+    static func knownKind(albumType: String?, totalTracks: Int?) -> ReleaseKind? {
+        ReleaseMarks.spotifyKind(albumType: albumType, totalTracks: totalTracks)
+    }
+
+    /// An album's rating from [tracks] (Spotify rates tracks, not albums): explicit when one of them is; clean only
+    /// when they are the whole tracklist (`total_tracks`, else the embedded page's `total`) and none is; else
+    /// unknown. Nothing is read just for this (owner 2026-11-26): the album page (its whole tracklist) and
+    /// Library (a saved album's embedded tracks) have it; search results, artist releases and recently played
+    /// albums stay unknown.
+    static func contentRating(_ a: SpotifyDTO.Album, tracks: [SpotifyDTO.Track]) -> ExplicitRating? {
+        ReleaseMarks.fromTracks(tracks.map { ReleaseMarks.explicitFlag($0.explicit) },
+                                complete: ReleaseMarks.tracklistComplete(loaded: tracks.count, totalTracks: a.totalTracks,
+                                                                         pageTotal: a.tracks?.total))
     }
 
     /// A track the Web API can name and play: a real id, not a local file or an episode.
@@ -78,7 +90,8 @@ enum SpotifyMapping {
                      artist: artist == albumArtist ? nil : artist,
                      starred: saved.contains(id),
                      disc: t.discNumber,
-                     credits: credits(t.artists))
+                     credits: credits(t.artists),
+                     contentRating: ReleaseMarks.explicitFlag(t.explicit))
     }
 
     /// Each artist of a track that has several, with the id of their page (none when there is just one).
@@ -102,6 +115,7 @@ enum SpotifyMapping {
                      palette: palette(a?.images, key: id ?? t.id ?? ""),
                      tracks: [],
                      kind: kind(albumType: a?.albumType, totalTracks: a?.totalTracks),
+                     kindKnown: knownKind(albumType: a?.albumType, totalTracks: a?.totalTracks) != nil,
                      artistId: a?.artists?.first?.id.flatMap { $0.isEmpty ? nil : $0 } ?? t.artists?.first?.id)
     }
 
@@ -119,7 +133,8 @@ enum SpotifyMapping {
 
     // MARK: Albums
 
-    /// An album with whatever tracks [tracks] hands over (the full album's pages), else none (a list row).
+    /// An album with whatever tracks [tracks] hands over (the full album's pages), else none (a list row). Its
+    /// rating comes from [tracks], else from the tracks the response embeds (a saved album's first page).
     static func album(_ a: SpotifyDTO.Album, tracks: [SpotifyDTO.Track] = [], addedAt: String? = nil,
                       saved: Set<String> = []) -> Album? {
         guard let id = a.id, !id.isEmpty else { return nil }
@@ -135,13 +150,15 @@ enum SpotifyMapping {
                      tracks: mapped,
                      rating: nil,
                      kind: kind(albumType: a.albumType, totalTracks: a.totalTracks),
+                     kindKnown: knownKind(albumType: a.albumType, totalTracks: a.totalTracks) != nil,
                      artistId: a.artists?.first?.id.flatMap { $0.isEmpty ? nil : $0 },
                      created: addedAt,
                      songCount: a.totalTracks,
                      durationSec: mapped.isEmpty ? nil : mapped.map(\.durationSec).reduce(0, +),
                      recordLabels: a.label.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                          .flatMap { $0.isEmpty ? nil : [$0] } ?? [],
-                     releaseDate: ReleaseDateISO.parse(a.releaseDate, precision: a.releaseDatePrecision))
+                     releaseDate: ReleaseDateISO.parse(a.releaseDate, precision: a.releaseDatePrecision),
+                     contentRating: contentRating(a, tracks: tracks.isEmpty ? (a.tracks?.items ?? []) : tracks))
     }
 
     static func albumItem(_ a: Album) -> LibraryItem {
