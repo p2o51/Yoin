@@ -159,7 +159,9 @@ internal object ShareCardsGolden {
         val labels = ShareCardsGoldenFixtures.labels
         return buildString {
             append("{\n")
-            append("  \"about\": ").append(encode(str(ABOUT))).append(",\n")
+            // The file's description: not "about", which is the About section's key (a JSON reader that keeps the
+            // first of two equal keys read the description in its place).
+            append("  \"description\": ").append(encode(str(DESCRIPTION))).append(",\n")
             append("  \"constants\": ").append(encode(constants())).append(",\n")
             append("  \"labels\": {\n")
             labels.entries.forEachIndexed { i, (key, value) ->
@@ -266,7 +268,7 @@ internal object ShareCardsGolden {
         "canonReview" to str(YoinShareCards.CANON_REVIEW),
     )
 
-    const val ABOUT = "Golden vectors for the share-card rules (com.gpo.yoin.shared.share, Android PR #335): which " +
+    const val DESCRIPTION = "Golden vectors for the share-card rules (com.gpo.yoin.shared.share, Android PR #335): which " +
         "tabs a song has, the layouts each tab offers and opens on, the lyric lines (current line, Poster, Player " +
         "excerpt, Vertical columns and the CJK gate), About's credits and paragraph, the note, times, the tones' " +
         "colour roles, the Story zoom, export sizes and file names. Generated from :shared Kotlin through " +

@@ -3,8 +3,9 @@ import SwiftUI
 /// A long-pressed About row's sheet (Android AboutEntrySheet, owner-approved
 /// prototype v3, 2026-11-02): the row's heading and the start of its text,
 /// then Manage in Scrapbook (when the song has an album page; the album opens
-/// on its scrapbook with this row's editor) and Regenerate with Gemini (not
-/// for the listener's own entry; undoable from the toast). Rows in the song
+/// on its scrapbook with this row's editor), Regenerate with Gemini (not
+/// for the listener's own entry; undoable from the toast) and Share as image
+/// (not for the listener's own entry either). Rows in the song
 /// menu's style (TrackMenuSheet); present it with `.reportsSheetRise()`.
 struct AboutEntrySheet: View {
     struct Target: Identifiable, Equatable {
@@ -54,6 +55,12 @@ struct AboutEntrySheet: View {
         if target.entry.kind != SongAboutStore.Kind.own {
             out.append(Row(label: String(localized: "Regenerate with Gemini"), icon: "sparkle") { [target] in
                 SongAboutLoader.shared.regenerateAndReport(target.entry.ref)
+            })
+            // Share as image (owner 2026-11-25): opens Now Playing's share sheet on 关于 with this row's paragraph;
+            // not for the listener's own entry — About's image carries only the AI's words.
+            out.append(Row(label: String(localized: "Share as image"), icon: "share") { [target] in
+                ShareSheetHost.shared.open(ShareRequest(tab: .about, aboutFocus: (target.entry.kind, target.entry.entryKey)),
+                                           after: .milliseconds(450))
             })
         }
         return out

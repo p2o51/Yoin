@@ -112,7 +112,8 @@ struct NowPlayingView: View, Equatable {
     @State private var lyricsLimitNudge = 0
     @State private var lyricsEditing = false
     @State private var lyricsEditTarget: PlayableTrack?
-    @State private var lyricsShare: LyricsShareSnapshot?
+    /// The open share sheet (Android ShareSheet): 歌词 / 关于 / 笔记, frozen when it opened.
+    @State private var share: ShareSheetItem?
     /// The transport row is on screen (Android stageControlsLive): off once
     /// the expanded stage has settled over it, on as soon as it collapses.
     @State private var transportLive = true
@@ -451,12 +452,22 @@ struct NowPlayingView: View, Equatable {
             .ySolidSheet(scheme.surfaceContainerLow)
             .presentationDetents([.medium, .large])
         }
-        .sheet(item: $lyricsShare) { snap in
-            LyricsShareSheet(snapshot: snap, scheme: scheme) { lyricsShare = nil }
-                .reportsSheetRise()
-                .ySolidSheet(scheme.surfaceContainerLow)
-                .presentationDetents([.large])
+        .sheet(item: $share) { item in
+            shareSheet(item)
         }
+        // About's long-press sheet and a note's edit card ask for the share sheet here.
+        .onChange(of: ShareSheetHost.shared.serial) { _, _ in
+            guard let request = ShareSheetHost.shared.take() else { return }
+            openShare(request)
+        }
+        #if DEBUG
+        .task {
+            // After Now Playing has risen: a sheet asked for before its host is on screen is dropped.
+            guard ShareSheetDemo.tab != nil else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            openShareDemo()
+        }
+        #endif
         // Select mode, the lyric search and the editor belong to one song's
         // lyrics (Android resets them on a song change).
         .onChange(of: engineTrack.map(NowPlayingData.key)) { _, _ in
@@ -1646,19 +1657,127 @@ struct NowPlayingView: View, Equatable {
         withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
     }
 
-    /// Android openShare: the pick frozen into the share card.
+    /// Android openShare: the pick frozen into the share sheet, opened on 歌词.
     private func shareSelectedLyrics(_ t: PlayableTrack) {
-        guard let p = pickedLyrics(t) else { return }
-        // A line the listener shares is one they like: it becomes the song's Lyric Card (Android keepUserPick).
-        if let loaded = loadedLyrics, let first = lyricsSelected.filter({ $0 >= 0 && $0 < loaded.lines.count }).min() {
-            let ms = loaded.synced ? loaded.lyrics.lines[first].timeMs : nil
-            LyricHighlightProcessor.shared.keepUserPick(p.lines, startMs: ms, track: t,
-                                                        account: model.profiles.active.flatMap(MemoryLedgerSource.account(of:)))
-        }
+        guard let loaded = loadedLyrics else { return }
+        let picked = lyricsSelected.filter { $0 >= 0 && $0 < loaded.lines.count }
+        guard let first = picked.min() else { return }
+        let lines = shareLines(t, loaded)
+        let showTranslation = LyricsActions.shared.translationShown(t)
+        guard let pick = ShareContentBuilder.pick(lines: lines, selected: Array(picked), showTranslation: showTranslation)
+        else { return }
+        let words = picked.sorted().map { loaded.lines[$0] }
+        let ms = loaded.synced ? loaded.lyrics.lines[first].timeMs : nil
+        let account = model.profiles.active.flatMap(MemoryLedgerSource.account(of:))
         glow.glow(.lineGlow, at: nil, targetY: glow.lyricsLineY)
-        lyricsShare = LyricsShareSnapshot(lines: p.lines, translations: p.translations, passageStarts: p.starts,
-                                          title: t.title, artist: t.artist)
+        openShare(ShareRequest(tab: .lyrics), pick: pick, onKept: {
+            // A line the listener shares is one they like: it becomes the song's Lyric Card (Android keepUserPick).
+            LyricHighlightProcessor.shared.keepUserPick(words, startMs: ms, track: t, account: account)
+        })
     }
+
+    // MARK: Share as image
+
+    /// The loaded lyrics as shared: each line's start (synced lyrics only) and its shown translation.
+    private func shareLines(_ t: PlayableTrack, _ loaded: NowPlayingData.LoadedLyrics) -> [ShareLyricLine] {
+        let translations = LyricsActions.shared.shownTranslations(t, count: loaded.lines.count)
+        return loaded.lines.indices.map { i in
+            ShareContentBuilder.line(text: loaded.lines[i], startMs: loaded.synced ? loaded.lyrics.lines[i].timeMs : nil,
+                                     translation: translations[i])
+        }
+    }
+
+    /// Everything shareable for the song on show (Android ShareSources.content): [pick] (else the current line),
+    /// its About (focused on the long-pressed row) and one note (the asked one, else the one at the playhead).
+    private func shareRender(_ request: ShareRequest, pick: ShareLyrics?) -> ShareRender? {
+        let position = playheadMs
+        let song: ShareSong
+        var lyrics = pick
+        var about: ShareAbout?
+        if let t = engineTrack {
+            song = ShareSong(songId: t.id, title: t.title, artist: t.artist, coverArtUrl: t.coverURL?.absoluteString,
+                             albumName: t.album, durationMs: Int64((t.durationSec * 1000).rounded()))
+            if lyrics == nil, let loaded = loadedLyrics {
+                lyrics = YoinShareCards.shared.currentLine(lyrics: shareLines(t, loaded), positionMs: position,
+                                                           showTranslation: LyricsActions.shared.translationShown(t))
+            }
+            about = ShareContentBuilder.about(entries: SongAboutLoader.shared.store.entries(AboutSong(t).key),
+                                              credits: data.lyricCredits(t), spine: data.spineFacts(t),
+                                              focus: request.aboutFocus)
+        } else {
+            let p = playback
+            song = ShareSong(songId: p.track.id.rawId, title: p.track.title, artist: p.track.artist ?? p.album.artist,
+                             coverArtUrl: nil, albumName: p.album.title, durationMs: Int64(p.track.durationSec) * 1000)
+            if lyrics == nil {
+                lyrics = YoinShareCards.shared.currentLine(
+                    lyrics: p.lyrics.map { ShareContentBuilder.line(text: $0, startMs: nil, translation: nil) },
+                    positionMs: position, showTranslation: false)
+            }
+            #if DEBUG
+            if let rows = SongAboutDemo.rows() {
+                about = ShareContentBuilder.about(entries: rows, credits: nil, spine: nil, focus: request.aboutFocus)
+            }
+            #endif
+        }
+        let key = currentNoteKey
+        let notes = NotesStore.shared.notes(provider: key.provider, trackId: key.rawId).map(ShareContentBuilder.note)
+        let note = YoinShareCards.shared.notePick(notes: notes, noteId: request.noteId, positionMs: position)
+        let content = ShareCardContent(song: song, lyrics: lyrics, about: about, note: note)
+        guard !YoinShareCards.shared.tabs(content: content).isEmpty else { return nil }
+        return ShareRender(content: content, aiName: AiProviderName.current)
+    }
+
+    /// Opens the sheet on [request]'s tab with what Now Playing knows now (frozen from here on); the covers load
+    /// while it rises.
+    private func openShare(_ request: ShareRequest, pick: ShareLyrics? = nil, onKept: (@MainActor () -> Void)? = nil) {
+        guard var render = shareRender(request, pick: pick) else { return }
+        let album = playback.album
+        let url = engineTrack?.coverURL
+        if engineTrack == nil {
+            // The mock library: its drawn cover now (screenshots), no network.
+            let r = ImageRenderer(content: CoverArt(palette: album.palette, cornerRadius: 0, seed: album.seed)
+                .frame(width: 160, height: 160))
+            r.scale = 2
+            render.cover = r.uiImage
+        }
+        share = ShareSheetItem(render: render, initialTab: request.tab, onKept: onKept)
+        if engineTrack != nil, url != nil || album.palette.cover != nil {
+            Task {
+                let cover = await ShareContentBuilder.cover(url: url, album: album)
+                if let cover, share?.render.content === render.content { share?.render.cover = cover }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func shareSheet(_ item: ShareSheetItem) -> some View {
+        let window = ShareSheetView.keyWindowSize()
+        let sheet = ShareSheetView(item: item, scheme: scheme, window: window,
+                                   initialFormat: ShareSheetDemo.format, initialToneSlot: ShareSheetDemo.toneSlot,
+                                   onShared: {
+                                       if item.initialTab == .lyrics, lyricsSelecting {
+                                           withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }
+                                       }
+                                   })
+            .reportsSheetRise()
+            .ySolidSheet(scheme.surfaceContainer)
+            .presentationDragIndicator(.visible)
+        if ShareSheetView.isWide(window) {
+            let size = ShareSheetView.wideSize(window)
+            sheet.frame(width: size.width, height: size.height).presentationSizing(.fitted)
+        } else {
+            sheet.presentationDetents([.large])
+        }
+    }
+
+    #if DEBUG
+    /// `-shareDemo lyrics|about|note`: the sheet open on that tab over the demo song (screenshots).
+    private func openShareDemo() {
+        guard share == nil, let tab = ShareSheetDemo.tab, let render = ShareSheetDemo.render(album: playback.album)
+        else { return }
+        share = ShareSheetItem(render: render, initialTab: tab)
+    }
+    #endif
 
     // MARK: Stage
 
@@ -2925,6 +3044,19 @@ struct NowPlayingView: View, Equatable {
         endEditing()
     }
 
+    /// The note being edited while its words and moment are still as saved (Android `isUntouchedEdit`).
+    private var untouchedEditId: String? {
+        guard let id = editingNoteId, let note = NotesStore.shared.notes.first(where: { $0.id == id }),
+              note.content == draft, note.positionMs == draftAnchorMs else { return nil }
+        return id
+    }
+
+    /// The edit card's Share: the keyboard goes, the edit closes unchanged, and the sheet opens on that note.
+    private func shareEditedNote(_ id: String) {
+        endEditing()
+        openShare(ShareRequest(tab: .note, noteId: id))
+    }
+
     /// Back from an edit: the keyboard goes down; a parked new draft comes
     /// back to the composer, waiting under the Write bar.
     private func endEditing() {
@@ -3020,7 +3152,8 @@ struct NowPlayingView: View, Equatable {
                              if editingNoteId == nil { draftTarget = currentNoteTarget }
                          },
                          onSave: saveNote,
-                         onCancel: editingNoteId == nil ? nil : { endEditing() })
+                         onCancel: editingNoteId == nil ? nil : { endEditing() },
+                         onShare: untouchedEditId.map { id in { shareEditedNote(id) } })
                 .padding(.horizontal, Tokens.np.COLUMN_PADDING.cg - 8)
                 .padding(.bottom, 8)
                 .background(alignment: .bottom) {
