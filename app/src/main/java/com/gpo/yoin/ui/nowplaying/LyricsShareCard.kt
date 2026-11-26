@@ -75,7 +75,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import hct.Hct
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -122,6 +121,10 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import com.gpo.yoin.R
+import com.gpo.yoin.shared.share.ShareInk
+import com.gpo.yoin.shared.share.ShareInkSource
+import com.gpo.yoin.shared.share.ShareZoomSearch
+import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
@@ -142,55 +145,25 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * The shapes a pick can be shared as (owner L6, 2026-10-05: spotoolfy's poster
- * plus Spotify's story size).
+ * The shapes a pick can be shared as (owner L6, 2026-10-05: spotoolfy's poster plus Spotify's story size): Card,
+ * the image alone (spotoolfy's poster width, 720 × 2 px); Story, 9:16 with the image on a backdrop or as a poster.
  */
-internal enum class LyricsShareFormat {
-    /** The quote card on its own — spotoolfy's poster width (720 × 2 px). */
-    Card,
-
-    /** 9:16 full-bleed backdrop with the card centred, for stories / status. */
-    Story,
-}
+internal typealias LyricsShareFormat = com.gpo.yoin.shared.share.ShareFormat
 
 /**
  * Whose words an image carries, which decides its colour role (owner 2026-11-25): the lyrics keep today's
  * pairings; About is AI / objective text and reads tertiary (as the app's Ask / About cards); a Note is the
- * listener's own and reads primary (as their album review).
+ * listener's own and reads primary (as their album review). Its tones are [ShareRole.tones].
  */
-internal enum class ShareRole { Lyrics, Ai, Own }
+internal typealias ShareRole = com.gpo.yoin.shared.share.ShareRole
 
 /**
  * The image's colour pairings — spotoolfy's four poster styles for the lyrics, read from the playing palette
  * (Now Playing's theme is already the cover's). About and Note draw the same slots from their own role, with
- * [Paper] in the fourth: [Mist] is tertiary, which would put a note in the AI's colour.
+ * Paper (a white card, the role as ink, in dark mode too) in the fourth: Mist is tertiary, which would put a
+ * note in the AI's colour. The pairings are [YoinShareCards.toneColors].
  */
-internal enum class ShareTone {
-    /** Container + on-container (spotoolfy style 2): the default. */
-    Soft,
-
-    /** The soft pair inverted (spotoolfy style 1). */
-    Deep,
-
-    /** The role colour + its on-colour (spotoolfy style 3: tertiary for the lyrics). */
-    Vivid,
-
-    /** Tertiary container + its on-colour (spotoolfy style 4) — the lyrics' fourth slot. */
-    Mist,
-
-    /**
-     * A white paper card with the role's colour as ink — About and Note's fourth slot. Theme-independent
-     * (owner 2026-11-25: 纸 is a white card with coloured text, in dark mode too): the ink is the role's
-     * light-theme tone ([paperInk]).
-     */
-    Paper,
-}
-
-/** The four tones a role offers, in swatch order. */
-internal fun ShareRole.tones(): List<ShareTone> = when (this) {
-    ShareRole.Lyrics -> listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Mist)
-    ShareRole.Ai, ShareRole.Own -> listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Paper)
-}
+internal typealias ShareTone = com.gpo.yoin.shared.share.ShareTone
 
 /** One tone's colours: the card, its text, its secondary text, and the story's backdrop. */
 internal data class ShareCardColors(
@@ -201,61 +174,53 @@ internal data class ShareCardColors(
 )
 
 /**
- * [this] tone's colours for [role]. The fourth slot follows the role: a lyrics card asked for [ShareTone.Paper]
- * draws [ShareTone.Mist] and the other roles the other way round, so a swatch kept across tabs stays valid.
+ * [this] tone's colours for [role] from [scheme] ([YoinShareCards.toneColors]). The fourth slot follows the role:
+ * a lyrics card asked for [ShareTone.Paper] draws [ShareTone.Mist] and the other roles the other way round, so a
+ * swatch kept across tabs stays valid.
  */
 internal fun ShareTone.colors(scheme: ColorScheme, role: ShareRole = ShareRole.Lyrics): ShareCardColors {
-    fun pair(card: Color, content: Color, backdrop: Color) =
-        ShareCardColors(card, content, content.copy(alpha = CardSecondaryAlpha), backdrop)
-    if (role == ShareRole.Lyrics) {
-        return when (this) {
-            ShareTone.Soft -> pair(scheme.primaryContainer, scheme.onPrimaryContainer, scheme.primary)
-            ShareTone.Deep -> pair(scheme.onPrimaryContainer, scheme.primaryContainer, scheme.primaryContainer)
-            ShareTone.Vivid -> pair(scheme.tertiary, scheme.onTertiary, scheme.tertiaryContainer)
-            ShareTone.Mist, ShareTone.Paper -> pair(scheme.tertiaryContainer, scheme.onTertiaryContainer, scheme.tertiary)
+    fun resolve(ink: ShareInk): Color {
+        val base = when (ink.source) {
+            ShareInkSource.Primary -> scheme.primary
+            ShareInkSource.OnPrimary -> scheme.onPrimary
+            ShareInkSource.PrimaryContainer -> scheme.primaryContainer
+            ShareInkSource.OnPrimaryContainer -> scheme.onPrimaryContainer
+            ShareInkSource.Tertiary -> scheme.tertiary
+            ShareInkSource.OnTertiary -> scheme.onTertiary
+            ShareInkSource.TertiaryContainer -> scheme.tertiaryContainer
+            ShareInkSource.OnTertiaryContainer -> scheme.onTertiaryContainer
+            ShareInkSource.White -> PaperCard
         }
+        return ink.tone?.let { tone -> Color(YoinShareCards.retone(base.toArgb(), tone)) } ?: base
     }
-    val ai = role == ShareRole.Ai
-    val main = if (ai) scheme.tertiary else scheme.primary
-    val onMain = if (ai) scheme.onTertiary else scheme.onPrimary
-    val container = if (ai) scheme.tertiaryContainer else scheme.primaryContainer
-    val onContainer = if (ai) scheme.onTertiaryContainer else scheme.onPrimaryContainer
-    return when (this) {
-        ShareTone.Soft -> pair(container, onContainer, main)
-        ShareTone.Deep -> pair(onContainer, container, container)
-        ShareTone.Vivid -> pair(main, onMain, container)
-        ShareTone.Mist, ShareTone.Paper -> pair(PaperCard, paperInk(main), paperTone(main, PaperBackdropTone))
-    }
+    val colors = YoinShareCards.toneColors(this, role)
+    val content = resolve(colors.content)
+    return ShareCardColors(
+        card = resolve(colors.card),
+        content = content,
+        secondary = content.copy(alpha = CardSecondaryAlpha),
+        backdrop = resolve(colors.backdrop),
+    )
 }
 
 /** Paper's card: white, whatever the theme. */
 internal val PaperCard = Color.White
 
 /** The role colour at its light-theme tone (T40), the same hue and chroma: Paper's ink in both themes. */
-internal fun paperInk(role: Color): Color = paperTone(role, PaperInkTone)
-
-private fun paperTone(role: Color, tone: Double): Color {
-    val hct = Hct.fromInt(role.toArgb())
-    return Color(Hct.from(hct.hue, hct.chroma, tone).toInt())
-}
-
-private const val PaperInkTone = 40.0
-
-/** Paper's Story backdrop: the role at its light container tone. */
-private const val PaperBackdropTone = 90.0
+internal fun paperInk(role: Color): Color = Color(YoinShareCards.retone(role.toArgb(), YoinShareCards.paperInkTone))
 
 /** The card's logical width; exported at [LyricsCardExportWidthPx]. */
-internal val LyricsCardDesignWidth = 360.dp
+internal val LyricsCardDesignWidth = YoinShareCards.cardDesignWidthDp.dp
 
 /** The story's logical size; exported at [LyricsStoryExportWidthPx] × [LyricsStoryExportHeightPx]. */
-internal val LyricsStoryDesignSize = DpSize(360.dp, 640.dp)
+internal val LyricsStoryDesignSize = DpSize(YoinShareCards.storyDesignWidthDp.dp, YoinShareCards.storyDesignHeightDp.dp)
 
 /** spotoolfy's poster: 720 logical px at 2×. */
-internal const val LyricsCardExportWidthPx = 1440
+internal const val LyricsCardExportWidthPx = YoinShareCards.cardExportWidthPx
 
 /** The common 9:16 story canvas. */
-internal const val LyricsStoryExportWidthPx = 1080
-internal const val LyricsStoryExportHeightPx = 1920
+internal const val LyricsStoryExportWidthPx = YoinShareCards.storyExportWidthPx
+internal const val LyricsStoryExportHeightPx = YoinShareCards.storyExportHeightPx
 
 /**
  * The PNG's pixel size for content laid out at [laidOutWidthPx] ×
@@ -266,13 +231,7 @@ internal fun lyricsShareExportSize(
     format: LyricsShareFormat,
     laidOutWidthPx: Float,
     laidOutHeightPx: Float,
-): IntSize = when (format) {
-    LyricsShareFormat.Story -> IntSize(LyricsStoryExportWidthPx, LyricsStoryExportHeightPx)
-    LyricsShareFormat.Card -> IntSize(
-        LyricsCardExportWidthPx,
-        (laidOutHeightPx * LyricsCardExportWidthPx / laidOutWidthPx).roundToInt().coerceAtLeast(1),
-    )
-}
+): IntSize = YoinShareCards.exportSize(format, laidOutWidthPx, laidOutHeightPx).let { IntSize(it.width, it.height) }
 
 /**
  * Uniform scale that fits a [childWidth] × [childHeight] layout into
@@ -286,26 +245,19 @@ internal fun lyricsShareFitScale(
     maxHeight: Int,
     // A preview on a wide sheet may draw larger than the image's logical size (it is not the PNG).
     maxScale: Float = 1f,
-): Float {
-    if (childWidth <= 0 || childHeight <= 0) return 1f
-    return min(maxScale, min(maxWidth.toFloat() / childWidth, maxHeight.toFloat() / childHeight))
-}
+): Float = YoinShareCards.fitScale(childWidth, childHeight, maxWidth, maxHeight, maxScale)
 
 /**
  * Gallery file name (spotoolfy: `lyrics_poster_<title>_<ms>`): "Yoin - <title> - <ms>.png" for every style
- * (lyrics, About, Note), the song title with the characters file systems refuse dropped, capped.
+ * (lyrics, About, Note), the song title with the characters file systems refuse dropped, capped
+ * ([YoinShareCards.fileTitle]).
  */
 internal fun shareFileName(
     songTitle: String?,
     nowMs: Long,
     resources: Resources? = null,
 ): String {
-    val title = songTitle.orEmpty()
-        .replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), " ")
-        .replace(Regex("""\s+"""), " ")
-        .trim()
-        .take(FileNameTitleMaxChars)
-        .trim()
+    val title = YoinShareCards.fileTitle(songTitle)
     val stamp = nowMs.toString()
     return if (title.isEmpty()) {
         if (resources == null) {
@@ -481,14 +433,8 @@ internal fun lyricsCardLineStyle(lines: List<LyricLine>): TextStyle =
  * headline sizes (owner 2026-10-05: 28sp read "too big, odd" — about a dozen
  * Latin letters a line). Short picks 22sp, medium 19sp, long 17sp.
  */
-internal fun lyricsCardLineSize(lines: List<LyricLine>): TextUnit {
-    val chars = lines.sumOf { it.text.length }
-    return when {
-        chars <= 90 && lines.size <= 4 -> 22.sp
-        chars <= 200 -> 19.sp
-        else -> 17.sp
-    }
-}
+internal fun lyricsCardLineSize(lines: List<LyricLine>): TextUnit =
+    YoinShareCards.cardLineSizeSp(lines.map { it.text }).sp
 
 /** Card / Story, as the NP tab group's pills. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -748,7 +694,7 @@ internal fun ZoomToFit(
         val placeable = measurable.measure(
             Constraints(minWidth = logicalWidth, maxWidth = logicalWidth, minHeight = minHeight),
         )
-        search.measured(placeable.height * zoom <= frameHeight + ZoomFitSlackPx, placeable.height)
+        search.measured(YoinShareCards.storyFits(placeable.height, zoom, frameHeight), placeable.height)
         // Even the furthest zoom can fall short (a pathological pick): shrink the rest.
         val scale = min(zoom, frameHeight.toFloat() / placeable.height)
         layout(
@@ -766,87 +712,31 @@ internal fun ZoomToFit(
 }
 
 /**
- * The zoom search, one measurement at a time: [maxZoom] first; when that doesn't fit, 1 (a story that
- * would grow); then [StoryZoomSearchSteps] halvings of the bracket that fits. Settles on the largest zoom
- * known to fit ([LyricsStoryMinZoom] when nothing does). A new frame size, or content whose height at the
- * settled zoom changes, starts it over. Its zoom and settled flag are snapshot state, so a step is a relayout.
+ * The zoom search ([ShareZoomSearch]: [maxZoom] first, then 1, then halvings of the bracket that fits), one
+ * measurement a layout pass. Its zoom and settled flag are mirrored into snapshot state, so a step is a relayout.
  */
 @Stable
-internal class ZoomSearch(private val maxZoom: Float) {
-    var zoom: Float by mutableFloatStateOf(maxZoom)
-        private set
-    var settled: Boolean by mutableStateOf(false)
-        private set
-    private var phase = Phase.Max
-    private var low = 0f
-    private var high = 0f
-    private var steps = 0
-    private var frameW = -1
-    private var frameH = -1
-    private var settledHeight = -1
+internal class ZoomSearch(maxZoom: Float) {
+    private val search = ShareZoomSearch(maxZoom)
 
-    private enum class Phase { Max, One, Bisect }
+    var zoom: Float by mutableFloatStateOf(search.zoom)
+        private set
+    var settled: Boolean by mutableStateOf(search.settled)
+        private set
 
     /** The frame being fitted; a new size starts over. */
-    fun frame(width: Int, height: Int) {
-        if (width != frameW || height != frameH) {
-            frameW = width
-            frameH = height
-            restart()
-        }
-    }
+    fun frame(width: Int, height: Int) = sync { search.frame(width, height) }
 
     /** The content measured [height] tall at [zoom] and [fits] (or not); moves to the next zoom or settles. */
-    fun measured(fits: Boolean, height: Int) {
-        if (settled) {
-            // Content that grew or shrank under a settled zoom is fitted again.
-            if (settledHeight >= 0 && height != settledHeight) restart() else settledHeight = height
-            return
-        }
-        report(fits)
-    }
+    fun measured(fits: Boolean, height: Int) = sync { search.measured(fits, height) }
 
     /** One step of the search for the zoom just tried. */
-    fun report(fits: Boolean) {
-        if (settled) return
-        when (phase) {
-            Phase.Max -> when {
-                fits -> settle(maxZoom)
-                maxZoom > 1f -> {
-                    phase = Phase.One
-                    zoom = 1f
-                }
-                else -> bisect(LyricsStoryMinZoom, maxZoom)
-            }
-            Phase.One -> if (fits) bisect(1f, maxZoom) else bisect(LyricsStoryMinZoom, 1f)
-            Phase.Bisect -> {
-                if (fits) low = zoom else high = zoom
-                steps++
-                if (steps >= StoryZoomSearchSteps) settle(low) else zoom = (low + high) / 2f
-            }
-        }
-    }
+    fun report(fits: Boolean) = sync { search.report(fits) }
 
-    private fun bisect(from: Float, to: Float) {
-        phase = Phase.Bisect
-        low = from
-        high = to
-        steps = 0
-        zoom = (low + high) / 2f
-    }
-
-    private fun settle(value: Float) {
-        zoom = value
-        settled = true
-        settledHeight = -1
-    }
-
-    private fun restart() {
-        phase = Phase.Max
-        steps = 0
-        settledHeight = -1
-        settled = false
-        zoom = maxZoom
+    private inline fun sync(step: () -> Unit) {
+        step()
+        if (zoom != search.zoom) zoom = search.zoom
+        if (settled != search.settled) settled = search.settled
     }
 }
 
@@ -854,21 +744,14 @@ internal class ZoomSearch(private val maxZoom: Float) {
  * The zoom [ZoomSearch] settles on when [fits] answers at once (fits is monotonic: a smaller zoom is a
  * wider, shorter layout drawn smaller): [maxZoom] when even that fits; [LyricsStoryMinZoom] when nothing does.
  */
-internal fun lyricsStoryZoom(maxZoom: Float = 1f, fits: (zoom: Float) -> Boolean): Float {
-    val search = ZoomSearch(maxZoom)
-    while (!search.settled) search.report(fits(search.zoom))
-    return search.zoom
-}
-
-/** Rounding: a height a fraction of a pixel over the frame still fits. */
-private const val ZoomFitSlackPx = 0.5f
+internal fun lyricsStoryZoom(maxZoom: Float = 1f, fits: (zoom: Float) -> Boolean): Float =
+    YoinShareCards.storyZoom(maxZoom, fits)
 
 /** Furthest a story zooms out: below this the type is too small to read on a phone. */
-internal const val LyricsStoryMinZoom = 0.4f
+internal const val LyricsStoryMinZoom = YoinShareCards.storyMinZoom
 
 /** Furthest a story zooms IN on short content (owner 2026-11-25: Story may enlarge it). */
-internal const val StoryMaxZoom = 1.4f
-private const val StoryZoomSearchSteps = 8
+internal const val StoryMaxZoom = YoinShareCards.storyMaxZoom
 
 /**
  * Records the content into [layer] at the format's export size (content
@@ -980,11 +863,10 @@ internal const val LyricsShareCardTag = "lyricsShareCard"
 
 private const val ShareCacheDir = "shared"
 private const val ShareFilePrefix = "yoin-share-"
-private const val GalleryFolder = "Yoin"
-private const val FileNameTitleMaxChars = 48
+private const val GalleryFolder = YoinShareCards.galleryFolder
 
 /** Artist line on the card. */
-internal const val CardSecondaryAlpha = 0.72f
+internal const val CardSecondaryAlpha = YoinShareCards.secondaryAlpha
 
 /** Translation lines on the card. */
 internal const val CardTranslationAlpha = 0.76f
@@ -994,8 +876,8 @@ private val CardLineGap = 6.dp
 private val CardPassageGap = 20.dp
 
 /** The story's card sits clear of the top / bottom chrome stories draw over the image. */
-internal val StoryHorizontalMargin = 28.dp
-internal val StoryVerticalMargin = 72.dp
+internal val StoryHorizontalMargin = YoinShareCards.storyMarginHorizontalDp.dp
+internal val StoryVerticalMargin = YoinShareCards.storyMarginVerticalDp.dp
 
 private val SwatchSize = 36.dp
 private val SwatchTouchSize = 48.dp
