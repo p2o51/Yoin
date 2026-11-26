@@ -8,7 +8,9 @@
 /// press charge starts on a block, and at T the finger is owned: edit mode
 /// comes in with that block already lifted, and the first slop carries it.
 /// In edit mode a body hold of max(150 ms, T/2) or a drag handle's slop
-/// lifts, a tap kicks, and a blank tap leaves.
+/// lifts, a tap kicks, a blank tap leaves, and a second finger before any
+/// lift pinches the feed into the compact list (or out of it). The machine is
+/// :shared HomeEditGestureMachine.kt's, replayed against home-edit-gestures.json.
 library;
 
 import 'dart:async';
@@ -17,8 +19,6 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
-import '../theme/tokens.dart';
-import 'home_metrics.dart';
 import 'home_section.dart';
 
 // ── Hit testing ───────────────────────────────────────────────────────────
@@ -58,11 +58,15 @@ final class HomeEditHitBlank extends HomeEditHit {
 /// A section's vertical extent in page px. [bleeds]: a full-width shelf that takes touches in the margins too.
 @immutable
 final class SectionBand {
-  const SectionBand(this.id, this.top, this.bottom, {this.bleeds = false});
+  const SectionBand(this.id, this.top, this.bottom, {this.bleeds = false, this.left, this.right});
   final HomeSection id;
   final double top;
   final double bottom;
   final bool bleeds;
+
+  /// Two columns: the cell's content edges (null: the feed's, a full row in one column).
+  final double? left;
+  final double? right;
 }
 
 /// Full-width shelves: a press in the page margin beside them lands on the shelf.
@@ -95,16 +99,22 @@ SectionBand? resolveSectionAt({
   required double outsetV,
   required bool editing,
 }) {
-  final padH = editing ? outsetH : 0.0;
-  final padV = editing ? outsetV : 0.0;
-  for (final band in bands) {
-    if (y >= band.top - padV &&
-        y <= band.bottom + padV &&
-        (band.bleeds || x >= contentLeft - padH && x <= contentRight + padH)) {
-      return band;
+  SectionBand? under(double padH, double padV) {
+    for (final band in bands) {
+      final left = band.left ?? contentLeft, right = band.right ?? contentRight;
+      if (y >= band.top - padV &&
+          y <= band.bottom + padV &&
+          ((band.bleeds && band.left == null) || x >= left - padH && x <= right + padH)) {
+        return band;
+      }
     }
+    return null;
   }
-  return null;
+
+  // A block the finger is on wins over a neighbour's plate reaching past it (two columns' halves sit 20 apart).
+  final exact = under(0, 0);
+  if (exact != null || !editing) return exact;
+  return under(outsetH, outsetV);
 }
 
 /// The hit at [position] once exclusions are ruled out: [handle] wins (edit
@@ -120,11 +130,14 @@ HomeEditHit resolveHomeEditHit({
   required bool editing,
   HomeSection? handle,
 }) {
-  HomeEditHitBlock block(SectionBand band) => HomeEditHitBlock(
-    band.id,
-    Offset(position.dx - contentLeft, position.dy - band.top),
-    Size(math.max(0, contentRight - contentLeft), band.bottom - band.top),
-  );
+  HomeEditHitBlock block(SectionBand band) {
+    final left = band.left ?? contentLeft, right = band.right ?? contentRight;
+    return HomeEditHitBlock(
+      band.id,
+      Offset(position.dx - left, position.dy - band.top),
+      Size(math.max(0, right - left), band.bottom - band.top),
+    );
+  }
   if (handle != null) {
     for (final band in bands) {
       if (band.id != handle) continue;
@@ -148,6 +161,23 @@ HomeEditHit resolveHomeEditHit({
 }
 
 // ── Gesture machine ───────────────────────────────────────────────────────
+// A port of :shared HomeEditGestureMachine.kt (parity p4; Android PR #292), replayed against
+// shared/src/commonTest/resources/golden/home-edit-gestures.json (test/home/home_edit_gestures_golden_test.dart).
+
+/// Numbers of the gesture machine (HomeEditGestureTokens).
+abstract final class HomeEditGestureTokens {
+  /// Edit mode's body hold never lifts sooner than this (ms); otherwise half the long-press timeout.
+  static const int bodyHoldMinMs = 150;
+
+  /// A tap's kick, and the one a lone lift puts down with.
+  static const double kickTap = .5;
+
+  /// A timer that wakes this late (ms) may have pointer events from before it still queued…
+  static const int lateTimerMs = 8;
+
+  /// …which reach the recognizer with the first frame the UI thread runs after it. A resting finger lifts this late at most.
+  static const int stalledInputGraceMs = 120;
+}
 
 /// Where the tracked finger is in the gesture (port sheet §2.1).
 enum HomeEditGestureState {
@@ -169,8 +199,11 @@ enum HomeEditGestureState {
   /// Edit mode off every plate: a tap exits.
   blank,
 
-  /// The finger drives the strip carry.
+  /// The finger drags the lifted block.
   carry,
+
+  /// A second finger came down in edit mode: the two pinch the list in or out.
+  pinch,
 
   /// The rest of the finger is swallowed.
   done,
@@ -212,7 +245,6 @@ final class HomeEditDown extends HomeEditGestureEvent {
     required this.hit,
     required this.position,
     required this.editing,
-    required this.carryBusy,
     required this.flingInProgress,
     required this.t,
     this.secondaryClick = false,
@@ -221,8 +253,7 @@ final class HomeEditDown extends HomeEditGestureEvent {
   final Offset position;
   final bool editing;
 
-  /// The carry is settling or unfolding: a press can only catch the strip.
-  final bool carryBusy;
+  /// The feed (or the list) is flinging, or stopped one a moment ago.
   final bool flingInProgress;
   final int t;
 
@@ -247,14 +278,11 @@ final class HomeEditCancel extends HomeEditGestureEvent {
   final int t;
 }
 
+/// [kind] is due. [flinging]: the feed (or the list) is flinging as it fires, so a hold doesn't lift.
 final class HomeEditTimerFired extends HomeEditGestureEvent {
-  const HomeEditTimerFired(this.kind);
+  const HomeEditTimerFired(this.kind, {this.flinging = false});
   final HomeEditTimer kind;
-}
-
-/// The busy press's [HomeEditTryRegrab] caught the settling strip.
-final class HomeEditRegrabbed extends HomeEditGestureEvent {
-  const HomeEditRegrabbed();
+  final bool flinging;
 }
 
 /// Edit mode ended under the finger (critique 4).
@@ -262,7 +290,7 @@ final class HomeEditEditEnded extends HomeEditGestureEvent {
   const HomeEditEditEnded();
 }
 
-/// The carry was let go from outside: an exit dropped it into its settle (proto forceDrop).
+/// The drag was let go from outside: an exit or a resize dropped it (proto forceDrop).
 final class HomeEditCarryEnded extends HomeEditGestureEvent {
   const HomeEditCarryEnded();
 }
@@ -270,6 +298,23 @@ final class HomeEditCarryEnded extends HomeEditGestureEvent {
 /// A change of any other finger.
 final class HomeEditOtherPointer extends HomeEditGestureEvent {
   const HomeEditOtherPointer();
+}
+
+/// A second finger went down [span] px from the tracked one.
+final class HomeEditPinchDown extends HomeEditGestureEvent {
+  const HomeEditPinchDown(this.span);
+  final double span;
+}
+
+/// A finger of the pinch moved: the two are [span] px apart.
+final class HomeEditPinchMove extends HomeEditGestureEvent {
+  const HomeEditPinchMove(this.span);
+  final double span;
+}
+
+/// The pinch's second finger lifted.
+final class HomeEditPinchUp extends HomeEditGestureEvent {
+  const HomeEditPinchUp();
 }
 
 /// Output of [HomeEditGestureMachine], applied in order by Home's executor.
@@ -361,10 +406,23 @@ final class HomeEditCarryRelease extends HomeEditGestureAction {
   final int t;
 }
 
-final class HomeEditTryRegrab extends HomeEditGestureAction {
-  const HomeEditTryRegrab(this.position, this.t);
-  final Offset position;
-  final int t;
+/// Two fingers down in edit mode: the list follows their span from here.
+final class HomeEditPinchStart extends HomeEditGestureAction {
+  const HomeEditPinchStart();
+
+  @override
+  bool get editOnly => true;
+}
+
+/// The fingers' span over the one they started at.
+final class HomeEditPinchBy extends HomeEditGestureAction {
+  const HomeEditPinchBy(this.scale);
+  final double scale;
+}
+
+/// The pinch let go: the list lands where it was left.
+final class HomeEditPinchEnd extends HomeEditGestureAction {
+  const HomeEditPinchEnd();
 }
 
 /// An edit-mode tap: kick the card at [local] (or the block, for null or no card).
@@ -405,11 +463,15 @@ final class HomeEditConsumeOther extends HomeEditGestureAction {
 }
 
 /// The detector as a pure machine (port sheet §2.1, spec §2.1.2, §2.6): fed
-/// one finger's events and its timers, it answers with actions. [longPressMs]
-/// is T, [slopPx] the touch slop.
+/// one finger's events and its timers, it answers with actions. In normal mode
+/// it only watches until the long-press threshold, so a tap still opens the
+/// card and a slop still scrolls; from the threshold on the finger is owned.
+/// In edit mode a body hold or a handle drag lifts, a tap kicks, a blank tap
+/// exits, and a second finger before any lift pinches the list in or out.
+/// [longPressMs] is T, [slopPx] the touch slop.
 class HomeEditGestureMachine {
   HomeEditGestureMachine({required this.longPressMs, required this.slopPx})
-    : _bodyHoldMs = math.max(HomeCarryTokens.bodyHoldMinMs, longPressMs ~/ 2);
+    : _bodyHoldMs = math.max(HomeEditGestureTokens.bodyHoldMinMs, longPressMs ~/ 2);
 
   final int longPressMs;
   final double slopPx;
@@ -421,6 +483,13 @@ class HomeEditGestureMachine {
   final List<HomeEditTimerAt> _timers = [];
 
   Offset _downAt = Offset.zero;
+
+  /// Where the tracked finger went down (page px).
+  Offset get downAt => _downAt;
+
+  /// Where the tracked finger was last seen (page px): a drag reads its x (two columns, the follow).
+  Offset get position => _position;
+  Offset _position = Offset.zero;
   HomeSection? _section;
   Offset _local = Offset.zero;
   Size _size = Size.zero;
@@ -431,7 +500,11 @@ class HomeEditGestureMachine {
   bool _charging = false;
   bool _flingStop = false;
   bool _blankHeld = false;
-  bool _awaitingRegrab = false;
+  double _pinchSpan = 0;
+
+  // The instant (event time) a hold lifted the block: a move from before it past the slop takes the lift back.
+  static const int _never = -0x8000000000000000;
+  int _liftAt = _never;
 
   /// The next timer to fire, or null.
   HomeEditTimerAt? get pendingTimer {
@@ -442,28 +515,53 @@ class HomeEditGestureMachine {
     return next;
   }
 
-  List<HomeEditGestureAction> handle(HomeEditGestureEvent event) {
-    if (event is! HomeEditRegrabbed && event is! HomeEditOtherPointer) _awaitingRegrab = false;
-    return switch (event) {
-      HomeEditDown() => _down(event),
-      HomeEditMove() => _move(event),
-      HomeEditUp(:final t) => _up(t),
-      HomeEditCancel(:final t) => _cancel(t),
-      HomeEditTimerFired(:final kind) => _timer(kind),
-      HomeEditRegrabbed() => _regrabbed(),
-      HomeEditEditEnded() => _editEnded(),
-      HomeEditCarryEnded() => _carryEnded(),
-      HomeEditOtherPointer() =>
-        _state != HomeEditGestureState.idle && _state != HomeEditGestureState.passive
-            ? const [HomeEditConsumeOther()]
-            : const [],
-    };
+  List<HomeEditGestureAction> handle(HomeEditGestureEvent event) => switch (event) {
+    HomeEditDown() => _down(event),
+    HomeEditMove() => _move(event),
+    HomeEditUp(:final t) => _up(t),
+    HomeEditCancel(:final t) => _cancel(t),
+    HomeEditTimerFired(:final kind, :final flinging) => _timer(kind, flinging),
+    HomeEditEditEnded() => _editEnded(),
+    HomeEditCarryEnded() => _carryEnded(),
+    HomeEditOtherPointer() => _otherPointer(),
+    HomeEditPinchDown(:final span) => _pinchDown(span),
+    HomeEditPinchMove(:final span) =>
+      _state == HomeEditGestureState.pinch && _pinchSpan > 0 ? [HomeEditPinchBy(span / _pinchSpan)] : const [],
+    HomeEditPinchUp() => _pinchUp(),
+  };
+
+  List<HomeEditGestureAction> _otherPointer() =>
+      _state != HomeEditGestureState.idle && _state != HomeEditGestureState.passive
+      ? const [HomeEditConsumeOther()]
+      : const [];
+
+  // Before a lift, an edit-mode press (a scroll included) becomes a pinch; otherwise the finger is ignored.
+  List<HomeEditGestureAction> _pinchDown(double span) {
+    final canPinch =
+        _editGesture &&
+        span > 0 &&
+        (_state == HomeEditGestureState.holding ||
+            _state == HomeEditGestureState.handleDown ||
+            _state == HomeEditGestureState.blank ||
+            _state == HomeEditGestureState.passive);
+    if (!canPinch) return _otherPointer();
+    _timers.clear();
+    _pinchSpan = span;
+    _state = HomeEditGestureState.pinch;
+    return const [HomeEditPinchStart(), HomeEditConsumeRest(), HomeEditConsumeOther()];
+  }
+
+  List<HomeEditGestureAction> _pinchUp() {
+    if (_state != HomeEditGestureState.pinch) return const [];
+    _state = HomeEditGestureState.done;
+    return const [HomeEditPinchEnd()];
   }
 
   List<HomeEditGestureAction> _down(HomeEditDown event) {
     if (_state != HomeEditGestureState.idle) return const [];
     _reset();
     _downAt = event.position;
+    _position = event.position;
     switch (event.hit) {
       case HomeEditHitBlock(:final section, :final local, :final size):
         _target(section, local, size);
@@ -480,26 +578,20 @@ class HomeEditGestureMachine {
   List<HomeEditGestureAction> _editDown(HomeEditDown event) {
     // Only primary presses edit; the mouse's secondary button does nothing here.
     if (event.secondaryClick) return const [];
-    // Settling or unfolding: catch the strip, or swallow the press so the list can't move under it.
-    if (event.carryBusy) {
-      _editGesture = true;
-      _awaitingRegrab = true;
-      _state = HomeEditGestureState.done;
-      return [
-        const HomeEditTouch(),
-        const HomeEditPointerDown(true),
-        HomeEditTryRegrab(event.position, event.t),
-        const HomeEditConsumeRest(),
-      ];
-    }
     if (event.hit is HomeEditHitExcluded) return const [HomeEditTouch()];
     _editGesture = true;
     switch (event.hit) {
+      // A press on a block that stops a fling (or lands just after one) is part of the
+      // scroll: it never lifts, and its up kicks nothing.
       case HomeEditHitHandle():
-        _state = HomeEditGestureState.handleDown;
+        _state = event.flingInProgress ? HomeEditGestureState.passive : HomeEditGestureState.handleDown;
       case HomeEditHitBlock():
-        _timers.add(HomeEditTimerAt(HomeEditTimer.bodyHold, event.t + _bodyHoldMs));
-        _state = HomeEditGestureState.holding;
+        if (event.flingInProgress) {
+          _state = HomeEditGestureState.passive;
+        } else {
+          _timers.add(HomeEditTimerAt(HomeEditTimer.bodyHold, event.t + _bodyHoldMs));
+          _state = HomeEditGestureState.holding;
+        }
       default:
         _flingStop = event.flingInProgress;
         _timers.add(HomeEditTimerAt(HomeEditTimer.blankHold, event.t + longPressMs));
@@ -510,6 +602,8 @@ class HomeEditGestureMachine {
 
   List<HomeEditGestureAction> _normalDown(HomeEditDown event) {
     if (event.hit is HomeEditHitExcluded) return const [];
+    // A press that stops a fling is the scroll's, not a long press: left to the page untouched.
+    if (event.flingInProgress && !event.secondaryClick) return const [];
     if (event.secondaryClick) {
       _editGesture = true;
       _state = HomeEditGestureState.done;
@@ -526,6 +620,7 @@ class HomeEditGestureMachine {
   }
 
   List<HomeEditGestureAction> _move(HomeEditMove event) {
+    _position = event.position;
     final pastSlop = (event.position - _downAt).distance > slopPx;
     final section = _section;
     switch (_state) {
@@ -542,13 +637,25 @@ class HomeEditGestureMachine {
           HomeEditStartCarry(event.position.dy, event.t),
           const HomeEditConsumeRest(),
         ];
+      // A move stamped before the lift that was already past the slop, handed over late (a long
+      // frame held the input back past the hold's timer): the finger never held still that long,
+      // so the lift is taken back and the rest of the finger swallowed. Never a carry: a fling
+      // must not drag the block it started on.
       case HomeEditGestureState.lifted:
+        if (pastSlop && event.t < _liftAt) {
+          _timers.clear();
+          _state = HomeEditGestureState.done;
+          return const [HomeEditDropLift(0)];
+        }
         if (!pastSlop) return const [];
         _state = HomeEditGestureState.carry;
         return [HomeEditStartCarry(event.position.dy, event.t)];
       case HomeEditGestureState.carry:
         return [HomeEditCarryMove(event.position.dy, event.t)];
-      case HomeEditGestureState.idle || HomeEditGestureState.done || HomeEditGestureState.passive:
+      case HomeEditGestureState.idle ||
+          HomeEditGestureState.done ||
+          HomeEditGestureState.passive ||
+          HomeEditGestureState.pinch:
         return const [];
     }
   }
@@ -557,7 +664,7 @@ class HomeEditGestureMachine {
     final section = _section;
     final List<HomeEditGestureAction> body = switch (_state) {
       HomeEditGestureState.pressing => [..._releaseCharge(), const HomeEditAbandon()],
-      HomeEditGestureState.lifted => const [HomeEditDropLift(HomeWiggleMetrics.kickTap)],
+      HomeEditGestureState.lifted => const [HomeEditDropLift(HomeEditGestureTokens.kickTap)],
       // A handle has no card under it: the block kicks.
       HomeEditGestureState.holding || HomeEditGestureState.handleDown =>
         section == null
@@ -569,6 +676,7 @@ class HomeEditGestureMachine {
       HomeEditGestureState.blank =>
         _flingStop || _blankHeld ? const [] : const [HomeEditExitBlank(), HomeEditConsumeRest()],
       HomeEditGestureState.carry => [HomeEditCarryRelease(cancelled: false, t: t)],
+      HomeEditGestureState.pinch => const [HomeEditPinchEnd()],
       HomeEditGestureState.idle || HomeEditGestureState.done || HomeEditGestureState.passive => const [],
     };
     return _finish(body);
@@ -579,6 +687,7 @@ class HomeEditGestureMachine {
       HomeEditGestureState.pressing => [..._releaseCharge(), const HomeEditAbandon()],
       HomeEditGestureState.lifted => const [HomeEditDropLift(0)],
       HomeEditGestureState.carry => [HomeEditCarryRelease(cancelled: true, t: t)],
+      HomeEditGestureState.pinch => const [HomeEditPinchEnd()],
       _ => const [],
     };
     return _finish(body);
@@ -592,20 +701,37 @@ class HomeEditGestureMachine {
     return [const HomeEditPointerDown(false), const HomeEditTouch(), ...body, const HomeEditOpenPlaceholders()];
   }
 
-  List<HomeEditGestureAction> _timer(HomeEditTimer kind) {
-    final before = _timers.length;
+  List<HomeEditGestureAction> _timer(HomeEditTimer kind, bool flinging) {
+    HomeEditTimerAt? due;
+    for (final t in _timers) {
+      if (t.kind == kind) {
+        due = t;
+        break;
+      }
+    }
+    if (due == null) return const [];
+    final at = due.atMs;
     _timers.removeWhere((t) => t.kind == kind);
-    if (_timers.length == before) return const [];
     final section = _section;
+    // The feed began to fling under a resting finger: no lift, the press is the scroll's.
+    if (flinging && kind == HomeEditTimer.longPress && _state == HomeEditGestureState.pressing) {
+      return _abandon(HomeEditGestureState.idle);
+    }
+    if (flinging && kind == HomeEditTimer.bodyHold && _state == HomeEditGestureState.holding) {
+      return _abandon(HomeEditGestureState.passive);
+    }
     switch (kind) {
       case HomeEditTimer.halfT:
         if (_state != HomeEditGestureState.pressing || section == null) return const [];
         _charging = true;
         return [HomeEditStartCharge(section, _local)];
       case HomeEditTimer.longPress:
-        return _state == HomeEditGestureState.pressing ? _threshold(section) : const [];
+        if (_state != HomeEditGestureState.pressing) return const [];
+        _liftAt = at;
+        return _threshold(section);
       case HomeEditTimer.bodyHold:
         if (_state != HomeEditGestureState.holding || section == null) return const [];
+        _liftAt = at;
         _state = HomeEditGestureState.lifted;
         return [const HomeEditDragStartHaptic(), HomeEditLift(section, _local), const HomeEditConsumeRest()];
       case HomeEditTimer.blankHold:
@@ -640,12 +766,6 @@ class HomeEditGestureMachine {
       const HomeEditConsumeRest(),
       const HomeEditPointerDown(true),
     ];
-  }
-
-  List<HomeEditGestureAction> _regrabbed() {
-    if (_state == HomeEditGestureState.done && _awaitingRegrab) _state = HomeEditGestureState.carry;
-    _awaitingRegrab = false;
-    return const [];
   }
 
   // proto disownGesture: a press still waiting on edit mode must not lift or exit in normal mode.
@@ -698,22 +818,96 @@ class HomeEditGestureMachine {
     _charging = false;
     _flingStop = false;
     _blankHeld = false;
+    _pinchSpan = 0;
+    _liftAt = _never;
+  }
+}
+
+/// Runs [machine]'s timers on the pointer events' own clock (their stamps, ms),
+/// never on when a wait happens to wake (HomeEditGestureTimeline). Every sample
+/// of the finger is handled at its stamp, and a timer due at or before a stamp
+/// fires first. So a hold lifts only if the finger stayed within the slop up to
+/// the hold's instant by the events themselves: a long frame that hands a
+/// fling's moves over late can't let the hold run ahead of them. A move from
+/// before the instant that comes even later than that takes the lift back
+/// ([HomeEditGestureMachine]). [flinging] is asked as a hold fires.
+class HomeEditGestureTimeline {
+  HomeEditGestureTimeline(this.machine, {required this.flinging, required this.step});
+
+  final HomeEditGestureMachine machine;
+  final bool Function() flinging;
+  final List<HomeEditGestureAction> Function(HomeEditGestureEvent event) step;
+
+  /// The event clock: the latest instant handled, a sample's stamp or a timer's.
+  int get now => _now;
+  int _now = 0;
+
+  /// The gesture starts at its down's stamp [t].
+  void start(int t) => _now = t;
+
+  /// How long (ms, from [now]) input may take before the next timer is due; null with none pending.
+  int? untilDue() {
+    final timer = machine.pendingTimer;
+    return timer == null ? null : math.max(0, timer.atMs - _now);
+  }
+
+  /// The wait for the next timer woke at [wallMs] with no input: how much longer
+  /// to wait for input held back from before the timer's instant. Only a wait
+  /// that woke late (a long frame) has any to wait for.
+  int graceAfter(int wallMs) {
+    final timer = machine.pendingTimer;
+    if (timer == null) return 0;
+    return wallMs - timer.atMs > HomeEditGestureTokens.lateTimerMs ? HomeEditGestureTokens.stalledInputGraceMs : 0;
+  }
+
+  /// No input came by the next timer's instant (and its grace): it fires.
+  void timeout() {
+    final timer = machine.pendingTimer;
+    if (timer != null) _fire(timer);
+  }
+
+  /// Timers due at or before [t] fire, oldest first; then the clock is at [t].
+  void advanceTo(int t) {
+    while (true) {
+      final timer = machine.pendingTimer;
+      if (timer == null || timer.atMs > t) break;
+      _fire(timer);
+    }
+    _now = math.max(_now, t);
+  }
+
+  /// A sample of the tracked finger, handled at its own stamp: whatever was due before it goes first.
+  List<HomeEditGestureAction> sample(HomeEditGestureEvent event) {
+    final t = switch (event) {
+      HomeEditMove(:final t) || HomeEditUp(:final t) || HomeEditCancel(:final t) => t,
+      _ => _now,
+    };
+    advanceTo(t);
+    return step(event);
+  }
+
+  void _fire(HomeEditTimerAt timer) {
+    _now = math.max(_now, timer.atMs);
+    final lifts = timer.kind == HomeEditTimer.bodyHold || timer.kind == HomeEditTimer.longPress;
+    step(HomeEditTimerFired(timer.kind, flinging: lifts && flinging()));
   }
 }
 
 // ── Recognizer ────────────────────────────────────────────────────────────
 
-/// Applies one batch of machine actions (Home's executor). [machine] answers
-/// a re-grab in place.
+/// Applies one batch of machine actions (Home's executor).
 typedef HomeEditGestureRunner = void Function(List<HomeEditGestureAction> actions, HomeEditGestureMachine machine);
 
-/// Home edit mode's detector over the whole feed, margins included (spec
-/// §2.1.2): one [HomeEditGestureMachine] per finger, driven from the
-/// pointer router. Compose reads the Initial pass; here the recognizer
-/// joins the arena undecided and only claims it when the machine consumes
-/// (a lift, a carry, a blank tap, a busy press). A press the machine gives
+/// Home edit mode's detector over the whole feed (or the pinched list),
+/// margins included (spec §2.1.2): one [HomeEditGestureMachine] per finger,
+/// its timers run on the events' own clock ([HomeEditGestureTimeline]),
+/// driven from the pointer router. Compose reads the Initial pass; here the
+/// recognizer joins the arena undecided and only claims it when the machine
+/// consumes (a lift, a carry, a blank tap, a pinch). A press the machine gives
 /// up (a scroll, a tap on a card, a tap on a plate) is rejected so the page
-/// gets it; an edit-mode press given up is still watched for its up.
+/// gets it; an edit-mode press given up is still watched for its up, and a
+/// second finger then still pinches. A second finger is tracked for the
+/// pinch: its span against the first one's feeds the machine.
 class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
   HomeEditGestureRecognizer({super.debugOwner})
     : super(allowedButtonsFilter: (buttons) => buttons == kPrimaryButton || buttons == kSecondaryButton);
@@ -724,7 +918,9 @@ class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
   /// Global → page px.
   Offset Function(Offset global)? toPage;
   bool Function()? editing;
-  bool Function()? carryBusy;
+
+  /// The drag was let go from outside (an exit, a resize) while the finger is down.
+  bool Function()? carryLetGo;
   bool Function()? flingInProgress;
   HomeEditGestureRunner? run;
 
@@ -733,47 +929,49 @@ class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
   double slop = kTouchSlop;
 
   HomeEditGestureMachine? _machine;
+  HomeEditGestureTimeline? _timeline;
   int? _primary;
+  Offset _primaryAt = Offset.zero;
+  int? _pinch;
+  Offset _pinchAt = Offset.zero;
   final Set<int> _others = {};
   bool _accepted = false;
   bool _rejected = false;
-  int _now = 0;
   Timer? _timer;
-  HomeEditTimerAt? _timerFor;
+  int _waitGeneration = 0;
 
   /// A finger the machine owns or watches.
   bool get active => _machine != null;
 
-  static int _ms(Duration d) => d.inMilliseconds;
+  // An event's stamp on the gesture's clock. Synthesized events (a test's, with no stamp) take the
+  // clock as it stands, so they never land before a timer that has fired.
+  int _stamp(PointerEvent event) {
+    final t = event.timeStamp;
+    return t == Duration.zero ? (_timeline?.now ?? 0) : t.inMilliseconds;
+  }
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
     final machine = _machine;
     if (machine != null) {
-      // Another finger: ignored, but it must not scroll the list.
-      if (machine.handle(const HomeEditOtherPointer()).any((a) => a is HomeEditConsumeOther)) {
-        _others.add(event.pointer);
-        startTrackingPointer(event.pointer, event.transform);
-        resolvePointer(event.pointer, GestureDisposition.accepted);
-      }
+      _secondPointer(event, machine);
       return;
     }
     final hitTest = this.hitTest, toPage = this.toPage, run = this.run;
     if (hitTest == null || toPage == null || run == null) return;
     final position = toPage(event.position);
     final m = HomeEditGestureMachine(longPressMs: longPressMs, slopPx: slop);
-    _now = _ms(event.timeStamp);
     _accepted = false;
     _rejected = false;
+    final t = event.timeStamp.inMilliseconds;
     final mouse = event.kind == PointerDeviceKind.mouse;
     final actions = m.handle(
       HomeEditDown(
         hit: hitTest(position),
         position: position,
         editing: editing?.call() ?? false,
-        carryBusy: carryBusy?.call() ?? false,
         flingInProgress: flingInProgress?.call() ?? false,
-        t: _now,
+        t: t,
         secondaryClick: mouse && (event.buttons & kSecondaryButton) != 0 && (event.buttons & kPrimaryButton) == 0,
       ),
     );
@@ -783,7 +981,17 @@ class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
       return;
     }
     _machine = m;
+    _timeline = HomeEditGestureTimeline(
+      m,
+      flinging: () => flingInProgress?.call() ?? false,
+      step: (e) {
+        final stepped = m.handle(e);
+        _apply(stepped, m);
+        return stepped;
+      },
+    )..start(t);
     _primary = event.pointer;
+    _primaryAt = position;
     startTrackingPointer(event.pointer, event.transform);
     _apply(actions, m);
     // A drag handle owns its press: the list must not take its slop first.
@@ -791,41 +999,90 @@ class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
     _schedule();
   }
 
+  // Another finger while one is tracked: a pinch before any lift, else ignored (but it must not scroll the list).
+  void _secondPointer(PointerDownEvent event, HomeEditGestureMachine machine) {
+    final position = toPage?.call(event.position) ?? event.position;
+    final List<HomeEditGestureAction> actions;
+    if (_pinch == null) {
+      actions = machine.handle(HomeEditPinchDown((position - _primaryAt).distance));
+    } else {
+      actions = machine.handle(const HomeEditOtherPointer());
+    }
+    if (actions.any((a) => a is HomeEditPinchStart)) {
+      _pinch = event.pointer;
+      _pinchAt = position;
+    }
+    if (actions.any((a) => a is HomeEditConsumeOther)) {
+      _others.add(event.pointer);
+      startTrackingPointer(event.pointer, event.transform);
+      resolvePointer(event.pointer, GestureDisposition.accepted);
+    }
+    _apply(actions.where((a) => a is! HomeEditConsumeOther).toList(), machine);
+    _afterStep(machine);
+  }
+
   @override
   void handleEvent(PointerEvent event) {
+    final m = _machine;
     if (event.pointer != _primary) {
+      if (m != null && event.pointer == _pinch) {
+        if (event is PointerMoveEvent) {
+          _pinchAt = toPage?.call(event.position) ?? event.position;
+          _apply(m.handle(HomeEditPinchMove((_pinchAt - _primaryAt).distance)), m);
+        } else if (event is PointerUpEvent || event is PointerCancelEvent) {
+          _pinch = null;
+          _apply(m.handle(const HomeEditPinchUp()), m);
+          _afterStep(m);
+        }
+      }
       if (_others.contains(event.pointer) && (event is PointerUpEvent || event is PointerCancelEvent)) {
         _others.remove(event.pointer);
+        if (_pinch == event.pointer) _pinch = null;
         stopTrackingPointer(event.pointer);
       }
       return;
     }
-    final m = _machine;
-    if (m == null) return;
-    _now = math.max(_now, _ms(event.timeStamp));
+    final timeline = _timeline;
+    if (m == null || timeline == null) return;
     _checkOutside(m);
-    final t = _ms(event.timeStamp);
+    final t = _stamp(event);
     if (event is PointerMoveEvent) {
-      _apply(m.handle(HomeEditMove(toPage!(event.position), t)), m);
+      _primaryAt = toPage!(event.position);
+      timeline.sample(HomeEditMove(_primaryAt, t));
+      if (_pinch != null && m.state == HomeEditGestureState.pinch) {
+        _apply(m.handle(HomeEditPinchMove((_pinchAt - _primaryAt).distance)), m);
+      }
     } else if (event is PointerUpEvent) {
-      _apply(m.handle(HomeEditUp(t)), m, up: true);
+      _sampleEnd(timeline, m, HomeEditUp(t));
     } else if (event is PointerCancelEvent) {
-      _apply(m.handle(HomeEditCancel(t)), m, up: true);
+      _sampleEnd(timeline, m, HomeEditCancel(t));
     }
     _afterStep(m);
   }
 
-  // Edit mode can end, or an exit drop the carry, while the finger rests. A carry that
-  // never started or was torn down stays: the engine's release puts a lone lift down.
+  // The finger's up (or cancel): what was due before it fires first; an up not accepted gives the press away.
+  void _sampleEnd(HomeEditGestureTimeline timeline, HomeEditGestureMachine m, HomeEditGestureEvent end) {
+    final t = switch (end) {
+      HomeEditUp(:final t) || HomeEditCancel(:final t) => t,
+      _ => timeline.now,
+    };
+    timeline.advanceTo(t);
+    _apply(m.handle(end), m, up: true);
+  }
+
+  // Edit mode can end, or an exit let the drag go, while the finger rests.
   void _checkOutside(HomeEditGestureMachine m) {
     if (!(editing?.call() ?? false)) _apply(m.handle(const HomeEditEditEnded()), m);
-    if (m.state == HomeEditGestureState.carry && (carryBusy?.call() ?? false)) {
+    if (m.state == HomeEditGestureState.carry && (carryLetGo?.call() ?? false)) {
       _apply(m.handle(const HomeEditCarryEnded()), m);
     }
   }
 
   void _apply(List<HomeEditGestureAction> actions, HomeEditGestureMachine m, {bool up = false}) {
-    if (actions.isEmpty) return;
+    if (actions.isEmpty) {
+      if (up && !_accepted) _reject();
+      return;
+    }
     run?.call(actions, m);
     final consume = actions.any((a) => a is HomeEditConsumeRest);
     // An edit-mode tap on a plate goes to the page: the plate (its kick), a
@@ -861,36 +1118,49 @@ class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
     }
   }
 
+  // Waits for the next timer on the event clock; a wait that wakes late gives input held back
+  // from before the timer's instant its grace before the timer fires.
   void _schedule() {
-    final next = _machine?.pendingTimer;
-    if (next == null) {
-      _timer?.cancel();
-      _timer = null;
-      _timerFor = null;
-      return;
-    }
-    if (_timer != null && identical(_timerFor, next)) return;
     _timer?.cancel();
-    _timerFor = next;
-    _timer = Timer(Duration(milliseconds: math.max(0, next.atMs - _now)), () {
+    _timer = null;
+    final timeline = _timeline;
+    final due = timeline?.untilDue();
+    if (timeline == null || due == null) return;
+    final generation = ++_waitGeneration;
+    final from = timeline.now;
+    final watch = Stopwatch()..start();
+    _timer = Timer(Duration(milliseconds: due), () {
+      if (generation != _waitGeneration) return;
       _timer = null;
-      _timerFor = null;
-      final m = _machine;
-      if (m == null) return;
-      _checkOutside(m);
-      _now = math.max(_now, next.atMs);
-      _apply(m.handle(HomeEditTimerFired(next.kind)), m);
-      _afterStep(m);
+      final grace = timeline.graceAfter(from + watch.elapsedMilliseconds);
+      if (grace <= 0) {
+        _timeout(generation);
+      } else {
+        _timer = Timer(Duration(milliseconds: grace), () => _timeout(generation));
+      }
     });
+  }
+
+  void _timeout(int generation) {
+    if (generation != _waitGeneration) return;
+    _timer = null;
+    final m = _machine;
+    final timeline = _timeline;
+    if (m == null || timeline == null) return;
+    _checkOutside(m);
+    timeline.timeout();
+    _afterStep(m);
   }
 
   void _end() {
     _timer?.cancel();
     _timer = null;
-    _timerFor = null;
+    _waitGeneration++;
     final pointer = _primary;
     _machine = null;
+    _timeline = null;
     _primary = null;
+    _pinch = null;
     if (pointer != null) {
       if (!_accepted) _reject();
       stopTrackingPointer(pointer);
@@ -905,16 +1175,16 @@ class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
     if (pointer != _primary) return;
     _rejected = true;
     final m = _machine;
-    if (m == null) return;
+    final timeline = _timeline;
+    if (m == null || timeline == null) return;
     // The list (or a card) took the finger first: what the machine's own slop
     // would have done — normal mode lets go, an edit-mode press is watched to its up.
     switch (m.state) {
       case HomeEditGestureState.pressing || HomeEditGestureState.holding || HomeEditGestureState.blank:
         final far = Offset(slop * 2 + 1, 0);
-        final down = m._downAt;
-        run?.call(m.handle(HomeEditMove(down + far, _now)), m);
+        run?.call(m.handle(HomeEditMove(m.downAt + far, timeline.now)), m);
       case HomeEditGestureState.handleDown || HomeEditGestureState.lifted || HomeEditGestureState.carry:
-        run?.call(m.handle(HomeEditCancel(_now)), m);
+        run?.call(m.handle(HomeEditCancel(timeline.now)), m);
       default:
         break;
     }
@@ -927,9 +1197,10 @@ class HomeEditGestureRecognizer extends OneSequenceGestureRecognizer {
   @override
   void dispose() {
     final m = _machine;
-    if (m != null && m.state != HomeEditGestureState.idle) run?.call(m.handle(HomeEditCancel(_now)), m);
+    if (m != null && m.state != HomeEditGestureState.idle) run?.call(m.handle(HomeEditCancel(_timeline?.now ?? 0)), m);
     _timer?.cancel();
     _machine = null;
+    _timeline = null;
     _primary = null;
     super.dispose();
   }

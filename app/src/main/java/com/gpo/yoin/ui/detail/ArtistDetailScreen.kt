@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -85,6 +84,7 @@ import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -376,7 +376,7 @@ private fun ArtistTopHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
+            .topBarsPadding()
             .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

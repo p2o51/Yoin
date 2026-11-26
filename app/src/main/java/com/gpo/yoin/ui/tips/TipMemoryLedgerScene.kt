@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +21,7 @@ import com.gpo.yoin.shared.memory.MemoryLedgerKind
 import com.gpo.yoin.data.memory.buildMemoryGrid
 import com.gpo.yoin.data.memory.memoryLedgerStats
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.home.MemoryLedgerSection
 import com.gpo.yoin.ui.memories.ledger.LedgerProfile
 import com.gpo.yoin.ui.memories.ledger.MemoryLedgerScreen
@@ -81,7 +81,7 @@ internal fun MemoryLedgerDemo(playing: Boolean) {
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Box(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 16.dp, vertical = 24.dp)) {
+                Box(Modifier.fillMaxSize().topBarsPadding().padding(horizontal = 16.dp, vertical = 24.dp)) {
                     MemoryLedgerSection(
                         state = state,
                         extractBackdropColors = true,

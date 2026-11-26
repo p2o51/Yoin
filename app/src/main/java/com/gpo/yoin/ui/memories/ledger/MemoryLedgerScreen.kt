@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -107,6 +106,7 @@ import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.detail.AlbumBarStatusBarEffect
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.topBars
 import com.gpo.yoin.ui.settings.AccountMark
 import com.gpo.yoin.ui.settings.SettingsBackButton
 import com.gpo.yoin.ui.settings.SettingsHeadline
@@ -167,7 +167,7 @@ internal fun MemoryLedgerScreen(
     var sort by rememberSaveable { mutableStateOf(MemoryLedgerSort.Recent) }
     val listState = rememberLazyStaggeredGridState()
     val lift = remember { MemoryGridLift() }
-    val barHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + BarHeight
+    val barHeight = WindowInsets.topBars.asPaddingValues().calculateTopPadding() + BarHeight
     val pixels = remember(state?.grid) { state?.grid?.let(::liftPixels).orEmpty() }
     val albumColors = rememberLedgerAlbumColors(
         albums = remember(state?.grid) { state?.grid?.cells?.let(::albumsIn).orEmpty() },

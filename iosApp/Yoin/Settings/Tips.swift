@@ -18,11 +18,15 @@ struct Tip: Identifiable, Hashable, Sendable {
     let icon: String
     let updated: String
     let title: String
-    let text: String
+    var text: String
     let titleZhHans: String
-    let textZhHans: String
+    var textZhHans: String
     /// About keys of a hardware keyboard (YoinCommands): an iPad's and a Mac's only (Android's minSdk, by device).
     var keyboard = false
+    /// The line on a device whose Home never lays out in two columns (an iPhone), when it differs: [text] /
+    /// [textZhHans] without what only two columns do (owner default 2026-11-26, parity p4 B3).
+    var oneColumnText: String? = nil
+    var oneColumnTextZhHans: String? = nil
 
     /// What shows: the Chinese when the app runs in Chinese (its UI language, not just the region).
     var shownTitle: String { Tips.showsChinese ? titleZhHans : title }
@@ -36,14 +40,26 @@ enum Tips {
     /// AiServices (the AI services page) and Labs' 11-12 day (Gemini Nano diagnostics, which iOS has no
     /// counterpart for).
     /// The tips this device shows: all but the keyboard's on an iPhone, which has no menu of shortcuts to
-    /// list (UIKit's main menu is the iPad's and the Mac's; the iPad app on a Mac is an iPad here).
-    static let all: [Tip] = available(catalog, keyboard: MainActor.assumeIsolated {
-        UIDevice.current.userInterfaceIdiom != .phone
-    })
+    /// list (UIKit's main menu is the iPad's and the Mac's; the iPad app on a Mac is an iPad here), and on an
+    /// iPhone the one-column lines.
+    static let all: [Tip] = available(catalog, keyboard: largeScreen, twoColumn: largeScreen)
 
-    /// [tips] on a device with a keyboard's shortcut menu ([keyboard]) or without. Pure (TipsTests).
-    static func available(_ tips: [Tip], keyboard: Bool) -> [Tip] {
-        keyboard ? tips : tips.filter { !$0.keyboard }
+    /// An iPad or a Mac: a keyboard's shortcut menu, and a Home that lays out in two columns when its window is
+    /// wide enough (the shared `homeTwoColumn` tier, ≥ 840 × 480). An iPhone's never is: on its side it is
+    /// under 480 tall.
+    static let largeScreen: Bool = MainActor.assumeIsolated { UIDevice.current.userInterfaceIdiom != .phone }
+
+    /// [tips] on a device with a keyboard's shortcut menu ([keyboard]) or without, and whose Home can lay out in
+    /// two columns ([twoColumn]) or never does (the tips' one-column lines). Pure (TipsTests).
+    static func available(_ tips: [Tip], keyboard: Bool, twoColumn: Bool) -> [Tip] {
+        let kept = keyboard ? tips : tips.filter { !$0.keyboard }
+        guard !twoColumn else { return kept }
+        return kept.map { tip in
+            var t = tip
+            if let line = tip.oneColumnText { t.text = line }
+            if let line = tip.oneColumnTextZhHans { t.textZhHans = line }
+            return t
+        }
     }
 
     /// Every tip, in the order the bubble goes through them.
@@ -176,11 +192,16 @@ enum Tips {
             text: "On Subsonic accounts, download from song, album, or playlist menus; see progress on the Lock Screen and in the Dynamic Island, and manage in Settings › Subsonic account › Downloads",
             titleZhHans: "离线下载",
             textZhHans: "Subsonic 账号下，在歌曲、专辑或歌单菜单里点「下载」，锁定屏幕和灵动岛会显示进度，管理在设置 › Subsonic 账号 › 下载"),
-        Tip(id: "EditHome", icon: "drag_handle", updated: "2026-10-17",
+        // Home edit v2 and two columns (Android #292, updated 2026-11-23; iOS parity p4 B1 / B2): Android's lines.
+        // An iPhone never lays Home out in two columns, so it gets them without the large screens' clause, and
+        // its demo leaves out the drop beside (EditHomeDemo).
+        Tip(id: "EditHome", icon: "drag_handle", updated: "2026-11-23",
             title: "Rearrange Home",
-            text: "Long-press Home to rearrange sections",
+            text: "While editing Home, pinch to collapse into a list, long-press to drag, or drop beside a section on large screens.",
             titleZhHans: "重新排版首页",
-            textZhHans: "长按首页，重新排版"),
+            textZhHans: "编辑首页时双指捏合收成列表，长按直接拖动排序，大屏上拖到旁边即可并排",
+            oneColumnText: "While editing Home, pinch to collapse into a list or long-press to drag.",
+            oneColumnTextZhHans: "编辑首页时双指捏合收成列表，长按直接拖动排序"),
         Tip(id: "PullForMemories", icon: "chevron_down", updated: "2026-10-17",
             title: "Memories",
             text: "Pull down on Home to open Memories",

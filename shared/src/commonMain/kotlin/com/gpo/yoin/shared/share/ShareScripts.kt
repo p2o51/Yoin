@@ -10,8 +10,8 @@ internal object ShareScripts {
     /**
      * Whether [text] is CJK all through: at least one Han / Hiragana / Katakana / Hangul / Bopomofo letter and no
      * letter of any other script. Digits, punctuation, symbols and spaces don't count either way. Script, not
-     * Script_Extensions: the prolonged sound mark ー (U+30FC) and the halfwidth ｰ ﾞ ﾟ are Common-script letters,
-     * so a line with one is not CJK (pinned as Android had it).
+     * Script_Extensions — plus the few Common-script letters only Japanese writes ([cjkCommonLetters]: the
+     * prolonged sound mark ー, the halfwidth ｰ ﾞ ﾟ and 〆), so "ラーメン" is CJK.
      */
     fun isCjk(text: String): Boolean {
         var cjk = false
@@ -20,10 +20,16 @@ internal object ShareScripts {
             val cp = codePointAt(text, i)
             i += if (cp > 0xFFFF) 2 else 1
             if (!isLetter(cp)) continue
-            if (isCjkLetter(cp)) cjk = true else return false
+            if (isCjkLetter(cp) || cp in cjkCommonLetters) cjk = true else return false
         }
         return cjk
     }
+
+    /**
+     * Common-script letters that read as Japanese: ー (U+30FC), halfwidth ｰ ﾞ ﾟ (U+FF70, U+FF9E, U+FF9F) and
+     * 〆 (U+3006). Their Script_Extensions are Hiragana / Katakana (or Han), but their Script is Common.
+     */
+    val cjkCommonLetters: Set<Int> = setOf(0x30FC, 0xFF70, 0xFF9E, 0xFF9F, 0x3006)
 
     /** `Character.isLetter(cp)`. */
     fun isLetter(cp: Int): Boolean = inRanges(ShareScriptTables.letters, cp)

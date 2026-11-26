@@ -307,16 +307,19 @@ class OtherProfilesSection extends StatelessWidget {
 /// One shelf card: the cover on its backdrop, the title, then the account's
 /// mark before its name (so the line reads as "another account", not an artist).
 class OtherProfileCard extends StatelessWidget {
-  const OtherProfileCard({super.key, required this.item});
+  const OtherProfileCard({super.key, required this.item, this.size = HomeTokens.recentlyAddedAlbumCover});
 
   final OtherProfileItem item;
+
+  /// The cover's side (and the card's width): 82, or the grid's U − 44 in two columns.
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return SizedBox(
-      width: HomeTokens.recentlyAddedAlbumCover,
+      width: size,
       child: ElasticPress(
         onTap: () => openOtherProfileItem(context, item),
         child: Semantics(
@@ -330,7 +333,7 @@ class OtherProfileCard extends StatelessWidget {
               BackdropCover(
                 cover: item.cover,
                 kind: item.kind == OtherProfileItemKind.playlist ? HomeCardKind.playlist : HomeCardKind.album,
-                size: HomeTokens.recentlyAddedAlbumCover,
+                size: size,
               ),
               const SizedBox(height: HomeShelfMetrics.albumCardCaptionGap),
               SeamText(

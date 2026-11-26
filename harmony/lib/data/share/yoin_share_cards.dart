@@ -18,6 +18,7 @@ import 'dart:math' as math;
 import 'package:material_color_utilities/material_color_utilities.dart';
 
 import '../albumabout/kt_text.dart';
+import '../albumabout/yoin_album_about.dart';
 import '../notes/note_markup.dart';
 import 'share_card_models.dart';
 import 'share_scripts.dart';
@@ -184,13 +185,17 @@ abstract final class YoinShareCards {
     ];
   }
 
-  /// The share text sent with the image: the title, then the artist on a line of its own; null without a title.
+  /// The share text sent with the image, the same for every tab: 「歌名 · 歌手」
+  /// on one line, the title alone without an artist; null without a title.
   static String? caption(String? title, String? artist) {
     final t = ktTrim(title ?? '');
     if (t.isEmpty) return null;
     final by = ktTrim(artist ?? '');
-    return by.isEmpty ? t : '$t\n$by';
+    return by.isEmpty ? t : '$t$captionSeparator$by';
   }
+
+  /// Between the title and the artist in [caption].
+  static const String captionSeparator = ' · ';
 
   /// Classic's line size on the 360 card (sp): short picks 22, medium 19, long 17.
   static double cardLineSizeSp(List<String> lines) {
@@ -419,6 +424,9 @@ abstract final class YoinShareCards {
       if (v != null) rows.add(ShareCredit(label, v));
     }
 
+    // A blank name is no name: the AI's row shows instead.
+    String? names(String? value) => value != null && _oneLine(value) != null ? value : null;
+
     void credited(String key, String label, String? names) {
       if (names != null) {
         add(label, names);
@@ -427,10 +435,10 @@ abstract final class YoinShareCards {
       }
     }
 
-    credited(canonLyricist, labels.lyricist, sources.lyricist);
-    credited(canonComposer, labels.composer, sources.composer ?? sources.serverComposer);
+    credited(canonLyricist, labels.lyricist, names(sources.lyricist));
+    credited(canonComposer, labels.composer, names(sources.composer) ?? names(sources.serverComposer));
     add(labels.arranger, sources.arranger);
-    credited(canonProducer, labels.producer, sources.producer);
+    credited(canonProducer, labels.producer, names(sources.producer));
     ai(canonCreationTime, labels.creationTime);
     ai(canonCreationLocation, labels.creationLocation);
     if (sources.year != null) rows.add(ShareCredit(labels.year, '${sources.year}', fact: true));
@@ -473,6 +481,48 @@ abstract final class YoinShareCards {
   }
 
   static final RegExp _whitespace = RegExp('$javaSpace+');
+
+  /// How About's words are drawn on the image, as on Now Playing's About page:
+  /// `**bold**` / `__bold__` runs set bold, markers dropped; an unclosed marker
+  /// stays. Plain stretches merged, empty bold runs dropped (markdownBoldSpan).
+  static List<ShareTextRun> boldRuns(String text) {
+    final runs = <ShareTextRun>[];
+    final plain = StringBuffer();
+    void flush() {
+      if (plain.isNotEmpty) runs.add(ShareTextRun(plain.toString(), false));
+      plain.clear();
+    }
+
+    var i = 0;
+    while (i < text.length) {
+      final c = text[i];
+      final marker = (c == '*' || c == '_') && i + 1 < text.length && text[i + 1] == c ? '$c$c' : null;
+      if (marker == null) {
+        plain.write(c);
+        i++;
+        continue;
+      }
+      final close = text.indexOf(marker, i + 2);
+      if (close < 0) {
+        plain.write(marker);
+        i += 2;
+        continue;
+      }
+      final bold = text.substring(i + 2, close);
+      if (bold.isNotEmpty) {
+        flush();
+        runs.add(ShareTextRun(bold, true));
+      }
+      i = close + 2;
+    }
+    flush();
+    return runs;
+  }
+
+  /// About's sign: the template ("由 %1\$s 整理" / "By %1\$s") with the AI
+  /// service's name, the space beside a Chinese name dropped (由千问整理) —
+  /// album About's aiCopy.
+  static String aiSign(String template, String name) => YoinAlbumAbout.aiCopy(template, name);
 
   static String? _oneLine(String text) {
     final folded = ktTrim(text.replaceAll(_whitespace, ' '));

@@ -2,6 +2,9 @@ package com.gpo.yoin.ui.home
 
 import com.gpo.yoin.ui.component.pointerPressPreview
 import com.gpo.yoin.ui.component.handPointer
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.core.view.WindowCompat
+import com.gpo.yoin.ui.detail.findActivityOrNull
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -1260,6 +1263,8 @@ internal fun HomeAccountSwitcherDialog(
         backStartY = Float.NaN
         backScope.launch { backPreview.progress.animateTo(0f, previewSpec) }
     }
+    val pageView = LocalView.current
+    val pageWindow = pageView.context.findActivityOrNull()?.window
     Dialog(
         onDismissRequest = onRequestClose,
         properties = DialogProperties(
@@ -1285,10 +1290,19 @@ internal fun HomeAccountSwitcherDialog(
             onCancelled = { releasePreview() },
         )
         // The window draws its own scrim (on p) and has no enter/exit animation of its own.
+        // Full screen, it also decides the bar icons: the page's, which shows through the scrim
+        // (the dialog theme's own are always light: white icons on a light page in light theme).
+        // Read in composition so a light / dark switch runs the effect again.
+        val darkTheme = isSystemInDarkTheme()
         (LocalView.current.parent as? DialogWindowProvider)?.window?.let { window ->
             SideEffect {
                 window.setDimAmount(0f)
                 window.setWindowAnimations(0)
+                val pageBars = pageWindow?.let { WindowCompat.getInsetsController(it, pageView) }
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = pageBars?.isAppearanceLightStatusBars ?: !darkTheme
+                    isAppearanceLightNavigationBars = pageBars?.isAppearanceLightNavigationBars ?: !darkTheme
+                }
             }
         }
         BoxWithConstraints(

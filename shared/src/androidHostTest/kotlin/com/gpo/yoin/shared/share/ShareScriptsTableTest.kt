@@ -23,7 +23,7 @@ class ShareScriptsTableTest {
         else -> false
     }
 
-    /** Android's rule before the move, verbatim. */
+    /** Android's rule before the move, plus the Japanese Common-script letters (ー ｰ ﾞ ﾟ 〆, 2026-11-26). */
     private fun jvmIsCjkLyric(text: String): Boolean {
         var cjk = false
         var i = 0
@@ -31,7 +31,7 @@ class ShareScriptsTableTest {
             val cp = text.codePointAt(i)
             i += Character.charCount(cp)
             if (!Character.isLetter(cp)) continue
-            if (jvmCjk(cp)) cjk = true else return false
+            if (jvmCjk(cp) || cp in intArrayOf(0x30FC, 0xFF70, 0xFF9E, 0xFF9F, 0x3006)) cjk = true else return false
         }
         return cjk
     }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
 import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
@@ -13,6 +14,7 @@ import com.gpo.yoin.data.model.LyricCreditRole
 import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.shared.notes.YoinNoteReader
 import com.gpo.yoin.shared.share.YoinShareCards
+import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import java.io.File
 import kotlin.math.round
 import kotlinx.serialization.json.Json
@@ -100,7 +102,10 @@ class ShareCardsPinTest {
             val starts = lyricPassageStarts(lyrics, v.array("selected").map { it.jsonPrimitive.int }.toSet())
             assertEquals(v.name, v.array("starts").map { it.jsonPrimitive.int }, starts.sorted())
         }
-        section("caption").forEach { v -> assertEquals(v.name, v.string("caption"), lyricsCredit(v.string("title"), v.string("artist"))) }
+        // The share sheet sends YoinShareCards.caption with the image (ShareSheet.kt).
+        section("caption").forEach { v ->
+            assertEquals(v.name, v.string("caption"), YoinShareCards.caption(v.string("title"), v.string("artist")))
+        }
         section("cardLineSize").forEach { v ->
             eq(v.name, v.double("sizeSp"), num(lyricsCardLineSize(v.strings("lines").map { LyricLine(null, it) }).value))
         }
@@ -160,6 +165,29 @@ class ShareCardsPinTest {
         }
     }
 
+    @Test
+    fun should_setAboutsBoldAsPinned_throughNowPlayingsRenderer() {
+        // The About layouts draw values and the paragraph through markdownBoldAnnotatedString (ShareCards.kt).
+        section("boldRuns").forEach { v ->
+            val styled = markdownBoldAnnotatedString(v.string("text")!!)
+            val runs = mutableListOf<Pair<String, Boolean>>()
+            var at = 0
+            fun add(text: String, bold: Boolean) {
+                if (text.isEmpty()) return
+                val last = runs.lastOrNull()
+                if (last != null && last.second == bold && !bold) runs[runs.lastIndex] = (last.first + text) to false else runs += text to bold
+            }
+            styled.spanStyles.sortedBy { it.start }.forEach { span ->
+                add(styled.text.substring(at, span.start), false)
+                add(styled.text.substring(span.start, span.end), span.item.fontWeight == FontWeight.Bold)
+                at = span.end
+            }
+            add(styled.text.substring(at), false)
+            val expected = v.array("runs").map { it.jsonObject.string("text")!! to it.jsonObject.bool("bold") }
+            assertEquals(v.name, expected, runs)
+        }
+    }
+
     private fun assertPlan(name: String, expected: JsonObject, plan: VerticalPlan) {
         assertEquals(name, expected.strings("columns"), plan.columns)
         eq(name, expected.double("fontSizeSp"), num(plan.fontSizeSp))
@@ -187,6 +215,15 @@ class ShareCardsPinTest {
         assertEquals(l.string("creationLocation"), labels.about(SongAboutEntry.CANON_CREATION_LOCATION))
         assertEquals(l.string("year"), labels.year)
         assertEquals(l.string("review"), review)
+
+        // About's sign as AiSign writes it: the app's template and provider names, Chinese names tightened.
+        val template = resources.getString(R.string.np_share_ai_sign)
+        val signs = section("aiSign").filter { it.string("template") == template }
+        assertTrue(signs.isNotEmpty())
+        signs.forEach { v -> assertEquals(v.name, v.string("sign"), YoinShareCards.aiSign(template, v.string("provider")!!)) }
+        val providerNames = listOf(R.string.ai_provider_gemini, R.string.ai_provider_deepseek, R.string.ai_provider_qwen, R.string.np_share_ai_generic)
+            .map(resources::getString)
+        providerNames.forEach { name -> assertTrue(name, signs.any { it.string("provider") == name }) }
 
         val vectors = section("about").filter { it.string("labels") == language }
         assertTrue(vectors.isNotEmpty())
