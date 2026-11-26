@@ -50,7 +50,7 @@ gson = "2.13.1"
 # :shared Subsonic client (iOS only for now). 3.4.x keeps the Android app's
 # resolved coroutines (1.10.2), okhttp (5.5.1) and serialization (1.12.0) as they are.
 ktor = "3.4.3"
-kotlinxCoroutines = "1.10.2"
+kotlinxCoroutines = "1.11.0"
 
 # On-device Gemini Nano (ML Kit GenAI Prompt API, AICore): Home's lyric highlights & structured output.
 genaiPrompt = "1.0.0-beta5"
