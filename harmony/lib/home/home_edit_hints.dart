@@ -27,7 +27,7 @@ Set<HomeSection> unseenNewSections(HomeLayout layout, Set<String> seenIds) {
   final out = <HomeSection>{};
   for (final p in layout.sections) {
     final s = p.section;
-    if (s != null && layout.newSections.contains(s) && s.availableInV1 && !seenIds.contains(s.id)) out.add(s);
+    if (layout.newSections.contains(s) && s.availableInV1 && !seenIds.contains(s.id)) out.add(s);
   }
   return out;
 }

@@ -2563,9 +2563,9 @@ abstract final class ArtworkTokens {
   static const double fallbackIcon = 24;
 }
 
-/// Home edit mode's pick up and carry (Android ui/home/edit HomeEditTokens.kt
-/// §2.2–2.4, §4: the press charge, the lift and the strip carry), number for
-/// number. dp; times ms.
+/// Home edit mode's press, lift and drag (Android ui/home/edit HomeEditTokens.kt
+/// §2.2–2.4, HomeDragEngine.kt: the press charge, the lift, the compact list's
+/// strips and the drop slot), number for number. dp; times ms.
 abstract final class HomeCarryTokens {
   // Press, charge and lift (§2.2–2.4).
   /// Side of the press square R_press, centred on the finger.
@@ -2582,13 +2582,9 @@ abstract final class HomeCarryTokens {
 
   /// The lifted block grows by this × lift; a carried strip too.
   static const double liftScale = 0.02;
-  static const double liftShadow = 6;
 
   /// Once P passes this the entry plate drops its charge latch.
   static const double latchClearP = 0.6;
-
-  /// Edit-mode body hold before a lift: max(this, long-press timeout / 2).
-  static const int bodyHoldMinMs = 150;
 
   /// The entry plate stops growing from R_press once its ripple's smoothstep reaches this.
   static const double plateGrown = 0.9999;
@@ -2599,12 +2595,7 @@ abstract final class HomeCarryTokens {
   /// P at or below this is at rest: an entry plate still latched goes.
   static const double progressRest = 0.001;
 
-  // Strips (§4).
-  static const double stripGap = 8;
-  static const double stripMinH = 48;
-  static const double stripMaxH = 64;
-  static const double stripMaxW = 560;
-
+  // The compact list's strips (HomeEditList.kt).
   /// Cover edge = strip height − this, clamped to [stripCoverMin]..[stripCoverMax].
   static const double stripCoverInset = 24;
   static const double stripCoverMin = 24;
@@ -2622,69 +2613,40 @@ abstract final class HomeCarryTokens {
   /// Strip plate corners (HomeEditTokens.PlateRadius), at most half the strip.
   static const double plateRadius = 20;
 
-  /// Fold where strip plates finish fading in (and the feed out).
-  static const double foldPlateEnd = 0.45;
-
-  /// Fold where strip labels start fading in.
-  static const double foldLabelStart = 0.55;
-
-  /// Fold where the hole and the cover tint start.
-  static const double foldHoleStart = 0.3;
-
-  /// Fold where the carried strip's shadow starts.
-  static const double foldShadowStart = 0.6;
-
-  /// How far a strip's colour leans toward its first cover.
-  static const double stripTint = 0.3;
-
-  /// Below this cover weight a strip keeps its plate colour.
-  static const double stripTintVisible = 0.0005;
-
-  /// The hole's secondaryContainer fill alpha.
-  static const double holeAlpha = 0.35;
-
-  /// Off-screen sections start as an invisible strip at this scale.
-  static const double offscreenStripScale = 0.96;
-
-  /// Rubber band past the first and last slot: the displayed overscroll tends to [rubberD].
-  static const double rubberD = 56;
-  static const double rubberK = 0.55;
-
-  /// unrubber never inverts past this fraction of [rubberD].
-  static const double unrubberMaxRatio = 0.98;
-
-  /// Overscroll past which the threshold haptic plays.
-  static const double overHaptic = 2;
-
-  /// Release speed (dp/s) that projects the drop one more slot.
-  static const double flingV = 1600;
-
-  /// Release speeds clamp to this (dp/s).
-  static const double maxV = 8000;
-  static const int velocityWindowMs = 100;
-
-  /// A finger resting this long before lifting releases at 0.
-  static const int velocityStaleMs = 60;
-  static const int velocityMinDtMs = 4;
-
-  /// Re-grab hit zone around a settling strip.
-  static const double regrabSlop = 8;
-
   /// Gap between the safe area and the status tide or the bar.
   static const double safeGap = 8;
-
-  /// Frames between edit mode settling and the strips building: the entry's last work goes first.
-  static const int stripWarmFrames = 3;
 
   /// A blank tap this soon after a scroll only stops the fling.
   static const int flingStopMs = 120;
 
   // Spring thresholds (§1.3): each sits on its own spring.
   static const double unitThreshold = 0.002;
-  static const double foldThreshold = 0.001;
-  static const double holePxThreshold = 0.3;
-  static const double settlePxThreshold = 0.4;
+
+  /// A block making way for the dragged one settles within this many px.
   static const double neighbourPxThreshold = 0.3;
+
+  // The in-place drag (HomeDragEngine.kt HomeDragTokens; the decisions' numbers are :shared HomeDragTokens).
+  /// The drop slot's frame (rule 4): its stroke, over the lifted plate colour at [slotFillAlpha].
+  static const double slotStroke = 2;
+  static const double slotFillAlpha = 0.55;
+}
+
+/// Home edit mode's compact list (Android ui/home/edit HomeEditList.kt HomeEditListTokens): one 64dp strip
+/// per section, the header's switch above them, the tray and Reset below. dp.
+abstract final class HomeEditListTokens {
+  /// The strips grow into place from this scale as the list comes in (none under reduced motion).
+  static const double enterScale = 0.94;
+  static const double rowHeight = 64;
+
+  /// The row over the strips that holds the switch back to the full layout.
+  static const double headerHeight = 48;
+  static const double rowGap = 8;
+  static const double hideButtonSize = 32;
+  static const double hideIconSize = 18;
+  static const double handleTouch = 40;
+
+  /// The handle's touch box brings its own room at the strip's end.
+  static const double stripEndPadding = 4;
 }
 
 /// Notes 0.6.4 (Android ui/component/NoteMarkupText.kt, ui/notes/editor/MentionPopup.kt,

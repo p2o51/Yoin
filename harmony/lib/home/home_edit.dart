@@ -34,7 +34,7 @@ import '../shell/shell_state.dart';
 import '../shell/yoin_section.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
-import 'home_carry.dart' show pressRect;
+import 'home_edit_lift.dart' show pressRect;
 import 'home_edit_hints.dart';
 import 'home_metrics.dart';
 import 'home_section.dart';
@@ -209,7 +209,7 @@ class HomeEditController extends Notifier<HomeEditState> {
     final current = ref.read(homeLayoutProvider);
     final next = resetLayout(current);
     // Sections this build doesn't know stay in the saved layout (Android reset keeps retained ids).
-    if (next.sections.any((p) => p.section == null)) {
+    if (next.retained.isNotEmpty) {
       _apply(next);
       return;
     }
@@ -246,7 +246,7 @@ final homeEditProvider = NotifierProvider<HomeEditController, HomeEditState>(Hom
 /// The sections the tray offers back: hidden, and built in this port.
 List<HomeSection> hiddenSections(HomeLayout layout) => [
       for (final p in layout.sections)
-        if (!p.enabled && (p.section?.availableInV1 ?? false)) p.section!,
+        if (!p.enabled && p.section.availableInV1) p.section,
     ];
 
 double homeEditSmoothstep(double x) {
@@ -288,7 +288,7 @@ class HomeEditPlate extends StatelessWidget {
     this.hideKey,
   });
 
-  /// 0..1: a lifted plate's colour toward surfaceContainerHighest (HomeCarryEngine liftTint).
+  /// 0..1: a lifted plate's colour toward surfaceContainerHighest (HomeDragEngine liftTint).
   final double liftTint;
 
   /// The plate growing from the press square (the entry latch), or the press

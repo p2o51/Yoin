@@ -49,7 +49,7 @@ void main() {
       ).toJson(),
     );
     if (saved != null) {
-      store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, id)] = jsonEncode(saved.toJson());
+      store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, id)] = saved.encode();
     }
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -115,10 +115,7 @@ void main() {
     expect(covers(tester), lessThan(12));
     expect(tester.takeException(), isNull);
     // Saved for the account at once.
-    final saved = HomeLayout.fromJson(
-      (jsonDecode(h.store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, h.profileId)]!) as Map)
-          .cast<String, Object?>(),
-    );
+    final saved = decodeHomeLayout(h.store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, h.profileId)]!);
     expect(saved.rowsOf(HomeSection.jumpBackIn), rows);
     // Undo springs it back.
     c.read(homeEditProvider.notifier).barLeftSlot(); // the bar's Undo
