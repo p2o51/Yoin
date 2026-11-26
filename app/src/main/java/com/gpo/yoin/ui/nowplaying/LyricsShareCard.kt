@@ -158,10 +158,10 @@ internal typealias LyricsShareFormat = com.gpo.yoin.shared.share.ShareFormat
 internal typealias ShareRole = com.gpo.yoin.shared.share.ShareRole
 
 /**
- * The image's colour pairings — spotoolfy's four poster styles for the lyrics, read from the playing palette
- * (Now Playing's theme is already the cover's). About and Note draw the same slots from their own role, with
- * Paper (a white card, the role as ink, in dark mode too) in the fourth: Mist is tertiary, which would put a
- * note in the AI's colour. The pairings are [YoinShareCards.toneColors].
+ * The image's colour pairings — spotoolfy's four poster styles, read from the playing palette (Now Playing's
+ * theme is already the cover's), offered on every tab (owner 2026-11-26); About and Note add Paper (a white card,
+ * the role as ink, in dark mode too). Each tab opens on its role's colour: About on Mist (tertiary), the lyrics
+ * and a note on Soft (primary). The pairings are [YoinShareCards.toneColors].
  */
 internal typealias ShareTone = com.gpo.yoin.shared.share.ShareTone
 
@@ -174,9 +174,8 @@ internal data class ShareCardColors(
 )
 
 /**
- * [this] tone's colours for [role] from [scheme] ([YoinShareCards.toneColors]). The fourth slot follows the role:
- * a lyrics card asked for [ShareTone.Paper] draws [ShareTone.Mist] and the other roles the other way round, so a
- * swatch kept across tabs stays valid.
+ * [this] tone's colours for [role] from [scheme] ([YoinShareCards.toneColors]): the same on every tab, but for
+ * [ShareTone.Paper], inked in the role's colour (a lyrics card asked for it draws [ShareTone.Mist]).
  */
 internal fun ShareTone.colors(scheme: ColorScheme, role: ShareRole = ShareRole.Lyrics): ShareCardColors {
     fun resolve(ink: ShareInk): Color {
@@ -528,7 +527,7 @@ private fun ButtonGroupScope.LyricsShareFormatButton(
     }
 }
 
-/** [role]'s four tones as swatches of the card colour; the picked one squares off and wears a check. */
+/** [role]'s tones as swatches of the card colour; the picked one squares off and wears a check. */
 @Composable
 internal fun ShareToneSwatches(
     role: ShareRole,

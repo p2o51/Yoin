@@ -1793,7 +1793,7 @@ struct NowPlayingView: View, Equatable {
     private func shareSheet(_ item: ShareSheetItem) -> some View {
         let window = ShareSheetView.keyWindowSize()
         let sheet = ShareSheetView(item: item, scheme: scheme, window: window,
-                                   initialFormat: ShareSheetDemo.format, initialToneSlot: ShareSheetDemo.toneSlot,
+                                   initialFormat: ShareSheetDemo.format, initialTone: ShareSheetDemo.tone,
                                    onShared: {
                                        if item.initialTab == .lyrics, lyricsSelecting {
                                            withAnimation(Yoin.effects) { leaveLyricsSelect(follow: true) }

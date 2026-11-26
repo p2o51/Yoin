@@ -312,6 +312,32 @@ final class ShareCardsTests: XCTestCase {
         }
     }
 
+    /// The sheet's tones (owner 2026-11-26, 「放开」): what each tab offers, opens on, and draws for a pick — the
+    /// golden toneOffer vectors and constants, through the facade the sheet calls (`ShareSheetView.tone`).
+    func test_should_offerAndResolveTheGoldenTones_per_tab() {
+        let constants = Self.golden["constants"] as! [String: Any]
+        let roleTones = constants["roleTones"] as! [String: [String]]
+        let roleDefaults = constants["roleDefaultTones"] as! [String: String]
+        for role in ShareRole.entries {
+            XCTAssertEqual(role.tones().map(\.name), roleTones[role.name], role.name)
+            XCTAssertEqual(role.defaultTone.name, roleDefaults[role.name], role.name)
+        }
+        let vs = vectors("toneOffer")
+        XCTAssertEqual(vs.count, 18)
+        for v in vs {
+            let name = v["name"] as! String
+            let tab = ShareTab.entries.first { $0.name == v["tab"] as? String }!
+            let picked = (Self.opt(v["picked"]) as String?).map { p in ShareTone.entries.first { $0.name == p }! }
+            XCTAssertEqual(YoinShareCards.shared.tones(tab: tab).map(\.name), v["tones"] as? [String], name)
+            XCTAssertEqual(YoinShareCards.shared.defaultTone(tab: tab).name, v["default"] as? String, name)
+            XCTAssertEqual(YoinShareCards.shared.resolveTone(tab: tab, picked: picked).name, v["resolved"] as? String, name)
+        }
+        // About and Note offer both families: primary Soft on About, tertiary Mist on a note.
+        let s = CoverScheme(seed: Color(red: 0.4, green: 0.31, blue: 0.64), dark: false)
+        XCTAssertEqual(CoverScheme.argb(of: ShareTone.soft.colors(s, role: .ai).card), CoverScheme.argb(of: s.primaryContainer))
+        XCTAssertEqual(CoverScheme.argb(of: ShareTone.mist.colors(s, role: .own).card), CoverScheme.argb(of: s.tertiaryContainer))
+    }
+
     /// iOS's colour round trip (argb → Color → argb → re-tone → Color) gives the golden re-toned colours.
     func test_should_retoneAsTheGoldenSays_through_iosColours() {
         for v in vectors("retone") {
@@ -404,8 +430,8 @@ final class ShareCardsTests: XCTestCase {
         for dark in [false, true] {
             for layout in ShareLayout.entries {
                 for format in [ShareFormat.card, ShareFormat.story] {
-                    // Paper on About and Note (a white card), the fourth slot elsewhere.
-                    let tone = YoinShareCards.shared.tone(role: layout.tab.role, slot: dark ? 3 : 0)
+                    // Paper on About and Note (a white card; the lyrics draw Mist for it), else the tab's default.
+                    let tone = dark ? ShareTone.paper : YoinShareCards.shared.defaultTone(tab: layout.tab)
                     let image = Self.image(layout, format, tone: tone, dark: dark)
                     let label = "\(layout.name) \(format.name) dark=\(dark)"
                     let height = ShareExport.logicalHeight(image)
@@ -458,8 +484,10 @@ final class ShareCardsTests: XCTestCase {
         for dark in [false, true] {
             for layout in ShareLayout.entries {
                 for format in [ShareFormat.card, ShareFormat.story] {
-                    for slot in [0, 2, 3] {
-                        let tone = YoinShareCards.shared.tone(role: layout.tab.role, slot: Int32(slot))
+                    // The tab's default, Vivid, and its last swatch (Paper on About and Note, Mist on the lyrics).
+                    let offered = YoinShareCards.shared.tones(tab: layout.tab)
+                    let tones = [YoinShareCards.shared.defaultTone(tab: layout.tab), .vivid, offered.last!]
+                    for (slot, tone) in tones.enumerated() {
                         let data = try XCTUnwrap(ShareExport.png(Self.image(layout, format, tone: tone, dark: dark)))
                         let name = "\(layout.name)-\(format.name)-\(tone.name)-\(dark ? "dark" : "light").png"
                         if let dir { try data.write(to: dir.appendingPathComponent(name)) }
@@ -470,6 +498,55 @@ final class ShareCardsTests: XCTestCase {
                             add(a)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// Review renders of the About cards #360 fixed and the tones opened up (51, 2026-11-26), only when
+    /// `SHARE_TONES_RENDER_DIR` is set; run once per test language (`-testLanguage en` / `zh-Hans`): Liner (the
+    /// heading as written, right on the title, the cover top-aligned) and Quote with the AI's long credits (the
+    /// chips wrap, never cut), light / dark, Card / Story; and About / Note in each of their tones.
+    func test_should_renderTheFixedAboutCardsAndTones_forReview() throws {
+        guard let path = ProcessInfo.processInfo.environment["SHARE_TONES_RENDER_DIR"] else {
+            throw XCTSkip("set SHARE_TONES_RENDER_DIR to render the cards for review")
+        }
+        let dir = URL(fileURLWithPath: path)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let lang = (Bundle.main.preferredLocalizations.first ?? "en").hasPrefix("zh") ? "zh" : "en"
+        let zh = lang == "zh"
+        let labels = ShareStrings.aboutLabels()
+        var r = Self.render()
+        let base = r.content
+        r.content = ShareCardContent(song: base.song, lyrics: base.lyrics, about: ShareAbout(credits: [
+            ShareCredit(label: labels.producer, value: zh ? "林暐哲、苏打绿（联合制作），录音于台北白金录音室与东京 Sound City"
+                        : "Lin Wei-che and Sodagreen (co-producers), recorded at Platinum Studio, Taipei and Sound City, Tokyo",
+                        ai: true, fact: false),
+            ShareCredit(label: labels.creationTime, value: zh ? "2008 年冬至 2009 年春" : "Winter 2008 to spring 2009", ai: true, fact: false),
+            ShareCredit(label: labels.creationLocation, value: zh ? "台北" : "Taipei", ai: true, fact: false),
+            ShareCredit(label: labels.composer, value: "吴青峰", ai: false, fact: false),
+        ], heading: labels.review, paragraph: zh
+            ? "收录在《夏/狂热》，写的是夏天走到尽头时那种**舍不得**又停不下来的心情；副歌一口气往上推，像真的走上了星空。"
+            : "From *Summer/Fever*: the feeling at the end of summer, **not wanting it to end** and not able to stop; the chorus climbs in one breath, as if walking up into the stars."),
+            note: base.note)
+        func write(_ image: ShareImage, _ name: String) throws {
+            let data = try XCTUnwrap(ShareExport.png(image), name)
+            try data.write(to: dir.appendingPathComponent("\(name)-\(lang).png"))
+        }
+        for dark in [false, true] {
+            let mode = dark ? "dark" : "light"
+            for layout in [ShareLayout.aboutliner, .aboutquote] {
+                for format in [ShareFormat.card, ShareFormat.story] {
+                    let tone = YoinShareCards.shared.defaultTone(tab: .about)
+                    try write(Self.image(layout, format, tone: tone, dark: dark, render: r),
+                              "card-\(layout.name)-\(format.name)-\(mode)")
+                }
+            }
+            // Every tone About and Note offer now: both families and Paper.
+            for (tab, layout) in [(ShareTab.about, ShareLayout.aboutreceipt), (.note, .notebig)] {
+                for tone in YoinShareCards.shared.tones(tab: tab) {
+                    try write(Self.image(layout, .card, tone: tone, dark: dark, render: r),
+                              "tone-\(tab.name)-\(tone.name)-\(mode)")
                 }
             }
         }

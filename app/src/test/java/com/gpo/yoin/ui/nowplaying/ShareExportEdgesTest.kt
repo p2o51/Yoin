@@ -55,7 +55,7 @@ class ShareExportEdgesTest(
                     content = RichShareContent,
                     layout = layout,
                     format = format,
-                    // The fourth slot: Mist for the lyrics, Paper for About and Note.
+                    // Paper (About and Note; the lyrics draw Mist for it) and the primary default.
                     tone = if (dpi % 2 == 0) ShareTone.Soft else ShareTone.Paper,
                     exportLayer = recording,
                 )

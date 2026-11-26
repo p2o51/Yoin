@@ -103,8 +103,18 @@ object YoinShareCards {
     fun layoutForStoreValue(tab: ShareTab, value: String?): ShareLayout? =
         value?.let { stored -> ShareLayout.entries.firstOrNull { it.name == stored && it.tab == tab } }
 
-    /** The tone in swatch [slot] (0–3) for [role]; the sheet keeps the slot across tabs. */
-    fun tone(role: ShareRole, slot: Int): ShareTone = role.tones()[slot]
+    /** The tones [tab] offers, in swatch order ([ShareRole.tones]). */
+    fun tones(tab: ShareTab): List<ShareTone> = tab.role.tones()
+
+    /** The tone [tab] opens on until the listener picks one ([ShareRole.defaultTone]). */
+    fun defaultTone(tab: ShareTab): ShareTone = tab.role.defaultTone
+
+    /**
+     * The tone [tab] draws: the listener's [picked] tone (kept across tabs while the sheet is open) where [tab]
+     * offers it, else the tab's default — none picked yet, or Paper picked on About / Note and the lyrics shown.
+     */
+    fun resolveTone(tab: ShareTab, picked: ShareTone?): ShareTone =
+        picked?.takeIf { it in tones(tab) } ?: defaultTone(tab)
 
     // ── lyrics ──────────────────────────────────────────────────────────────────────────────────────────
 
@@ -480,50 +490,40 @@ object YoinShareCards {
 
     /**
      * [tone]'s colours for [role], as roles of the playing palette's scheme (Now Playing's theme is the cover's).
-     * The lyrics keep their pairings (Vivid and Mist tertiary); About draws from tertiary, a note from primary, with
-     * Paper in the fourth slot: a white card, the role re-toned as ink. The fourth slot follows the role: a lyrics
-     * image asked for Paper draws Mist and the others the other way round, so a slot kept across tabs stays valid.
+     * Soft / Deep / Vivid / Mist are the lyrics' pairings on every tab (owner 2026-11-26: About and Note offer every
+     * colour family; their defaults, [ShareRole.defaultTone], still follow the colour rule). Paper is About and
+     * Note's: a white card with the role (tertiary for About, primary for a note) re-toned as ink. The lyrics don't
+     * offer Paper; asked for it, they draw Mist.
      */
     fun toneColors(tone: ShareTone, role: ShareRole): ShareToneColors {
         fun ink(source: ShareInkSource, tone: Int? = null) = ShareInk(source, tone)
-        if (role == ShareRole.Lyrics) {
-            return when (tone) {
-                ShareTone.Soft -> ShareToneColors(
-                    ink(ShareInkSource.PrimaryContainer),
-                    ink(ShareInkSource.OnPrimaryContainer),
-                    ink(ShareInkSource.Primary),
-                )
-                ShareTone.Deep -> ShareToneColors(
-                    ink(ShareInkSource.OnPrimaryContainer),
-                    ink(ShareInkSource.PrimaryContainer),
-                    ink(ShareInkSource.PrimaryContainer),
-                )
-                ShareTone.Vivid -> ShareToneColors(
-                    ink(ShareInkSource.Tertiary),
-                    ink(ShareInkSource.OnTertiary),
-                    ink(ShareInkSource.TertiaryContainer),
-                )
-                ShareTone.Mist, ShareTone.Paper -> ShareToneColors(
-                    ink(ShareInkSource.TertiaryContainer),
-                    ink(ShareInkSource.OnTertiaryContainer),
-                    ink(ShareInkSource.Tertiary),
-                )
-            }
-        }
-        val aiRole = role == ShareRole.Ai
-        val main = if (aiRole) ShareInkSource.Tertiary else ShareInkSource.Primary
-        val onMain = if (aiRole) ShareInkSource.OnTertiary else ShareInkSource.OnPrimary
-        val container = if (aiRole) ShareInkSource.TertiaryContainer else ShareInkSource.PrimaryContainer
-        val onContainer = if (aiRole) ShareInkSource.OnTertiaryContainer else ShareInkSource.OnPrimaryContainer
         return when (tone) {
-            ShareTone.Soft -> ShareToneColors(ink(container), ink(onContainer), ink(main))
-            ShareTone.Deep -> ShareToneColors(ink(onContainer), ink(container), ink(container))
-            ShareTone.Vivid -> ShareToneColors(ink(main), ink(onMain), ink(container))
-            ShareTone.Mist, ShareTone.Paper -> ShareToneColors(
-                ink(ShareInkSource.White),
-                ink(main, paperInkTone),
-                ink(main, paperBackdropTone),
+            ShareTone.Soft -> ShareToneColors(
+                ink(ShareInkSource.PrimaryContainer),
+                ink(ShareInkSource.OnPrimaryContainer),
+                ink(ShareInkSource.Primary),
             )
+            ShareTone.Deep -> ShareToneColors(
+                ink(ShareInkSource.OnPrimaryContainer),
+                ink(ShareInkSource.PrimaryContainer),
+                ink(ShareInkSource.PrimaryContainer),
+            )
+            ShareTone.Vivid -> ShareToneColors(
+                ink(ShareInkSource.Tertiary),
+                ink(ShareInkSource.OnTertiary),
+                ink(ShareInkSource.TertiaryContainer),
+            )
+            ShareTone.Mist -> ShareToneColors(
+                ink(ShareInkSource.TertiaryContainer),
+                ink(ShareInkSource.OnTertiaryContainer),
+                ink(ShareInkSource.Tertiary),
+            )
+            ShareTone.Paper -> if (role == ShareRole.Lyrics) {
+                toneColors(ShareTone.Mist, role)
+            } else {
+                val main = if (role == ShareRole.Ai) ShareInkSource.Tertiary else ShareInkSource.Primary
+                ShareToneColors(ink(ShareInkSource.White), ink(main, paperInkTone), ink(main, paperBackdropTone))
+            }
         }
     }
 

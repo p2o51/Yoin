@@ -5,8 +5,8 @@ import YoinShared
 /*
  * The share sheet (Android ShareSheet.kt, owner 2026-11-25, prototype round 2): 歌词 / 关于 / 笔记 on top (the
  * Now Playing tabs' words and look; it opens on the tab it came from), then 版式 — a live thumbnail of each
- * layout — then the preview in a fixed box (the sheet never changes height on a switch), 卡片 / Story, the four
- * tones of the tab's role, 保存 / 分享. Each tab remembers its last layout across opens (ShareLayoutStore). On a
+ * layout — then the preview in a fixed box (the sheet never changes height on a switch), 卡片 / Story, the tones
+ * (every tab offers both colour families, About and Note add Paper; each tab opens on its role's colour), 保存 / 分享. Each tab remembers its last layout across opens (ShareLayoutStore). On a
  * wide window (iPad, ≥ 840 × 480) the sheet is two panes: the preview large on the left (up to 1.5×), the
  * controls on the right with larger thumbnails in two rows and Save / Share at the bottom.
  */
@@ -19,9 +19,9 @@ struct ShareSheetView: View {
     var store = ShareLayoutStore()
     /// The sheet's window, to choose one column or two panes (nil: the key window's).
     var window: CGSize? = nil
-    /// DEBUG launch hooks: the format and tone slot it opens on.
+    /// DEBUG launch hooks: the format and the tone it opens on (nil: each tab's own default).
     var initialFormat: ShareFormat = .card
-    var initialToneSlot = 0
+    var initialTone: ShareTone? = nil
     var onShared: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
@@ -29,7 +29,8 @@ struct ShareSheetView: View {
     @State private var tab: ShareTab
     @State private var layouts: [ShareTab: ShareLayout] = [:]
     @State private var format: ShareFormat = .card
-    @State private var toneSlot = 0
+    /// The tone the listener picked, kept across tabs; nil until they pick one (each tab shows its default).
+    @State private var pickedTone: ShareTone?
     @State private var saveStatus = SaveStatus.idle
     @State private var sharing = false
     /// Where the Share button sits (window coordinates), read when it is tapped: the iPad popover's anchor.
@@ -39,14 +40,14 @@ struct ShareSheetView: View {
     @State private var failed = 0
 
     init(item: ShareSheetItem, scheme: CoverScheme, store: ShareLayoutStore = ShareLayoutStore(),
-         window: CGSize? = nil, initialFormat: ShareFormat = .card, initialToneSlot: Int = 0,
+         window: CGSize? = nil, initialFormat: ShareFormat = .card, initialTone: ShareTone? = nil,
          onShared: @escaping () -> Void = {}) {
         self.item = item
         self.scheme = scheme
         self.store = store
         self.window = window
         self.initialFormat = initialFormat
-        self.initialToneSlot = initialToneSlot
+        self.initialTone = initialTone
         self.onShared = onShared
         let tabs = item.render.tabs
         _render = State(initialValue: item.render)
@@ -59,13 +60,14 @@ struct ShareSheetView: View {
         }
         _layouts = State(initialValue: picked)
         _format = State(initialValue: initialFormat)
-        _toneSlot = State(initialValue: min(max(initialToneSlot, 0), 3))
+        _pickedTone = State(initialValue: initialTone)
     }
 
     private var tabs: [ShareTab] { render.tabs }
     private var layout: ShareLayout? { layouts[tab] }
-    /// The tone is a slot (0–3) kept across tabs: the lyrics' fourth is Mist, About and Note's Paper.
-    private var tone: ShareTone { YoinShareCards.shared.tone(role: tab.role, slot: Int32(toneSlot)) }
+    /// Every tab offers both colour families; the tab's own colour is only its default (owner 2026-11-26). A pick
+    /// carries across tabs; Paper, which the lyrics don't have, gives them their default there.
+    private var tone: ShareTone { YoinShareCards.shared.resolveTone(tab: tab, picked: pickedTone) }
 
     private var windowSize: CGSize { window ?? Self.keyWindowSize() }
     private var wide: Bool { windowSize.width >= Self.wideMinWidth && windowSize.height >= Self.wideMinHeight }
@@ -90,10 +92,11 @@ struct ShareSheetView: View {
 
     // MARK: Layouts
 
+    /// The tabs stay put at the top; everything under them scrolls beneath, softening into the sheet's top edge
+    /// (the system's scroll edge under a bar) instead of being cut flat under the grabber (Android #360's tide line).
     private func phoneBody(_ layout: ShareLayout) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                tabRow
                 layoutLabel.padding(.top, 12)
                 thumbs(thumbWidth: Self.thumbWidth, rows: 1)
                 preview(layout, box: CGSize(width: max(windowSize.width - 48, 1),
@@ -105,10 +108,16 @@ struct ShareSheetView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
-            .padding(.top, 24)
             .padding(.bottom, 16)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .safeAreaBar(edge: .top, spacing: 0) {
+            tabRow
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+        }
+        .scrollEdgeEffectStyle(.soft, for: .top)
     }
 
     private func wideBody(_ layout: ShareLayout) -> some View {
@@ -150,6 +159,8 @@ struct ShareSheetView: View {
                         .scaleEffect(x: on ? 1.08 : 1, y: 1, anchor: .leading)
                         .padding(.vertical, 6)
                         .contentShape(.rect)
+                        // The pointer's lift is rounded, not a rectangle round the word (Android #360).
+                        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(PressScale())
                 .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
@@ -169,7 +180,8 @@ struct ShareSheetView: View {
     // MARK: Thumbnails
 
     /// 版式: each layout the tab offers as a live thumbnail of the image (in the format and tone picked) with its
-    /// name; the picked one wears a 2 pt primary ring and its name in primary. Two rows on the wide sheet; one row
+    /// name; the picked one wears a 2 pt primary ring and its name in primary — nothing behind it: no square
+    /// backdrop or pointer platter round the thumbnail + name (owner 2026-11-26); a press shrinks it a little. Two rows on the wide sheet; one row
     /// scrolls sideways if it must.
     private func thumbs(thumbWidth: CGFloat, rows: Int) -> some View {
         let offered = render.layouts(tab)
@@ -207,6 +219,10 @@ struct ShareSheetView: View {
                         RoundedRectangle(cornerRadius: Self.thumbCorner + Self.thumbRingInset, style: .continuous)
                             .strokeBorder(on ? scheme.primary : .clear, lineWidth: 2)
                     }
+                    // Under a pointer only the thumbnail lifts, in its own rounded shape.
+                    .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: Self.thumbCorner + Self.thumbRingInset,
+                                                                 style: .continuous))
+                    .pointerHighlight(.lift)
                 Text(verbatim: ShareStrings.layout(l))
                     .font(.gsf(Tokens.type.labelMedium.size.cg, on ? .bold : .medium))
                     .foregroundStyle(on ? scheme.primary : scheme.onSurfaceVariant)
@@ -216,7 +232,7 @@ struct ShareSheetView: View {
             .animation(Yoin.effects, value: on)
             .contentShape(.rect)
         }
-        .buttonStyle(PressScale())
+        .buttonStyle(ThumbPress())
         .accessibilityLabel(Text(verbatim: ShareStrings.layout(l)))
         .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("shareThumb:\(l.name)")
@@ -263,15 +279,16 @@ struct ShareSheetView: View {
         .frame(height: 44)
     }
 
-    /// The role's four tones as swatches of the card colour; the picked one squares off and wears a check.
+    /// The tab's tones as swatches of the card colour (the lyrics' four, and Paper on About and Note); the picked
+    /// one squares off and wears a check.
     private var swatches: some View {
         HStack(spacing: 4) {
-            ForEach(Array(tab.role.tones().enumerated()), id: \.offset) { slot, t in
+            ForEach(YoinShareCards.shared.tones(tab: tab), id: \.self) { t in
                 let c = t.colors(scheme, role: tab.role)
-                let on = slot == toneSlot
+                let on = t == tone
                 let shape = RoundedRectangle(cornerRadius: on ? Self.swatchSelectedCorner : Self.swatch / 2,
                                              style: .continuous)
-                Button { pick(toneSlot: slot) } label: {
+                Button { pick(tone: t) } label: {
                     shape.fill(c.card)
                         // Paper is the lowest surface: a ring of its ink keeps it from vanishing into the sheet.
                         .overlay { if t == .paper { shape.strokeBorder(c.content, lineWidth: 2) } }
@@ -284,6 +301,7 @@ struct ShareSheetView: View {
                         }
                         .frame(width: Self.swatchTouch, height: Self.swatchTouch)
                         .contentShape(Rectangle())
+                        .contentShape(.hoverEffect, Circle())
                 }
                 .buttonStyle(PressScale())
                 .accessibilityLabel(Text(verbatim: t.label))
@@ -363,10 +381,10 @@ struct ShareSheetView: View {
         saveStatus = .idle
     }
 
-    private func pick(toneSlot slot: Int) {
-        guard slot != toneSlot else { return }
+    private func pick(tone t: ShareTone) {
+        guard t != tone, YoinShareCards.shared.tones(tab: tab).contains(t) else { return }
         ticks += 1
-        withAnimation(Yoin.effects) { toneSlot = slot }
+        withAnimation(Yoin.effects) { pickedTone = t }
         saveStatus = .idle
     }
 
@@ -421,12 +439,13 @@ struct ShareSheetView: View {
             }
             pick(format: format == .card ? .story : .card)
             await step()
-            pick(toneSlot: (toneSlot + 1) % 4)
-            await step()
-            pick(toneSlot: 3)
-            await step()
+            let offered = YoinShareCards.shared.tones(tab: t)
+            for picked in offered where picked != tone {
+                pick(tone: picked)
+                await step()
+            }
             pick(format: .card)
-            pick(toneSlot: 0)
+            pick(tone: YoinShareCards.shared.defaultTone(tab: t))
             await step()
         }
     }
@@ -479,6 +498,16 @@ struct ShareSheetView: View {
 
 /// The image at its own size, scaled to fit [box] (never above [maxScale]), clipped round after the scale. One
 /// layout pass ([FitLayout] sizes it, [View.fitScaled] draws it at that scale): no measuring through state.
+/// A layout thumbnail's press: it shrinks a little (Android's elasticPress), with no highlight or platter behind
+/// the thumbnail + name; the pointer's lift sits on the thumbnail alone.
+private struct ThumbPress: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(Yoin.spatialFast, value: configuration.isPressed)
+    }
+}
+
 private struct SharePreview: View {
     var image: ShareImage
     var box: CGSize

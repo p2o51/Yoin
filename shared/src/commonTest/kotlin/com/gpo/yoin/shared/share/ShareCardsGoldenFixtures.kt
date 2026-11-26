@@ -499,6 +499,13 @@ internal object ShareCardsGoldenFixtures {
         ShareTone.entries.map { tone -> v("$tone for $role", "tone" to str(tone.name), "role" to str(role.name)) }
     }
 
+    // Each tab with nothing picked yet and with every tone picked: what it offers, opens on, and draws.
+    private val toneOffers = ShareTab.entries.flatMap { tab ->
+        (listOf<ShareTone?>(null) + ShareTone.entries).map { picked ->
+            v("$tab, ${picked ?: "nothing"} picked", "tab" to str(tab.name), "picked" to str(picked?.name))
+        }
+    }
+
     private val retones = listOf(
         "#FF6750A4" to 40, "#FF6750A4" to 90, "#FFB8C4FF" to 40, "#FFB8C4FF" to 90, "#FF8BD8B5" to 40, "#FF8BD8B5" to 90,
         "#FFFF0000" to 40, "#FF808080" to 40, "#FF000000" to 90, "#FFFFFFFF" to 40, "#FF3A5F0B" to 90, "#FFFFD8E4" to 40,
@@ -581,6 +588,7 @@ internal object ShareCardsGoldenFixtures {
         "note" to notes,
         "time" to times,
         "tones" to tones,
+        "toneOffer" to toneOffers,
         "retone" to retones,
         "storyZoom" to storyZooms,
         "storyFits" to storyFits,

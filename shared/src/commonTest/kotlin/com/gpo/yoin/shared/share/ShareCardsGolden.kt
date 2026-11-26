@@ -31,7 +31,7 @@ internal object ShareCardsGolden {
     val sections: List<String> = listOf(
         "isCjk", "content", "layoutStore", "currentLine", "passageStarts", "caption", "cardLineSize", "poster",
         "playerExcerpt", "verticalPlan", "verticalLyrics", "verticalText", "verticalForm", "about", "aiSign", "boldRuns", "note", "time",
-        "tones", "retone", "storyZoom", "storyFits", "exportSize", "fitScale", "fileName",
+        "tones", "toneOffer", "retone", "storyZoom", "storyFits", "exportSize", "fitScale", "fileName",
     )
 
     /** What the facade answers for one vector's inputs (the vector's own output fields are ignored). */
@@ -130,6 +130,14 @@ internal object ShareCardsGolden {
         "tones" -> {
             val colors = YoinShareCards.toneColors(ShareTone.valueOf(v.string("tone")!!), ShareRole.valueOf(v.string("role")!!))
             obj("card" to inkJson(colors.card), "content" to inkJson(colors.content), "backdrop" to inkJson(colors.backdrop))
+        }
+        "toneOffer" -> {
+            val tab = ShareTab.valueOf(v.string("tab")!!)
+            obj(
+                "tones" to JsonArray(YoinShareCards.tones(tab).map { str(it.name) }),
+                "default" to str(YoinShareCards.defaultTone(tab).name),
+                "resolved" to str(YoinShareCards.resolveTone(tab, v.string("picked")?.let(ShareTone::valueOf)).name),
+            )
         }
         "retone" -> obj("retoned" to str(hex(YoinShareCards.retone(argbOf(v.string("argb")!!), v.int("tone")))))
         "storyZoom" -> {
@@ -232,6 +240,7 @@ internal object ShareCardsGolden {
             },
         ),
         "roleTones" to JsonObject(ShareRole.entries.associate { role -> role.name to JsonArray(role.tones().map { str(it.name) }) }),
+        "roleDefaultTones" to JsonObject(ShareRole.entries.associate { role -> role.name to str(role.defaultTone.name) }),
         "cardDesignWidthDp" to JsonPrimitive(YoinShareCards.cardDesignWidthDp),
         "storyDesignWidthDp" to JsonPrimitive(YoinShareCards.storyDesignWidthDp),
         "storyDesignHeightDp" to JsonPrimitive(YoinShareCards.storyDesignHeightDp),

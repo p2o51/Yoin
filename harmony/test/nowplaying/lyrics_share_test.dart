@@ -45,13 +45,23 @@ void main() {
     expect(shareToneColors(ShareTone.mist, ShareRole.lyrics, scheme).card, scheme.tertiaryContainer);
   });
 
-  test('should_drawAboutTertiaryNotePrimaryAndPaperWhite_when_reading', () {
+  test('should_openAboutTertiaryNotePrimary_offerEveryFamily_andKeepPaperWhite_when_reading', () {
     for (final brightness in Brightness.values) {
       final scheme = ColorScheme.fromSeed(seedColor: Colors.teal, brightness: brightness);
-      expect(shareToneColors(ShareTone.soft, ShareRole.ai, scheme).card, scheme.tertiaryContainer);
-      expect(shareToneColors(ShareTone.vivid, ShareRole.ai, scheme).card, scheme.tertiary);
-      expect(shareToneColors(ShareTone.soft, ShareRole.own, scheme).card, scheme.primaryContainer);
-      expect(shareToneColors(ShareTone.vivid, ShareRole.own, scheme).card, scheme.primary);
+      // The defaults follow the colour rule: About tertiary, a note primary.
+      expect(
+        shareToneColors(YoinShareCards.defaultTone(ShareTab.about), ShareRole.ai, scheme).card,
+        scheme.tertiaryContainer,
+      );
+      expect(
+        shareToneColors(YoinShareCards.defaultTone(ShareTab.note), ShareRole.own, scheme).card,
+        scheme.primaryContainer,
+      );
+      // Every family on every tab (owner 2026-11-26): About can be primary, a note tertiary.
+      expect(shareToneColors(ShareTone.soft, ShareRole.ai, scheme).card, scheme.primaryContainer);
+      expect(shareToneColors(ShareTone.vivid, ShareRole.own, scheme).card, scheme.tertiary);
+      final aboutPaper = shareToneColors(ShareTone.paper, ShareRole.ai, scheme);
+      expect(aboutPaper.content, Color(YoinShareCards.retone(scheme.tertiary.toARGB32(), 40)));
       final paper = shareToneColors(ShareTone.paper, ShareRole.own, scheme);
       // White in dark mode too, the ink the role at its light tone.
       expect(paper.card, sharePaperCard);

@@ -1,6 +1,6 @@
 // The share sheet (Android ShareSheetTest): the tabs a song has, the layouts
-// each offers, the layout each tab remembers, the tone slot kept across
-// tabs, Card / Story, and Save / Share (Home's lyric pick kept only from 歌词).
+// each offers, the layout each tab remembers, the tones (every family on
+// every tab, each opening on its role's colour, a pick kept across tabs), Card / Story, and Save / Share (Home's lyric pick kept only from 歌词).
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -182,16 +182,50 @@ void main() {
     expect(_preview(tester).layout, ShareLayout.lyricsClassic);
   });
 
-  testWidgets('should_keepTheToneSlot_when_switchingTabs', (tester) async {
-    await _pump(tester);
-    await tester.tap(find.byKey(const ValueKey('share-tone-Mist')));
-    await tester.pumpAndSettle();
-    expect(_preview(tester).tone, ShareTone.mist);
+  testWidgets('should_openEachTabOnItsOwnColour_when_nothingIsPicked', (tester) async {
+    await _pump(tester, tab: ShareTab.note);
+    expect(_preview(tester).tone, ShareTone.soft);
     await tester.tap(find.byKey(const ValueKey('share-tab-About')));
     await tester.pumpAndSettle();
-    // The fourth slot is Paper for About.
-    expect(find.byKey(const ValueKey('share-tone-Mist')), findsNothing);
+    // About opens tertiary (Mist), and offers every family plus Paper (owner 2026-11-26).
+    expect(_preview(tester).tone, ShareTone.mist);
+    for (final tone in ShareTone.values) {
+      expect(find.byKey(ValueKey('share-tone-${tone.kotlinName}')), findsOneWidget);
+    }
+    await tester.tap(find.byKey(const ValueKey('share-tab-Lyrics')));
+    await tester.pumpAndSettle();
+    expect(_preview(tester).tone, ShareTone.soft);
+    expect(find.byKey(const ValueKey('share-tone-Paper')), findsNothing);
+  });
+
+  testWidgets('should_carryThePickedTone_when_switchingTabs', (tester) async {
+    await _pump(tester, tab: ShareTab.about);
+    await tester.tap(find.byKey(const ValueKey('share-tone-Soft')));
+    await tester.pumpAndSettle();
+    expect(_preview(tester).tone, ShareTone.soft);
+    await tester.tap(find.byKey(const ValueKey('share-tab-Note')));
+    await tester.pumpAndSettle();
+    expect(_preview(tester).tone, ShareTone.soft);
+    await tester.tap(find.byKey(const ValueKey('share-tone-Paper')));
+    await tester.pumpAndSettle();
     expect(_preview(tester).tone, ShareTone.paper);
+    // The lyrics don't offer Paper: their default; back on the note the pick is still Paper.
+    await tester.tap(find.byKey(const ValueKey('share-tab-Lyrics')));
+    await tester.pumpAndSettle();
+    expect(_preview(tester).tone, ShareTone.soft);
+    await tester.tap(find.byKey(const ValueKey('share-tab-Note')));
+    await tester.pumpAndSettle();
+    expect(_preview(tester).tone, ShareTone.paper);
+  });
+
+  testWidgets('should_keepTheTabsFixed_when_theSheetScrolls', (tester) async {
+    await _pump(tester, size: const Size(412, 700));
+    final tabTop = tester.getTopLeft(find.byKey(const ValueKey('share-tab-Lyrics'))).dy;
+    final thumbTop = tester.getTopLeft(find.byKey(const ValueKey('share-thumb-LyricsClassic'))).dy;
+    await tester.drag(find.byKey(const ValueKey('share-sheet-scroll')), const Offset(0, -200));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.byKey(const ValueKey('share-tab-Lyrics'))).dy, tabTop);
+    expect(tester.getTopLeft(find.byKey(const ValueKey('share-thumb-LyricsClassic'))).dy, lessThan(thumbTop));
   });
 
   testWidgets('should_previewAStory_when_storyIsPicked', (tester) async {

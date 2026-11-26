@@ -255,7 +255,7 @@ struct GeminiClient: Sendable {
             requireNonEmpty: true
         )
         guard let result = Self.parseMemoryNarration(raw), Self.followsMemoryVoiceRules(result) else {
-            throw Failure(message: "No usable narration in Gemini response")
+            throw Failure(message: "No usable narration in AI response")
         }
         return result
     }

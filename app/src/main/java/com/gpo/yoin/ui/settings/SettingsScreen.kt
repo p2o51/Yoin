@@ -119,6 +119,7 @@ import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinSnackbarHost
+import com.gpo.yoin.ui.component.aiString
 import com.gpo.yoin.ui.component.currentSeamTopStyle
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.minimumTouchTarget
@@ -1338,7 +1339,8 @@ private fun GeminiItem(
     FeaturePageRow(
         icon = YoinSymbols.Sparkle,
         title = stringResource(R.string.settings_gemini_title),
-        summary = if (ai.isReady) null else stringResource(R.string.settings_gemini_summary_empty),
+        // Names the chosen service like the rest of the app (问千问 / Ask DeepSeek; Custom: Ask AI).
+        summary = if (ai.isReady) null else aiString(R.string.settings_gemini_summary_empty, ai.provider),
         summaryContent = if (ai.isReady) {
             {
                 MetaLine(

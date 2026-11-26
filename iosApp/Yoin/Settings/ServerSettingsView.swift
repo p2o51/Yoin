@@ -192,7 +192,7 @@ struct ServerSettingsView: View {
         let g = GeminiSettings.shared
         return g.hasKey
             ? GeminiSettingsSection.configuredSummary(g)
-            : String(localized: "Song info, Ask Gemini, translation and Memory titles")
+            : AiProviderName.settingsSummary(AiProviderName.name(g.effectiveAiSettings.provider))
     }
 
     private var appearanceSummary: String {

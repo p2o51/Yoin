@@ -12,7 +12,7 @@ extension GeminiClient {
         let raw = try await generateText(ai: settings, prompt: prompt, temperature: 0.8,
                                          useSearch: false, timeout: 45, requireNonEmpty: true)
         let parsed = Self.parseLineTranslations(raw, lineCount: lines.count)
-        guard !parsed.isEmpty else { throw Failure(message: "No usable lyric translations in Gemini response") }
+        guard !parsed.isEmpty else { throw Failure(message: "No usable lyric translations in AI response") }
         return parsed
     }
 

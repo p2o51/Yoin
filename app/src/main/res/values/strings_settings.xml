@@ -88,7 +88,8 @@
 
     <string name="settings_gemini_title">AI features</string>
     <string name="settings_gemini_title_page">AI features</string>
-    <string name="settings_gemini_summary_empty">Song info, Ask Gemini, translation and Memory titles</string>
+    <!-- %1$s: the chosen AI service (ai_provider_*; a Custom endpoint is "AI"), as in ai_ask_provider (51, 2026-11-26). -->
+    <string name="settings_gemini_summary_empty">Song info, Ask %1$s, translation and Memory titles</string>
 
     <string name="settings_neodb_title" translatable="false">NeoDB</string>
     <string name="settings_neodb_title_page" translatable="false">NeoDB</string>

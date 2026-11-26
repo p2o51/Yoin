@@ -3,9 +3,9 @@ import UIKit
 import YoinShared
 
 /// DEBUG launch hooks for screenshots (`-screen np -shareDemo lyrics|about|note`, optional `-shareFormat story`,
-/// `-shareTone 0…3`, `-shareLayout <storeValue>`, `-shareTranslation YES`): the share sheet opens over Now Playing
+/// `-shareTone soft|deep|vivid|mist|paper`, `-shareLayout <storeValue>`, `-shareTranslation YES`): the share sheet opens over Now Playing
 /// on that tab with demo content (Android's PreviewShareContent, the mock album's cover, a mention pill in the
-/// note). Release builds read nothing and open on Card, slot 0.
+/// note). Release builds read nothing and open on Card in each tab's default tone.
 @MainActor
 enum ShareSheetDemo {
     #if DEBUG
@@ -21,7 +21,11 @@ enum ShareSheetDemo {
     }
 
     static var format: ShareFormat { tab != nil && defaults.string(forKey: "shareFormat") == "story" ? .story : .card }
-    static var toneSlot: Int { tab != nil ? min(max(defaults.integer(forKey: "shareTone"), 0), 3) : 0 }
+    /// The tone asked for (nil: each tab's default; a tab that doesn't offer it shows its default).
+    static var tone: ShareTone? {
+        guard tab != nil, let name = defaults.string(forKey: "shareTone")?.lowercased() else { return nil }
+        return [ShareTone.soft, .deep, .vivid, .mist, .paper].first { $0.name.lowercased() == name }
+    }
 
     /// The demo content, with the asked layout remembered for its tab first.
     static func render(album: Album) -> ShareRender? {
@@ -79,6 +83,6 @@ enum ShareSheetDemo {
     }
     #else
     static var format: ShareFormat { .card }
-    static var toneSlot: Int { 0 }
+    static var tone: ShareTone? { nil }
     #endif
 }
