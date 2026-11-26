@@ -1436,16 +1436,6 @@
         }
       }
     },
-    "Ask Gemini": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "问 Gemini"
-          }
-        }
-      }
-    },
     "Asked about %@: %@": {
       "localizations": {
         "zh-Hans": {
@@ -2894,47 +2884,7 @@
         }
       }
     },
-    "Gemini API key missing": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "缺少 Gemini API 密钥"
-          }
-        }
-      }
-    },
-    "Gemini couldn't answer. Try again.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini 没能回答，再试一次"
-          }
-        }
-      }
-    },
     "Gemini extras": {},
-    "Gemini had nothing new": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini 没有新的内容"
-          }
-        }
-      }
-    },
-    "Gemini is thinking": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini 正在思考"
-          }
-        }
-      }
-    },
     "Get started": {
       "localizations": {
         "zh-Hans": {
@@ -4073,16 +4023,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "暂无收藏"
-          }
-        }
-      }
-    },
-    "No Gemini API key": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未设置 Gemini API 密钥"
           }
         }
       }
@@ -5300,16 +5240,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新生成"
-          }
-        }
-      }
-    },
-    "Regenerate with Gemini": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 Gemini 重新生成"
           }
         }
       }
@@ -10898,16 +10828,6 @@
         }
       }
     },
-    "Online AI API key missing": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "尚未填写在线 AI API 密钥"
-          }
-        }
-      }
-    },
     "Create an app at developer.spotify.com, check Web API and iOS, and register these redirect URIs:": {
       "localizations": {
         "zh-Hans": {
@@ -16292,6 +16212,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "写于 %@"
+          }
+        }
+      }
+    },
+    "No %@ API key": {
+      "comment": "No key for the AI service in use, %@ = its name (Android ai_no_key)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未设置 %@ API 密钥"
+          }
+        }
+      }
+    },
+    "Regenerate with %@": {
+      "comment": "Write one About row again, %@ = the AI service in use (Android ai_regenerate_with)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 %@ 重新生成"
+          }
+        }
+      }
+    },
+    "%@ is writing…": {
+      "comment": "The AI's dots, read aloud; %@ = the AI service in use (Android ai_writing)",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 正在写…"
           }
         }
       }
