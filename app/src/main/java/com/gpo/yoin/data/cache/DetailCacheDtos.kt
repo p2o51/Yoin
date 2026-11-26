@@ -24,8 +24,9 @@ internal object DetailCacheFormat {
 
     /**
      * Tracks and albums keep the service's explicit / clean mark ([ContentRating]). Older album and
-     * artist rows of a service that marks them (Apple Music, Spotify) are misses; a Subsonic row has
-     * no mark to miss and stays.
+     * artist rows of Apple Music and Spotify are misses. A Subsonic row stays: it may back an album
+     * downloaded for offline play, whose page must open with no server, and OpenSubsonic's
+     * `explicitStatus` (read since PR #343) fills in on the row's next background refresh.
      */
     const val RATED = 2
 

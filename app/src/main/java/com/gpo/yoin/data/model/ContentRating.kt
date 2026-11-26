@@ -11,8 +11,9 @@ package com.gpo.yoin.data.model
  * - Spotify: a track's `explicit`; an album has no flag of its own, so it is
  *   explicit when any of its tracks is, clean when the whole tracklist is known
  *   and none is ([fromTracks]).
- * - Subsonic / OpenSubsonic: not read yet (OpenSubsonic's `explicitStatus` is
- *   where it would come from), so always unknown.
+ * - Subsonic / OpenSubsonic: `explicitStatus` on songs and albums ("explicit" /
+ *   "clean"; "" or absent is unknown — plain Subsonic servers never send it;
+ *   Navidrome fills it from the files' ITUNESADVISORY tag).
  */
 enum class ContentRating {
     Explicit,
@@ -26,6 +27,9 @@ enum class ContentRating {
             "clean" -> Clean
             else -> null
         }
+
+        /** OpenSubsonic's `explicitStatus` ("explicit" / "clean"); "" or none is unknown. */
+        fun fromOpenSubsonic(value: String?): ContentRating? = fromAppleMusic(value)
 
         /** Spotify's `explicit` flag; null (not sent) is unknown. */
         fun fromExplicitFlag(explicit: Boolean?): ContentRating? = when (explicit) {

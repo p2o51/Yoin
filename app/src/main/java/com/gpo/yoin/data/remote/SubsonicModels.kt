@@ -136,6 +136,8 @@ data class Album(
     val originalReleaseDate: SubsonicItemDate? = null,
     /** OpenSubsonic: the record labels (LABEL / PUBLISHER tags); absent on older servers. */
     val recordLabels: List<SubsonicRecordLabel> = emptyList(),
+    /** OpenSubsonic: "explicit", "clean", or "" when the tags don't say (Navidrome: ITUNESADVISORY). */
+    val explicitStatus: String? = null,
 )
 
 /** OpenSubsonic RecordLabel: just its name. */
@@ -193,6 +195,8 @@ data class Song(
     val created: String? = null,
     val displayComposer: String? = null,
     val replayGain: SubsonicReplayGain? = null,
+    /** OpenSubsonic: "explicit", "clean", or "" when the tags don't say (Navidrome: ITUNESADVISORY). */
+    val explicitStatus: String? = null,
 )
 
 /** OpenSubsonic `ReplayGain`: gains in dB, peaks linear; every field optional. */
