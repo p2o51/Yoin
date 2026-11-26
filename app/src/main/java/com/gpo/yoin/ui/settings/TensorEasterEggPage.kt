@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,6 +78,7 @@ import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -348,7 +348,7 @@ internal fun TensorEasterEggContent(
             contentColor = Color.White.copy(alpha = 0.88f),
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .statusBarsPadding()
+                .topBarsPadding()
                 .padding(start = 20.dp, top = 12.dp),
         )
 
