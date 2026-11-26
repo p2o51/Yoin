@@ -37,6 +37,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarState
@@ -145,113 +147,118 @@ internal fun LyricsSearchSheet(
         )
     }
 
-    ExpandedFullScreenSearchBar(
-        state = searchBarState,
-        inputField = inputField,
-        modifier = modifier,
-    ) {
-        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val resultsState = rememberLazyListState()
-        LazyColumn(
-            state = resultsState,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                // Results sink under the tide line below the search field, as under any fixed chrome.
-                .sheetScrollEdge(resultsState),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                top = 8.dp,
-                end = 16.dp,
-                bottom = 16.dp + navBottom,
-            ),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+    // The search surface is a dialog window of its own, and Material reads its status bar icon colour
+    // from LocalContentColor here. The shell is no Surface, so that was the default black: dark icons
+    // on a dark page. The page's own content colour gives the bar the right icons in both themes.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        ExpandedFullScreenSearchBar(
+            state = searchBarState,
+            inputField = inputField,
+            modifier = modifier,
         ) {
-            val searchError = state.errorMessage
-            if (searchError != null) {
-                item(key = "error") {
-                    Text(
-                        text = searchError.asString(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                }
-            }
-
-            when {
-                state.providers.isEmpty() && state.loading -> {
-                    item(key = "loading") {
-                        LyricsProviderStatusRow(
-                            text = stringResource(R.string.np_lyrics_searching_providers),
-                            loading = true,
-                        )
-                    }
-                }
-                state.providers.isEmpty() &&
-                    !state.loading &&
-                    state.query.isNotBlank() &&
-                    state.errorMessage == null -> {
-                    item(key = "empty") {
+            val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val resultsState = rememberLazyListState()
+            LazyColumn(
+                state = resultsState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    // Results sink under the tide line below the search field, as under any fixed chrome.
+                    .sheetScrollEdge(resultsState),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    top = 8.dp,
+                    end = 16.dp,
+                    bottom = 16.dp + navBottom,
+                ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                val searchError = state.errorMessage
+                if (searchError != null) {
+                    item(key = "error") {
                         Text(
-                            text = stringResource(R.string.np_lyrics_none_found),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 18.dp),
+                            text = searchError.asString(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
                 }
-                else -> {
-                    state.providers.forEachIndexed { providerIndex, provider ->
-                        item(key = "header:${provider.providerName}") {
-                            LyricsProviderHeader(providerName = provider.providerName)
+
+                when {
+                    state.providers.isEmpty() && state.loading -> {
+                        item(key = "loading") {
+                            LyricsProviderStatusRow(
+                                text = stringResource(R.string.np_lyrics_searching_providers),
+                                loading = true,
+                            )
                         }
-                        when {
-                            provider.errorMessage != null -> {
-                                item(key = "error:${provider.providerName}") {
-                                    LyricsProviderStatusRow(
-                                        text = provider.errorMessage,
-                                        error = true,
-                                    )
-                                }
-                            }
-                            state.loading && provider.results.isEmpty() -> {
-                                item(key = "loading:${provider.providerName}") {
-                                    LyricsProviderStatusRow(
-                                        text = stringResource(R.string.np_lyrics_searching),
-                                        loading = true,
-                                    )
-                                }
-                            }
-                            provider.results.isEmpty() -> {
-                                item(key = "empty:${provider.providerName}") {
-                                    LyricsProviderStatusRow(text = stringResource(R.string.np_lyrics_no_results))
-                                }
-                            }
-                            else -> {
-                                items(
-                                    items = provider.results,
-                                    key = LyricsSearchResultUi::stableKey,
-                                ) { result ->
-                                    LyricsSearchResultRow(
-                                        result = result,
-                                        applying = state.applyingCandidateKey == result.stableKey,
-                                        enabled = state.applyingCandidateKey == null,
-                                        onClick = { onSelect(result) },
-                                    )
-                                }
-                            }
+                    }
+                    state.providers.isEmpty() &&
+                        !state.loading &&
+                        state.query.isNotBlank() &&
+                        state.errorMessage == null -> {
+                        item(key = "empty") {
+                            Text(
+                                text = stringResource(R.string.np_lyrics_none_found),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 18.dp),
+                            )
                         }
-                        if (providerIndex != state.providers.lastIndex) {
-                            item(key = "divider:${provider.providerName}") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(1.dp)
-                                        .background(
-                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                                        ),
-                                )
+                    }
+                    else -> {
+                        state.providers.forEachIndexed { providerIndex, provider ->
+                            item(key = "header:${provider.providerName}") {
+                                LyricsProviderHeader(providerName = provider.providerName)
+                            }
+                            when {
+                                provider.errorMessage != null -> {
+                                    item(key = "error:${provider.providerName}") {
+                                        LyricsProviderStatusRow(
+                                            text = provider.errorMessage,
+                                            error = true,
+                                        )
+                                    }
+                                }
+                                state.loading && provider.results.isEmpty() -> {
+                                    item(key = "loading:${provider.providerName}") {
+                                        LyricsProviderStatusRow(
+                                            text = stringResource(R.string.np_lyrics_searching),
+                                            loading = true,
+                                        )
+                                    }
+                                }
+                                provider.results.isEmpty() -> {
+                                    item(key = "empty:${provider.providerName}") {
+                                        LyricsProviderStatusRow(text = stringResource(R.string.np_lyrics_no_results))
+                                    }
+                                }
+                                else -> {
+                                    items(
+                                        items = provider.results,
+                                        key = LyricsSearchResultUi::stableKey,
+                                    ) { result ->
+                                        LyricsSearchResultRow(
+                                            result = result,
+                                            applying = state.applyingCandidateKey == result.stableKey,
+                                            enabled = state.applyingCandidateKey == null,
+                                            onClick = { onSelect(result) },
+                                        )
+                                    }
+                                }
+                            }
+                            if (providerIndex != state.providers.lastIndex) {
+                                item(key = "divider:${provider.providerName}") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(1.dp)
+                                            .background(
+                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                            ),
+                                    )
+                                }
                             }
                         }
                     }

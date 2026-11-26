@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.KeyEvent
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity(), ShellShortcutHost {
             }
         }
         enableYoinEdgeToEdge()
+        barsNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         // Preserve a logical shell through recreation. Only the first fresh shell after the previous
         // windows are gone clears the process-level pose; a second MainActivity cannot retire a live hand-off.
         shellHandoffHostKey = savedInstanceState?.getString(STATE_SHELL_HANDOFF_HOST) ?: UUID.randomUUID().toString()
@@ -295,6 +297,20 @@ class MainActivity : ComponentActivity(), ShellShortcutHost {
                 item(ShellShortcut.AllMemories, R.string.shortcut_all_memories),
             ),
         )
+    }
+
+    /** Night-mode bits the system bar style was last set for. */
+    private var barsNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // The shell handles uiMode itself (manifest configChanges), so a theme switch never
+        // recreates it and the bar style set in onCreate would keep the old theme's icons.
+        val night = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        if (night != barsNightMode) {
+            barsNightMode = night
+            enableYoinEdgeToEdge()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
