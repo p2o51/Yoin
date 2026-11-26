@@ -1851,6 +1851,47 @@ final class LibraryStore {
         return nil
     }
 
+    /// A music link from another service, searched here (Open in Yoin's Choose a match, docs/open-in-yoin.md):
+    /// the service's catalogue where it has one, a server's search3 otherwise. Its own answer: the Search
+    /// page's results and phase are left alone. Nil when there is no account in use or the search failed.
+    func openInSearch(_ query: String) async -> SearchHits? {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isReal, !q.isEmpty else { return nil }
+        do {
+            if let apple {
+                let r = try await apple.search(q)
+                return SearchHits(query: q, scope: .catalog, artists: r.artists, albums: r.albums, songs: r.songs,
+                                  playlists: r.playlists)
+            }
+            if let spotify {
+                let r = try await spotify.search(q)
+                return SearchHits(query: q, scope: .catalog, artists: r.artists, albums: r.albums, songs: r.songs,
+                                  playlists: r.playlists)
+            }
+            if let client, let mapping {
+                let r = try await client.search3(query: q, artistCount: 20, albumCount: 20, songCount: 40)
+                return SearchHits(query: q, scope: .library, artists: r.artists.map(mapping.artistItem),
+                                  albums: r.albums.map(mapping.album),
+                                  songs: r.songs.enumerated().map { mapping.entry($1, index: $0) }, playlists: [])
+            }
+        } catch {
+            log.error("open-in search failed: \(self.message(for: error), privacy: .public)")
+        }
+        return nil
+    }
+
+    /// The account in use's songs with [isrc] (Apple Music's catalogue filter, Spotify's `isrc:` search);
+    /// empty on a server, which can't look one up.
+    func openInSongs(isrc: String) async -> [PlaylistEntry] {
+        if let apple {
+            return (await apple.catalogSongsByIsrc([isrc])).values.flatMap { $0 }.map { AppleMusicMapping.entry($0) }
+        }
+        if let spotify {
+            return (try? await spotify.search("isrc:\(isrc)", kinds: [.songs]).songs) ?? []
+        }
+        return []
+    }
+
     /// A saved-library search answered from local lists, run again once the reads behind it land
     /// (audit 11-15 #69): only while the same search shows; a failure replaces "No results" only.
     func refreshLibrarySearch(_ term: String, request: SearchRequest) {

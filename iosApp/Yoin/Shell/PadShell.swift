@@ -515,6 +515,8 @@ private struct PadColumns: View {
             LabsView()
         case .neoDBVoices(let album):
             NeoDBVoicesView(album: album)
+        case .openInResults(let request):
+            OpenInResultsView(request: request)
         }
     }
 }
@@ -537,7 +539,7 @@ private struct PadDetailPlay: View {
         case .album(let a): return a
         case .artist(let ref): return model.artistPage(ref).releases.first
         case .playlist(let id): return model.playlistInfo(id).asAlbum
-        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices: return nil
+        case .settings, .tips, .tip, .allMemories, .labs, .neoDBVoices, .openInResults: return nil
         case nil: return root
         }
     }
