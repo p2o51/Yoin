@@ -266,6 +266,9 @@ final class AppModel {
         case "album", "album-list", "album-mid", "album-scrapbook", "album-scrapbook-bottom":
             var album = library.albums()[0]
             #if DEBUG
+            // `-albumIndex 2`: another mock album (a shorter one shows the list's end on a phone).
+            let index = UserDefaults.standard.integer(forKey: "albumIndex")
+            if library.albums().indices.contains(index) { album = library.albums()[index] }
             // `-notStreamedDemo YES`: the mock album's third and fourth songs as Apple Music songs Apple won't
             // stream; `open` also opens the third one's reason.
             if UserDefaults.standard.string(forKey: "notStreamedDemo") != nil {
@@ -685,7 +688,18 @@ final class AppModel {
 
     /// An album with the most the app knows: the server's detail when loaded.
     func resolved(_ album: Album) -> Album {
-        guard album.id.provider != "mock" else { return album }
+        guard album.id.provider != "mock" else {
+            #if DEBUG
+            // `-albumReleaseDate 2022-06-12` (or "2022-06", "2022"): the mock albums dated that precisely, for
+            // screenshots of the header's date, the line under the tracks and the receipt.
+            if let iso = UserDefaults.standard.string(forKey: "albumReleaseDate") {
+                var dated = album
+                dated.releaseDate = ReleaseDateISO.parse(iso)
+                return dated
+            }
+            #endif
+            return album
+        }
         return store.album(album.id.rawId) ?? album
     }
 
