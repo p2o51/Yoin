@@ -1,61 +1,26 @@
-import 'dart:async';
-import 'dart:math' as math;
-import 'dart:ui' as ui;
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../data/model/model.dart';
+import '../data/share/yoin_share_cards.dart';
+import '../data/source/music_source.dart';
 import '../detail/album_hero_marks.dart' show parseSvgPathData;
-import '../platform/share/image_share.dart';
-import '../theme/motion.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
-import '../ui/component/cover_art.dart';
-import '../ui/component/spring_cross_fade.dart';
-import 'haptics.dart';
-import 'lyrics_logic.dart';
-import 'lyrics_selection.dart';
+import '../ui/component/artwork_image.dart';
 import 'nowplaying_strings.dart';
 
-/// The shapes a pick is shared as (LyricsShareFormat).
-enum LyricsShareFormat {
-  /// The quote card on its own — spotoolfy's poster width (720 × 2 px).
-  card,
-
-  /// 9:16 full-bleed backdrop with the card centred, for stories / status.
-  story,
-}
-
-/// The card's colour pairings — spotoolfy's four poster styles from the
-/// playing palette (LyricsCardTone).
-enum LyricsCardTone { soft, deep, vivid, mist }
-
-/// One tone's colours: the card, its text, its secondary text, the story's backdrop.
-@immutable
-final class LyricsCardColors {
-  const LyricsCardColors({required this.card, required this.content, required this.secondary, required this.backdrop});
-
-  final Color card;
-  final Color content;
-  final Color secondary;
-  final Color backdrop;
-}
-
-/// The share card's geometry and export sizes (LyricsShareCard.kt; not in tokens.dart yet).
-abstract final class LyricsShareMetrics {
-  /// The card's logical width (LyricsCardDesignWidth); exported at [cardExportWidth].
+/// The share images' geometry (Android LyricsShareCard.kt / ShareCards.kt,
+/// prototypes design/hifi/src/components/share.js; the sizes the rules own
+/// are [YoinShareCards]'). Not in tokens.dart: the image is a fixed artwork
+/// laid out at its logical size, not app chrome.
+abstract final class ShareCardMetrics {
+  /// The card's logical width; exported at [YoinShareCards.cardExportWidthPx].
   static const double cardWidth = 360;
 
-  /// The story's logical size (LyricsStoryDesignSize); exported at [storyExportWidth] × [storyExportHeight].
+  /// The story's logical size; exported at 1080 × 1920.
   static const Size storySize = Size(360, 640);
-  static const int cardExportWidth = 1440;
-  static const int storyExportWidth = 1080;
-  static const int storyExportHeight = 1920;
   static const double cardPadding = 24;
+  static const double posterPadding = 28;
   static const double cover = 44;
   static const double coverGap = 12;
   static const double headerToLines = 20;
@@ -66,629 +31,183 @@ abstract final class LyricsShareMetrics {
   static const double mark = 22;
   static const double markGap = 6;
 
+  /// At least this between the mark's "Yoin" and the sign.
+  static const double signGap = 16;
+
   /// The mark's glyph sits in the themed icon's safe zone: scaled up to fill its slot.
   static const double markGlyphScale = 1.7;
-  static const double secondaryAlpha = 0.72;
   static const double translationAlpha = 0.76;
 
-  /// The story's card stays clear of the chrome stories draw over the image.
-  static const double storyMarginH = 28;
-  static const double storyMarginV = 72;
+  /// The translation's footnote / bottom line: low contrast.
+  static const double quietAlpha = 0.55;
+  static const double posterCardMinHeight = 400;
+  static const double verticalCardMinHeight = 470;
 
-  /// Furthest a story zooms out (LyricsStoryMinZoom).
-  static const double storyMinZoom = 0.4;
-  static const int storyZoomSteps = 8;
-
-  /// Previews never take more of the window than this, so the actions stay in reach.
-  static const double previewMaxShare = 0.5;
-  static const double swatch = 36;
-  static const double swatchTouch = 48;
-  static const double swatchSelectedCorner = 10;
-  static const double toggleHeight = 44;
-  static const double actionHeight = 56;
-  static const int fileTitleMaxChars = 48;
+  /// Covers decode at one size for every slot, so the sheet's precache serves them all.
+  static const int coverDecodePx = 512;
 }
 
-LyricsCardColors lyricsCardColors(LyricsCardTone tone, ColorScheme scheme) {
-  const a = LyricsShareMetrics.secondaryAlpha;
-  return switch (tone) {
-    LyricsCardTone.soft => LyricsCardColors(
-      card: scheme.primaryContainer,
-      content: scheme.onPrimaryContainer,
-      secondary: scheme.onPrimaryContainer.withValues(alpha: a),
-      backdrop: scheme.primary,
-    ),
-    LyricsCardTone.deep => LyricsCardColors(
-      card: scheme.onPrimaryContainer,
-      content: scheme.primaryContainer,
-      secondary: scheme.primaryContainer.withValues(alpha: a),
-      backdrop: scheme.primaryContainer,
-    ),
-    LyricsCardTone.vivid => LyricsCardColors(
-      card: scheme.tertiary,
-      content: scheme.onTertiary,
-      secondary: scheme.onTertiary.withValues(alpha: a),
-      backdrop: scheme.tertiaryContainer,
-    ),
-    LyricsCardTone.mist => LyricsCardColors(
-      card: scheme.tertiaryContainer,
-      content: scheme.onTertiaryContainer,
-      secondary: scheme.onTertiaryContainer.withValues(alpha: a),
-      backdrop: scheme.tertiary,
-    ),
-  };
+/// One tone's colours: the card, its text, its secondary text, the story's backdrop.
+@immutable
+final class ShareCardColors {
+  const ShareCardColors({required this.card, required this.content, required this.secondary, required this.backdrop});
+
+  final Color card;
+  final Color content;
+  final Color secondary;
+  final Color backdrop;
 }
 
-/// The picked lines' size on the 360 card (lyricsCardLineSize): short picks
-/// 22, medium 19, long 17.
-double lyricsCardLineSize(List<LyricRow> lines) {
-  final chars = lines.fold<int>(0, (n, l) => n + l.text.length);
-  if (chars <= 90 && lines.length <= 4) return 22;
-  if (chars <= 200) return 19;
-  return 17;
+/// Paper's card: white, whatever the theme.
+const Color sharePaperCard = Color(0xFFFFFFFF);
+
+/// [tone]'s colours for [role] from [scheme] ([YoinShareCards.toneColors]):
+/// the lyrics keep their four pairings, About draws from tertiary and a note
+/// from primary, with Paper (a white card, the role re-toned to T40 as ink,
+/// in dark mode too) in the fourth slot. The fourth slot follows the role, so
+/// a swatch kept across tabs stays valid.
+ShareCardColors shareToneColors(ShareTone tone, ShareRole role, ColorScheme scheme) {
+  Color resolve(ShareInk ink) {
+    final base = switch (ink.source) {
+      ShareInkSource.primary => scheme.primary,
+      ShareInkSource.onPrimary => scheme.onPrimary,
+      ShareInkSource.primaryContainer => scheme.primaryContainer,
+      ShareInkSource.onPrimaryContainer => scheme.onPrimaryContainer,
+      ShareInkSource.tertiary => scheme.tertiary,
+      ShareInkSource.onTertiary => scheme.onTertiary,
+      ShareInkSource.tertiaryContainer => scheme.tertiaryContainer,
+      ShareInkSource.onTertiaryContainer => scheme.onTertiaryContainer,
+      ShareInkSource.white => sharePaperCard,
+    };
+    final t = ink.tone;
+    return t == null ? base : Color(YoinShareCards.retone(base.toARGB32(), t));
+  }
+
+  final colors = YoinShareCards.toneColors(tone, role);
+  final content = resolve(colors.content);
+  return ShareCardColors(
+    card: resolve(colors.card),
+    content: content,
+    secondary: content.withValues(alpha: YoinShareCards.secondaryAlpha),
+    backdrop: resolve(colors.backdrop),
+  );
 }
 
-/// The image's pixel ratio over its logical layout: a fixed width per format,
-/// so the PNG doesn't depend on the phone's density (lyricsShareExportSize).
-double lyricsSharePixelRatio(LyricsShareFormat format) => switch (format) {
-  LyricsShareFormat.card => LyricsShareMetrics.cardExportWidth / LyricsShareMetrics.cardWidth,
-  LyricsShareFormat.story => LyricsShareMetrics.storyExportWidth / LyricsShareMetrics.storySize.width,
+/// The cover's url for an image (decoded at [ShareCardMetrics.coverDecodePx]): the tip pages' made-up covers as they
+/// are, the rest through the account's source.
+String? shareCoverUrl(MusicSource? source, CoverRef? cover) => switch (cover) {
+  null => null,
+  CoverUrl(:final url) when DemoArtwork.parse(url) != null => url,
+  _ => source?.resolveCoverUrl(cover, size: ShareCardMetrics.coverDecodePx),
 };
 
-/// The largest zoom in [storyMinZoom, 1] for which [fits] holds (lyricsStoryZoom).
-double lyricsStoryZoom(bool Function(double zoom) fits) {
-  if (fits(1)) return 1;
-  var low = LyricsShareMetrics.storyMinZoom;
-  var high = 1.0;
-  for (var i = 0; i < LyricsShareMetrics.storyZoomSteps; i++) {
-    final mid = (low + high) / 2;
-    if (fits(mid)) {
-      low = mid;
-    } else {
-      high = mid;
-    }
-  }
-  return low;
-}
+/// The image provider a share cover draws from (and the sheet precaches before it exports).
+ImageProvider shareCoverImage(String url) => artworkImageProvider(url, cacheWidth: ShareCardMetrics.coverDecodePx);
 
-/// Gallery file name (lyricsShareFileName): the title less what file systems
-/// refuse, capped, plus a timestamp.
-String lyricsShareFileName(String? songTitle, int nowMs, NowPlayingStrings strings) {
-  var title = (songTitle ?? '')
-      .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F\x7F]'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
-  if (title.length > LyricsShareMetrics.fileTitleMaxChars) {
-    title = title.substring(0, LyricsShareMetrics.fileTitleMaxChars).trim();
-  }
+/// The image's pixel ratio over its logical layout: a fixed width per format,
+/// so the PNG doesn't depend on the phone's density (4 for a Card, 3 for a Story).
+double sharePixelRatio(ShareFormat format) => switch (format) {
+  ShareFormat.card => YoinShareCards.cardExportWidthPx / ShareCardMetrics.cardWidth,
+  ShareFormat.story => YoinShareCards.storyExportWidthPx / ShareCardMetrics.storySize.width,
+};
+
+/// Gallery file name: `Yoin - <title> - <ms>.png` for every tab ([YoinShareCards.fileTitle]).
+String shareFileName(String? songTitle, int nowMs, NowPlayingStrings strings) {
+  final title = YoinShareCards.fileTitle(songTitle);
   return title.isEmpty ? strings.shareFileUntitled('$nowMs') : strings.shareFileNamed(title, '$nowMs');
 }
 
-/// What the share sheet shows, frozen when it opens (LyricsShareSnapshot):
-/// a song change under the open sheet keeps the same lines and song.
-@immutable
-final class LyricsShareSnapshot {
-  const LyricsShareSnapshot({
-    required this.lines,
-    required this.passageStarts,
-    required this.showTranslation,
-    required this.songTitle,
-    required this.artist,
-    required this.cover,
-  });
-
-  final List<LyricRow> lines;
-
-  /// Positions in [lines] that start a new passage.
-  final Set<int> passageStarts;
-  final bool showTranslation;
-  final String songTitle;
-  final String artist;
-  final CoverRef? cover;
-}
-
-/// Opens the share sheet (Standard modal sheet on surfaceContainer) on Now
-/// Playing's navigator; [onShared] runs once the image went to the share sheet.
-/// [onKept] runs when the lines were saved or shared: Home's Lyric Cards keep
-/// them as a pick of the user's own.
-Future<void> showLyricsShareSheet(
-  BuildContext navigatorContext, {
-  required LyricsShareSnapshot snapshot,
-  required VoidCallback onShared,
-  required ValueChanged<String> onMessage,
-  VoidCallback? onKept,
-}) => showModalBottomSheet<void>(
-  context: navigatorContext,
-  useSafeArea: true,
-  isScrollControlled: true,
-  showDragHandle: true,
-  backgroundColor: Theme.of(navigatorContext).colorScheme.surfaceContainer,
-  builder: (sheetContext) => LyricsShareSheet(
-    snapshot: snapshot,
-    onShared: () {
-      Navigator.of(sheetContext).pop();
-      onShared();
-    },
-    onMessage: onMessage,
-    onKept: onKept,
+/// [style] at [weight] on the variable font's `wght` axis, its size, height and tracking kept.
+TextStyle shareWeight(TextStyle style, int weight) => style.merge(
+  gsf(
+    style.fontSize ?? 14,
+    weight: weight,
+    height: style.height,
+    letterSpacing: style.letterSpacing ?? TypeTokens.letterSpacing,
   ),
 );
 
-enum _SaveStatus { idle, saving, saved, failed }
+/// GSF's rounded cut at SemiBold: the lyric line's (and a hero text's) face.
+TextStyle shareHeroStyle(double size, [double height = 1.3, int weight = 600]) =>
+    gsf(size, weight: weight, height: height, round: 100);
 
-/// Share-as-image for the picked lines (LyricsShareSheet): the preview, Card
-/// / Story, four tones, then Save and Share. What the sheet shows IS what is
-/// exported: the image draws at its logical size inside a repaint boundary
-/// read back at the format's fixed pixel ratio.
-class LyricsShareSheet extends ConsumerStatefulWidget {
-  const LyricsShareSheet({
+/// A cover as the image draws it: the decoded cover once it is in memory (the
+/// sheet precaches it, so an export never catches it loading); a quiet tile of
+/// [tint] without one.
+class ShareCover extends StatelessWidget {
+  const ShareCover({
     super.key,
-    required this.snapshot,
-    required this.onShared,
-    required this.onMessage,
-    this.onKept,
+    required this.url,
+    required this.size,
+    required this.tint,
+    this.radius = ShapeTokens.thumb,
   });
 
-  final LyricsShareSnapshot snapshot;
-  final VoidCallback onShared;
-  final ValueChanged<String> onMessage;
-
-  /// The lines were saved or shared (Android onKept).
-  final VoidCallback? onKept;
-
-  @override
-  ConsumerState<LyricsShareSheet> createState() => _LyricsShareSheetState();
-}
-
-class _LyricsShareSheetState extends ConsumerState<LyricsShareSheet> {
-  final GlobalKey _boundary = GlobalKey(debugLabel: 'lyricsShareImage');
-  LyricsShareFormat _format = LyricsShareFormat.card;
-  LyricsCardTone _tone = LyricsCardTone.soft;
-  bool _sharing = false;
-  _SaveStatus _save = _SaveStatus.idle;
-
-  Future<Uint8List?> _export() async {
-    try {
-      final boundary = _boundary.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) return null;
-      final image = await boundary.toImage(pixelRatio: lyricsSharePixelRatio(_format));
-      final data = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      return data?.buffer.asUint8List();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _onSave() async {
-    if (_save == _SaveStatus.saving || _save == _SaveStatus.saved) return;
-    final strings = NowPlayingStrings.of(context);
-    setState(() => _save = _SaveStatus.saving);
-    final png = await _export();
-    final name = lyricsShareFileName(widget.snapshot.songTitle, DateTime.now().millisecondsSinceEpoch, strings);
-    final saved = png != null && await ref.read(imageShareProvider).save(png, fileName: name);
-    if (!mounted) return;
-    setState(() => _save = saved ? _SaveStatus.saved : _SaveStatus.failed);
-    if (saved) widget.onKept?.call();
-    saved ? YoinHaptics.confirm() : YoinHaptics.reject();
-  }
-
-  Future<void> _onShare() async {
-    if (_sharing) return;
-    final strings = NowPlayingStrings.of(context);
-    setState(() => _sharing = true);
-    YoinHaptics.confirm();
-    final png = await _export();
-    final s = widget.snapshot;
-    final name = lyricsShareFileName(s.songTitle, DateTime.now().millisecondsSinceEpoch, strings);
-    final shared =
-        png != null &&
-        await ref
-            .read(imageShareProvider)
-            .share(png, fileName: name, caption: lyricsCredit(s.songTitle, s.artist, strings));
-    if (!mounted) return;
-    setState(() => _sharing = false);
-    if (shared) {
-      widget.onKept?.call();
-      widget.onShared();
-    } else {
-      widget.onMessage(strings.shareFailed);
-    }
-  }
+  final String? url;
+  final double size;
+  final Color tint;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final strings = NowPlayingStrings.of(context);
-    final canSave = ref.watch(imageShareProvider).canSave;
-    final previewMax = MediaQuery.sizeOf(context).height * LyricsShareMetrics.previewMaxShare;
-    final s = widget.snapshot;
-    final image = LyricsShareImage(
-      format: _format,
-      tone: _tone,
-      lines: s.lines,
-      passageStarts: s.passageStarts,
-      showTranslation: s.showTranslation,
-      songTitle: s.songTitle,
-      artist: s.artist,
-      cover: s.cover,
-    );
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + MediaQuery.paddingOf(context).bottom),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(strings.shareTitle, style: text.titleMedium!.copyWith(color: colors.onSurface)),
-          const SizedBox(height: 16),
-          SpringCrossFade(
-            childKey: _format,
-            fit: StackFit.loose,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: previewMax),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: ClipRRect(
-                    // The story previews as a screen (rounded); the PNG stays full-bleed.
-                    borderRadius: BorderRadius.circular(_format == LyricsShareFormat.story ? ShapeTokens.card : 0),
-                    child: RepaintBoundary(key: _boundary, child: image),
-                  ),
-                ),
+    final tile = ColoredBox(color: tint.withValues(alpha: 0.16));
+    final u = url;
+    return SizedBox.square(
+      dimension: size,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: u == null
+            ? tile
+            : Image(
+                image: shareCoverImage(u),
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                frameBuilder: (context, child, frame, sync) => frame == null ? tile : child,
+                errorBuilder: (context, error, stack) => tile,
               ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _FormatToggle(
-            selected: _format,
-            onSelect: (f) {
-              if (f == _format) return;
-              YoinHaptics.tick();
-              setState(() {
-                _format = f;
-                _save = _SaveStatus.idle;
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-          _ToneSwatches(
-            selected: _tone,
-            onSelect: (t) {
-              if (t == _tone) return;
-              YoinHaptics.tick();
-              setState(() {
-                _tone = t;
-                _save = _SaveStatus.idle;
-              });
-            },
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              if (canSave) ...[
-                Expanded(
-                  child: SizedBox(
-                    height: LyricsShareMetrics.actionHeight,
-                    child: FilledButton.tonal(
-                      key: const ValueKey('lyrics-share-save'),
-                      onPressed: s.lines.isEmpty || _save == _SaveStatus.saving ? null : _onSave,
-                      style: FilledButton.styleFrom(shape: const StadiumBorder()),
-                      child: SpringCrossFade(
-                        childKey: _save,
-                        fit: StackFit.loose,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(_save == _SaveStatus.saved ? YoinSymbols.downloadDone : YoinSymbols.download),
-                            const SizedBox(width: 8),
-                            Text(switch (_save) {
-                              _SaveStatus.idle => strings.shareSave,
-                              _SaveStatus.saving => strings.shareSaving,
-                              _SaveStatus.saved => strings.shareSaved,
-                              _SaveStatus.failed => strings.shareTryAgain,
-                            }, style: text.labelLarge),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-              ],
-              Expanded(
-                child: SizedBox(
-                  height: LyricsShareMetrics.actionHeight,
-                  child: FilledButton(
-                    key: const ValueKey('lyrics-share-share'),
-                    onPressed: _sharing || s.lines.isEmpty ? null : _onShare,
-                    style: FilledButton.styleFrom(shape: const StadiumBorder()),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(YoinSymbols.share),
-                        const SizedBox(width: 8),
-                        Text(strings.shareAction, style: text.labelLarge),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
     );
   }
 }
 
-/// Card / Story, as the NP tab group's pills: primary when picked, primaryContainer otherwise.
-class _FormatToggle extends StatelessWidget {
-  const _FormatToggle({required this.selected, required this.onSelect});
+/// The app's monochrome mark, scaled to fill its slot.
+class ShareMark extends StatelessWidget {
+  const ShareMark({super.key, required this.color, this.size = ShareCardMetrics.mark});
 
-  final LyricsShareFormat selected;
-  final ValueChanged<LyricsShareFormat> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = NowPlayingStrings.of(context);
-    return SizedBox(
-      height: LyricsShareMetrics.toggleHeight,
-      child: Row(
-        children: [
-          for (final f in LyricsShareFormat.values) ...[
-            if (f != LyricsShareFormat.values.first) const SizedBox(width: 8),
-            Expanded(
-              child: _FormatPill(
-                label: f == LyricsShareFormat.card ? strings.shareFormatCard : strings.shareFormatStory,
-                selected: f == selected,
-                onTap: () => onSelect(f),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _FormatPill extends StatefulWidget {
-  const _FormatPill({required this.label, required this.selected, required this.onTap});
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+  final Color color;
+  final double size;
 
   @override
-  State<_FormatPill> createState() => _FormatPillState();
-}
-
-class _FormatPillState extends State<_FormatPill> with TickerProviderStateMixin {
-  late final SpringValue _on = SpringValue(
-    vsync: this,
-    initial: widget.selected ? 1 : 0,
-    spring: YoinSprings.defaultEffects,
+  Widget build(BuildContext context) => SizedBox.square(
+    dimension: size,
+    child: CustomPaint(painter: YoinGlyphPainter(color)),
   );
-
-  @override
-  void didUpdateWidget(_FormatPill oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _on.animateTo(widget.selected ? 1 : 0);
-  }
-
-  @override
-  void dispose() {
-    _on.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final style = Theme.of(context).textTheme.labelLarge!;
-    return Semantics(
-      button: true,
-      selected: widget.selected,
-      child: AnimatedBuilder(
-        animation: _on.animation,
-        builder: (context, _) {
-          final t = _on.value.clamp(0.0, 1.0);
-          return Material(
-            color: Color.lerp(colors.primaryContainer, colors.primary, t),
-            shape: const StadiumBorder(),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: widget.onTap,
-              child: Center(
-                child: Text(
-                  widget.label,
-                  style: style
-                      .merge(gsf(style.fontSize!, weight: widget.selected ? 700 : 500, height: style.height))
-                      .copyWith(color: Color.lerp(colors.onPrimaryContainer, colors.onPrimary, t)),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
 }
 
-/// The four tones as swatches of the card colour; the picked one squares off
-/// (corner on the spatial spring) and wears a check.
-class _ToneSwatches extends StatelessWidget {
-  const _ToneSwatches({required this.selected, required this.onSelect});
+/// The mark and "Yoin".
+class ShareBrand extends StatelessWidget {
+  const ShareBrand({super.key, required this.color});
 
-  final LyricsCardTone selected;
-  final ValueChanged<LyricsCardTone> onSelect;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final strings = NowPlayingStrings.of(context);
-    final scheme = Theme.of(context).colorScheme;
+    final label = Theme.of(context).textTheme.labelLarge!;
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        for (final tone in LyricsCardTone.values) ...[
-          if (tone != LyricsCardTone.values.first) const SizedBox(width: 4),
-          _Swatch(
-            colors: lyricsCardColors(tone, scheme),
-            label: switch (tone) {
-              LyricsCardTone.soft => strings.cdToneSoft,
-              LyricsCardTone.deep => strings.cdToneDeep,
-              LyricsCardTone.vivid => strings.cdToneVivid,
-              LyricsCardTone.mist => strings.cdToneMist,
-            },
-            selected: tone == selected,
-            onTap: () => onSelect(tone),
-          ),
-        ],
+        ShareMark(color: color),
+        const SizedBox(width: ShareCardMetrics.markGap),
+        Text(NowPlayingStrings.of(context).shareBrand, style: shareWeight(label, 600).copyWith(color: color)),
       ],
     );
   }
 }
 
-class _Swatch extends StatefulWidget {
-  const _Swatch({required this.colors, required this.label, required this.selected, required this.onTap});
-
-  final LyricsCardColors colors;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  State<_Swatch> createState() => _SwatchState();
-}
-
-class _SwatchState extends State<_Swatch> with TickerProviderStateMixin {
-  late final SpringValue _corner = SpringValue(vsync: this, initial: _target, spring: YoinSprings.defaultSpatial);
-  late final SpringValue _check = SpringValue(
-    vsync: this,
-    initial: widget.selected ? 1 : 0,
-    spring: YoinSprings.defaultSpatial,
-  );
-
-  double get _target => widget.selected ? LyricsShareMetrics.swatchSelectedCorner : LyricsShareMetrics.swatch / 2;
-
-  @override
-  void didUpdateWidget(_Swatch oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _corner.animateTo(_target);
-    _check.animateTo(widget.selected ? 1 : 0);
-  }
-
-  @override
-  void dispose() {
-    _corner.dispose();
-    _check.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    inMutuallyExclusiveGroup: true,
-    checked: widget.selected,
-    label: widget.label,
-    button: true,
-    excludeSemantics: true,
-    child: InkResponse(
-      onTap: widget.onTap,
-      radius: LyricsShareMetrics.swatchTouch / 2,
-      child: SizedBox.square(
-        dimension: LyricsShareMetrics.swatchTouch,
-        child: Center(
-          child: AnimatedBuilder(
-            animation: Listenable.merge([_corner.animation, _check.animation]),
-            builder: (context, _) {
-              final c = _check.value;
-              return Container(
-                width: LyricsShareMetrics.swatch,
-                height: LyricsShareMetrics.swatch,
-                decoration: BoxDecoration(
-                  color: widget.colors.card,
-                  borderRadius: BorderRadius.circular(math.max(0, _corner.value)),
-                ),
-                child: c <= 0.01
-                    ? null
-                    : Opacity(
-                        opacity: c.clamp(0.0, 1.0),
-                        child: Transform.scale(
-                          scale: 0.6 + 0.4 * c,
-                          child: Icon(YoinSymbols.check, size: 20, color: widget.colors.content),
-                        ),
-                      ),
-              );
-            },
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-/// The exported image at its logical size, in [format] and [tone]; text at
-/// scale 1 (the image doesn't follow the reader's font size). A tone change
-/// cross-fades the whole image on the effects spring.
-class LyricsShareImage extends StatelessWidget {
-  const LyricsShareImage({
-    super.key,
-    required this.format,
-    required this.tone,
-    required this.lines,
-    required this.passageStarts,
-    required this.showTranslation,
-    required this.songTitle,
-    required this.artist,
-    required this.cover,
-  });
-
-  final LyricsShareFormat format;
-  final LyricsCardTone tone;
-  final List<LyricRow> lines;
-  final Set<int> passageStarts;
-  final bool showTranslation;
-  final String songTitle;
-  final String artist;
-  final CoverRef? cover;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = lyricsCardColors(tone, Theme.of(context).colorScheme);
-    final card = LyricsShareCard(
-      lines: lines,
-      passageStarts: passageStarts,
-      showTranslation: showTranslation,
-      songTitle: songTitle,
-      artist: artist,
-      cover: cover,
-      colors: colors,
-    );
-    final body = switch (format) {
-      LyricsShareFormat.card => SizedBox(width: LyricsShareMetrics.cardWidth, child: card),
-      LyricsShareFormat.story => SizedBox.fromSize(
-        size: LyricsShareMetrics.storySize,
-        child: ColoredBox(
-          color: colors.backdrop,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: LyricsShareMetrics.storyMarginH,
-              vertical: LyricsShareMetrics.storyMarginV,
-            ),
-            child: Center(child: _ZoomOutToFit(child: card)),
-          ),
-        ),
-      ),
-    };
-    return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
-      child: SpringCrossFade(childKey: tone, fit: StackFit.loose, child: body),
-    );
-  }
-}
-
-/// The shareable card (LyricsShareCard): the tone's container, cover + title
-/// + artist, the picked lines in the rounded GSF cut the current lyric line
-/// uses, and the Yoin mark.
+/// The lyrics' Classic image (Android LyricsShareCard): the tone's container,
+/// cover + title + artist, the picked lines in the rounded GSF cut the current
+/// lyric line uses, and the Yoin mark. [radius]: rounded where it sits on a
+/// story's backdrop; the Card format's PNG takes it square.
 class LyricsShareCard extends StatelessWidget {
   const LyricsShareCard({
     super.key,
@@ -697,43 +216,46 @@ class LyricsShareCard extends StatelessWidget {
     required this.showTranslation,
     required this.songTitle,
     required this.artist,
-    required this.cover,
+    required this.coverUrl,
     required this.colors,
+    this.radius = ShapeTokens.panel,
   });
 
-  final List<LyricRow> lines;
+  final List<ShareLyricLine> lines;
+
+  /// Positions in [lines] that start a new passage.
   final Set<int> passageStarts;
   final bool showTranslation;
   final String songTitle;
   final String artist;
-  final CoverRef? cover;
-  final LyricsCardColors colors;
+  final String? coverUrl;
+  final ShareCardColors colors;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final size = lyricsCardLineSize(lines);
-    final lineStyle = gsf(size, weight: 600, height: 1.3, round: 100);
+    final lineStyle = shareHeroStyle(YoinShareCards.cardLineSizeSp([for (final l in lines) l.text]));
     final title = text.titleSmall!;
-    final body = text.bodySmall!;
     final translation = text.bodyMedium!;
-    final label = text.labelLarge!;
     return Container(
       key: const ValueKey('lyrics-share-card'),
       decoration: ShapeDecoration(
         color: colors.card,
-        shape: RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(ShapeTokens.panel)),
+        shape: radius == 0
+            ? const RoundedRectangleBorder()
+            : RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(radius)),
       ),
-      padding: const EdgeInsets.all(LyricsShareMetrics.cardPadding),
+      padding: const EdgeInsets.all(ShareCardMetrics.cardPadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              if (cover != null) ...[
-                CoverArt(cover: cover, size: LyricsShareMetrics.cover, radius: ShapeTokens.thumb, requestSize: 176),
-                const SizedBox(width: LyricsShareMetrics.coverGap),
+              if (coverUrl != null) ...[
+                ShareCover(url: coverUrl, size: ShareCardMetrics.cover, tint: colors.content),
+                const SizedBox(width: ShareCardMetrics.coverGap),
               ],
               Expanded(
                 child: Column(
@@ -743,29 +265,25 @@ class LyricsShareCard extends StatelessWidget {
                       songTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: title
-                          .merge(gsf(title.fontSize!, weight: 600, height: title.height))
-                          .copyWith(color: colors.content),
+                      style: shareWeight(title, 600).copyWith(color: colors.content),
                     ),
                     if (artist.trim().isNotEmpty)
                       Text(
                         artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: body.copyWith(color: colors.secondary),
+                        style: text.bodySmall!.copyWith(color: colors.secondary),
                       ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: LyricsShareMetrics.headerToLines),
+          const SizedBox(height: ShareCardMetrics.headerToLines),
           for (var i = 0; i < lines.length; i++)
             Padding(
               padding: EdgeInsets.only(
-                top: i == 0
-                    ? 0
-                    : (passageStarts.contains(i) ? LyricsShareMetrics.passageGap : LyricsShareMetrics.lineGap),
+                top: i == 0 ? 0 : (passageStarts.contains(i) ? ShareCardMetrics.passageGap : ShareCardMetrics.lineGap),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -773,98 +291,31 @@ class LyricsShareCard extends StatelessWidget {
                   Text(lines[i].text, style: lineStyle.copyWith(color: colors.content)),
                   if (showTranslation && (lines[i].translation?.trim().isNotEmpty ?? false))
                     Padding(
-                      padding: const EdgeInsets.only(top: LyricsShareMetrics.translationGap),
+                      padding: const EdgeInsets.only(top: ShareCardMetrics.translationGap),
                       child: Text(
                         lines[i].translation!,
-                        style: translation
-                            .merge(gsf(translation.fontSize!, weight: 500, height: translation.height))
-                            .copyWith(color: colors.content.withValues(alpha: LyricsShareMetrics.translationAlpha)),
+                        style: shareWeight(
+                          translation,
+                          500,
+                        ).copyWith(color: colors.content.withValues(alpha: ShareCardMetrics.translationAlpha)),
                       ),
                     ),
                 ],
               ),
             ),
-          const SizedBox(height: LyricsShareMetrics.linesToMark),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox.square(
-                dimension: LyricsShareMetrics.mark,
-                child: CustomPaint(painter: _YoinGlyphPainter(colors.content)),
-              ),
-              const SizedBox(width: LyricsShareMetrics.markGap),
-              Text(
-                NowPlayingStrings.of(context).shareBrand,
-                style: label
-                    .merge(gsf(label.fontSize!, weight: 600, height: label.height))
-                    .copyWith(color: colors.content),
-              ),
-            ],
-          ),
+          const SizedBox(height: ShareCardMetrics.linesToMark),
+          ShareBrand(color: colors.content),
         ],
       ),
     );
   }
 }
 
-/// Fills the incoming width and fits the incoming height by ZOOMING OUT
-/// (zoomOutToFit): the card is laid out wider (width / zoom, so lines wrap
-/// less) and drawn back at zoom — the largest that fits, found through
-/// intrinsic heights; never a line cut.
-class _ZoomOutToFit extends SingleChildRenderObjectWidget {
-  const _ZoomOutToFit({required super.child});
-
-  @override
-  RenderObject createRenderObject(BuildContext context) => _RenderZoomOutToFit();
-}
-
-class _RenderZoomOutToFit extends RenderProxyBox {
-  double _scale = 1;
-
-  @override
-  void performLayout() {
-    final child = this.child;
-    if (child == null || !constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
-      super.performLayout();
-      _scale = 1;
-      return;
-    }
-    final frameW = constraints.maxWidth;
-    final frameH = constraints.maxHeight;
-    final zoom = lyricsStoryZoom((z) => child.getMinIntrinsicHeight(frameW / z) * z <= frameH);
-    final logicalW = frameW / zoom;
-    child.layout(BoxConstraints.tightFor(width: logicalW), parentUsesSize: true);
-    _scale = math.min(zoom, frameH / child.size.height);
-    size = constraints.constrain(Size(child.size.width * _scale, child.size.height * _scale));
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    final child = this.child;
-    if (child == null) return;
-    if (_scale == 1) {
-      context.paintChild(child, offset);
-      return;
-    }
-    context.pushTransform(needsCompositing, offset, Matrix4.diagonal3Values(_scale, _scale, 1), (context, offset) {
-      context.paintChild(child, offset);
-    });
-  }
-
-  @override
-  void applyPaintTransform(RenderBox child, Matrix4 transform) {
-    transform.multiply(Matrix4.diagonal3Values(_scale, _scale, 1));
-  }
-
-  @override
-  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) => false;
-}
-
 /// The app's monochrome (themed-icon) line drawing — brand artwork, not a
 /// symbol (Android res/drawable/ic_yoin_launcher_monochrome.xml, its 1024
 /// view box lifted 44 units, even-odd) — scaled up to fill its slot.
-class _YoinGlyphPainter extends CustomPainter {
-  _YoinGlyphPainter(this.color);
+class YoinGlyphPainter extends CustomPainter {
+  YoinGlyphPainter(this.color);
 
   final Color color;
 
@@ -872,7 +323,7 @@ class _YoinGlyphPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final s = size.shortestSide / 1024 * LyricsShareMetrics.markGlyphScale;
+    final s = size.shortestSide / 1024 * ShareCardMetrics.markGlyphScale;
     canvas.save();
     canvas.translate(size.width / 2, size.height / 2);
     canvas.scale(s);
@@ -882,7 +333,7 @@ class _YoinGlyphPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_YoinGlyphPainter old) => old.color != color;
+  bool shouldRepaint(YoinGlyphPainter old) => old.color != color;
 }
 
 /// ic_yoin_launcher_monochrome.xml's path data ("E1b" line drawing, 2026-10-04).
