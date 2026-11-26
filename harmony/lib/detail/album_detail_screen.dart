@@ -16,6 +16,7 @@ import '../ui/component/user_message.dart';
 import '../ui/navigation/pane/detail_pane.dart';
 import 'album_detail_view_model.dart';
 import 'album_hero_marks.dart';
+import 'album_release_date.dart';
 import 'album_scrapbook_page.dart';
 import 'detail_layout.dart';
 import 'detail_listening.dart';
@@ -87,7 +88,9 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
             meta: [
               if (album?.artist?.trim().isNotEmpty ?? false) MetaPlain(album!.artist!),
               if (album != null) MetaKind(strings.albumKind),
-              if (album?.year != null) MetaPlain('${album!.year}'),
+              // The date at the service's precision in place of the year ("22.6.12", "22.6", "2022").
+              if (album != null)
+                if (albumHeaderDate(album.parsedReleaseDate, album.year) case final date?) MetaPlain(date),
             ],
             stateView: switch (state) {
               AlbumDetailLoading() => const DetailLoadingView(),
@@ -146,6 +149,10 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
           ),
         ),
       );
+    }
+    // The release date closes the list, as precisely as the service dates it: just the date, no label.
+    if (state.album.parsedReleaseDate case final date? when tracks.isNotEmpty) {
+      list.add(AlbumReleaseDateLine(date, key: const ValueKey('album-release-date')));
     }
     final albumName = albumTitleWithoutVersion(state.album.name, state.album.version);
     final titles = [

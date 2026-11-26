@@ -52,6 +52,7 @@ Future<NowPlayingOverlayController> _pumpExpanded(
       Track(id: MediaId.subsonic('t$i'), title: 'Song $i', artist: 'Artist $i', album: 'Album', durationSec: 200),
   ];
   final playback = NowPlayingFakeController(playingState(tracks));
+  _lastPlayback = playback;
   final source = NowPlayingFakeSource(
     lyrics: {
       't0': SyncedLyrics([for (var i = 0; i < 30; i++) LyricLine(i * 4000, 'line $i')]),
@@ -129,6 +130,10 @@ NetEaseTranslator _netEaseWithTranslation() => NetEaseTranslator(
     }),
   ),
 );
+
+NowPlayingFakeController _playback(WidgetTester tester) => _lastPlayback!;
+
+NowPlayingFakeController? _lastPlayback;
 
 LyricToolsController _tools(WidgetTester tester) =>
     LyricToolsScope.maybeOf(tester.element(find.byType(LyricToolsBar).first))!;
@@ -386,11 +391,94 @@ void main() {
       final tools = _tools(tester);
       await tester.pump(const Duration(milliseconds: LyricToolsMetrics.idleMs + 100));
       expect(tools.idle.idle, isTrue);
-      // The first tap where the tools stood only wakes them.
+      // Heading away but still showing: no guard yet.
+      expect(tools.hidden.value, isFalse);
+      expect(find.byKey(const ValueKey('lyrics-tools-wake-guard')), findsNothing);
+      await _settle(tester, span: const Duration(milliseconds: 800));
+      expect(tools.hidden.value, isTrue);
+      // Gone: the first tap where the tools stood only wakes them.
       expect(find.byKey(const ValueKey('lyrics-tools-wake-guard')), findsOneWidget);
       await tester.tapAt(tester.getBottomLeft(find.byType(NowPlayingScreen)) + const Offset(40, -20));
       await tester.pump();
       expect(tools.idle.idle, isFalse);
+      expect(tools.hidden.value, isFalse);
+      await _settle(tester);
+    });
+
+    // Android PR #334: the keys took taps only for a moment after a scroll — the guard went up the moment
+    // they started to fade, so a tap on a key that plainly still showed only woke them.
+    testWidgets('should_runTheKeysAction_when_tappedWhileFading', (tester) async {
+      await _pumpExpanded(tester);
+      final tools = _tools(tester);
+      await tester.pump(const Duration(milliseconds: LyricToolsMetrics.idleMs + 100));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(tools.idle.idle, isTrue, reason: 'fading out');
+      expect(tools.hidden.value, isFalse);
+      await tester.tap(find.byKey(const ValueKey('lyrics-tool-select')));
+      await _settle(tester);
+      expect(tools.selection.active, isTrue, reason: "the key's own tap, not a wake-only tap");
+    });
+
+    testWidgets('should_dropHitAreaAndSemantics_when_toolsFullyHidden', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _pumpExpanded(tester);
+      final tools = _tools(tester);
+      expect(find.semantics.byLabel('Select lyrics'), findsOne);
+      final key = tester.getCenter(find.byKey(const ValueKey('lyrics-tool-select')));
+      await tester.pump(const Duration(milliseconds: LyricToolsMetrics.idleMs + 100));
+      await _settle(tester, span: const Duration(milliseconds: 800));
+      expect(tools.hidden.value, isTrue);
+      expect(find.semantics.byLabel('Select lyrics'), findsNothing, reason: 'gone keys are not announced');
+      // The first tap on the key's spot wakes the tools and does nothing else; the next one is the key's.
+      await tester.tapAt(key);
+      await _settle(tester);
+      expect(tools.selection.active, isFalse);
+      expect(tools.hidden.value, isFalse);
+      expect(find.semantics.byLabel('Select lyrics'), findsOne);
+      await tester.tapAt(key);
+      await _settle(tester);
+      expect(tools.selection.active, isTrue);
+      semantics.dispose();
+    });
+
+    testWidgets('should_wakeNotSeek_when_hiddenToolsSpotTappedInRightColumn', (tester) async {
+      await _pumpExpanded(tester, size: const Size(1280, 800));
+      final tools = _tools(tester);
+      final playback = _playback(tester);
+      final key = tester.getCenter(find.byKey(const ValueKey('lyrics-tool-select')));
+      await tester.pump(const Duration(milliseconds: LyricToolsMetrics.idleMs + 100));
+      await _settle(tester, span: const Duration(milliseconds: 1000));
+      expect(tools.hidden.value, isTrue);
+      final seeks = playback.calls.where((c) => c.startsWith('seekTo')).length;
+      // The slot closed and the lyric lines sank into it: a tap there only wakes the tools.
+      await tester.tapAt(key);
+      await _settle(tester);
+      expect(playback.calls.where((c) => c.startsWith('seekTo')).length, seeks, reason: 'no seek');
+      expect(tools.idle.idle, isFalse);
+      expect(tools.selection.active, isFalse);
+    });
+
+    testWidgets('should_neverHideTools_when_screenReaderRuns', (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(
+        accessibleNavigation: true,
+      );
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      await _pumpExpanded(tester);
+      await tester.pump(const Duration(milliseconds: LyricToolsMetrics.idleMs * 3));
+      await _settle(tester);
+      expect(_tools(tester).idle.idle, isFalse, reason: 'a screen reader sends no taps to bring them back');
+      expect(_tools(tester).hidden.value, isFalse);
+    });
+
+    testWidgets('should_keepTools_when_aKeyHoldsFocus', (tester) async {
+      await _pumpExpanded(tester);
+      final tools = _tools(tester);
+      tools.holdAwake(true);
+      await tester.pump(const Duration(milliseconds: LyricToolsMetrics.idleMs * 2));
+      expect(tools.idle.idle, isFalse);
+      tools.holdAwake(false);
+      await tester.pump(const Duration(milliseconds: LyricToolsMetrics.idleMs + 100));
+      expect(tools.idle.idle, isTrue, reason: 'the count resumes once focus leaves');
       await _settle(tester);
     });
 

@@ -1,8 +1,8 @@
 import 'package:flutter/widgets.dart';
 
+import '../data/ai/ai_service_name.dart';
 import '../data/ai/ai_settings.dart' show AiProvider;
 import '../data/albumabout/album_credits.dart' show AlbumCreditLabels;
-import '../data/albumabout/yoin_album_about.dart';
 
 /// Detail page strings, English and Simplified Chinese, copied from Android
 /// res/values{,-zh-rCN}/strings*.xml (key in the comment).
@@ -175,10 +175,7 @@ class DetailStrings {
   String get scrapClear => zh ? '清除评分' : 'Clear rating'; // detail_scrap_clear
   String get scrapScoreCleared => zh ? '已清除评分' : 'Rating cleared'; // detail_scrap_score_cleared
   String get scrapAboutEmpty => zh ? '这首歌还没有资料。' : 'Nothing about this song yet.'; // detail_scrap_about_empty
-  String get scrapAboutGenerate => zh ? '让 Gemini 生成' : 'Generate with Gemini'; // detail_scrap_about_generate
-  String get scrapAboutGenerating => zh ? 'Gemini 正在写…' : 'Gemini is writing…'; // detail_scrap_about_generating
   String scrapAsked(String q) => zh ? '问：$q' : 'Asked: $q'; // detail_scrap_asked
-  String get scrapByGemini => 'Gemini'; // detail_scrap_by_gemini
   String get scrapByYou => zh ? '我写的' : 'Written by you'; // detail_scrap_by_you
   String get scrapCdEdit => zh ? '编辑' : 'Edit'; // detail_scrap_cd_edit
   String get scrapEditTitleHint => zh ? '标题' : 'Title'; // detail_scrap_edit_title_hint
@@ -193,13 +190,8 @@ class DetailStrings {
   String get scrapNewTitleHint =>
       zh ? '写个标题，比如：这首歌在讲什么' : 'A title, like: what is this song about'; // detail_scrap_new_title_hint
   String get scrapNewTextHint => zh ? '写下你知道的…' : 'Write what you know…'; // detail_scrap_new_text_hint
-  String get scrapAskGemini => zh ? '问 Gemini' : 'Ask Gemini'; // detail_scrap_ask_gemini
   String get scrapWrite => zh ? '输入' : 'Write'; // detail_scrap_write
   String get scrapSave => zh ? '保存' : 'Save'; // detail_scrap_save
-  String get scrapGeminiFailed =>
-      zh ? 'Gemini 没能回答，再试一次' : "Gemini couldn't answer. Try again."; // detail_scrap_gemini_failed
-  String get scrapGeminiNothing => zh ? 'Gemini 没有新的内容' : 'Gemini had nothing new'; // detail_scrap_gemini_nothing
-  String get scrapApiKeyMissing => zh ? '缺少 Gemini API 密钥' : 'Gemini API key missing'; // np_ask_api_key_missing
   String get scrapExpandLyrics => zh ? '展开全部歌词' : 'All lyrics'; // detail_scrap_expand_lyrics
   String get scrapCollapseLyrics => zh ? '只看笔记' : 'Notes only'; // detail_scrap_collapse_lyrics
   String get scrapLyricsLoading => zh ? '正在加载歌词…' : 'Loading lyrics…'; // detail_scrap_lyrics_loading
@@ -252,18 +244,14 @@ class DetailStrings {
 
   /// The AI service in use as copy names it (ai_provider_*): Gemini and DeepSeek by name, Qwen as 千问 in
   /// Chinese, a Custom endpoint as plain "AI" (ai_provider_generic_name).
-  String aiName(AiProvider provider) => switch (provider) {
-    AiProvider.gemini => 'Gemini', // ai_provider_gemini
-    AiProvider.deepSeek => 'DeepSeek', // ai_provider_deepseek
-    AiProvider.qwen => zh ? '千问' : 'Qwen', // ai_provider_qwen
-    AiProvider.custom => 'AI', // ai_provider_generic_name
-  };
+  String aiName(AiProvider provider) => aiServiceName(provider, zh: zh);
 
   /// [template] with the service's name filled in, the space beside a Chinese name dropped (问千问, 问 Gemini).
-  String _ai(String template, AiProvider provider) => YoinAlbumAbout.aiCopy(template, aiName(provider));
+  String _ai(String template, AiProvider provider) => aiServiceCopy(template, provider, zh: zh);
 
   String aiAskProvider(AiProvider p) => _ai(zh ? r'问 %1$s' : r'Ask %1$s', p); // ai_ask_provider
   String aiGenerateWith(AiProvider p) => _ai(zh ? r'让 %1$s 生成' : r'Generate with %1$s', p); // ai_generate_with
+  String aiWriting(AiProvider p) => _ai(zh ? r'%1$s 正在写…' : r'%1$s is writing…', p); // ai_writing
   String aiFailed(AiProvider p) => _ai(zh ? r'%1$s 没能回答，再试一次' : r"%1$s couldn't answer. Try again.", p); // ai_failed
   String aiNothingNew(AiProvider p) => _ai(zh ? r'%1$s 没有新的内容' : r'%1$s had nothing new', p); // ai_nothing_new
   String aiKeyMissing(AiProvider p) => _ai(zh ? r'缺少 %1$s API 密钥' : r'%1$s API key missing', p); // ai_key_missing

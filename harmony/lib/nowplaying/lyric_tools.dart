@@ -35,11 +35,17 @@ abstract final class LyricToolsMetrics {
 
   /// Auto-immersive (design.md "自动沉浸", owner 2026-10-05: 5 s read as sluggish).
   static const int idleMs = 3000;
+
+  /// The fade below which the tools count as gone (their hit area and semantics go with them).
+  static const double goneBelow = 0.001;
 }
 
 /// Whether the lyric tools may step away (lyricToolsIdleEligible): playing
 /// synced lyrics that follow the playhead, on the Lyrics page, with the tools
 /// on screen — and not while lines are being picked.
+///
+/// Never while a screen reader runs ([screenReader], MediaQuery.accessibleNavigation): it explores by
+/// touch and sends the app no taps, so nothing would bring the tools back (Android PR #334).
 bool lyricToolsIdleEligible({
   required bool isPlaying,
   required bool hasSyncedLyrics,
@@ -47,7 +53,15 @@ bool lyricToolsIdleEligible({
   required bool lyricsPageSelected,
   required bool toolsOnScreen,
   required bool selectingLines,
-}) => isPlaying && hasSyncedLyrics && autoScroll && lyricsPageSelected && toolsOnScreen && !selectingLines;
+  bool screenReader = false,
+}) =>
+    isPlaying &&
+    hasSyncedLyrics &&
+    autoScroll &&
+    lyricsPageSelected &&
+    toolsOnScreen &&
+    !selectingLines &&
+    !screenReader;
 
 /// Each key's width with its press (0 at rest, 1 held, overshoot allowed):
 /// the pressed key gains [LyricToolsMetrics.expandedRatio] of its width from
@@ -132,12 +146,37 @@ final class LyricToolsActions {
 class LyricToolsController extends ChangeNotifier {
   LyricToolsController({required this.autoFollow}) {
     selection.addListener(notifyListeners);
+    idle.addListener(_syncHidden);
   }
 
   final ValueNotifier<bool> autoFollow;
   final LyricsSelection selection = LyricsSelection();
   final FocusIdle idle = FocusIdle(idleMs: LyricToolsMetrics.idleMs);
   LyricToolsActions _actions = LyricToolsActions.none;
+
+  /// Fully stepped away: [idle] AND faded to nothing (Android LyricToolsIdleState.hidden). [idle] is where
+  /// the tools are heading; this is whether they are gone. Tap routing reads this: while any part of the
+  /// tools still shows (the fade out), a tap on a key is that key's (2026-11-25 QA: a tap on a key that was
+  /// plainly still fading did nothing, and the tools seemed to take taps only for a moment after a scroll).
+  /// Only once hidden do the keys give up their hit area and semantics, and the first tap where they stood
+  /// only brings them back.
+  final ValueNotifier<bool> hidden = ValueNotifier(false);
+  double _shown = 1;
+
+  /// The tools' fade (1 shown → 0 gone), as [LyricToolsBar] draws it.
+  void reportShown(double shown) {
+    _shown = shown;
+    _syncHidden();
+  }
+
+  void _syncHidden() {
+    final next = idle.idle && _shown <= LyricToolsMetrics.goneBelow;
+    if (next != hidden.value) hidden.value = next;
+  }
+
+  /// A key holds input focus (a keyboard, a switch): the tools stay while it does — no pointer touches
+  /// the player then, and a focused key must not vanish under its focus ring (Android holdAwake).
+  void holdAwake(bool held) => idle.hold(held);
 
   LyricToolsActions get actions => _actions;
 
@@ -173,7 +212,10 @@ class LyricToolsController extends ChangeNotifier {
     selection
       ..removeListener(notifyListeners)
       ..dispose();
-    idle.dispose();
+    idle
+      ..removeListener(_syncHidden)
+      ..dispose();
+    hidden.dispose();
     super.dispose();
   }
 }
@@ -194,14 +236,15 @@ class LyricToolsScope extends InheritedWidget {
 /// The lyric tools, or — in select mode — the selection actions, in the same
 /// slot (LyricsTools): cross-faded on the effects spring, the incoming one
 /// growing from 0.92 on the standard spatial spring. Idle, they fade away on
-/// the effects spring; with [inPlaceGuard] (where nothing sinks into their
-/// place) the first tap on them while away only wakes them
-/// (lyricToolsInPlaceWakeGuard; the player's touch tracker wakes them).
+/// the effects spring; a key still fading takes its tap. Fully faded
+/// ([LyricToolsController.hidden]) they give up their hit area and
+/// semantics: where they fade in place (the tab row) the first tap on them
+/// only wakes them (lyricToolsInPlaceWakeGuard; the player's touch tracker
+/// wakes them), where their slot collapses [LyricToolsWakeGuard] takes it.
 class LyricToolsBar extends StatefulWidget {
-  const LyricToolsBar({super.key, this.iconSize = LyricToolsMetrics.keySize, this.inPlaceGuard = false});
+  const LyricToolsBar({super.key, this.iconSize = LyricToolsMetrics.keySize});
 
   final double iconSize;
-  final bool inPlaceGuard;
 
   @override
   State<LyricToolsBar> createState() => _LyricToolsBarState();
@@ -227,7 +270,16 @@ class _LyricToolsBarState extends State<LyricToolsBar> with TickerProviderStateM
     _selecting = next?.selection.active ?? false;
     _swap.snapTo(_selecting ? 1 : 0);
     _shown.snapTo(next?.idle.idle ?? false ? 0 : 1);
+    next?.reportShown(_shown.value);
   }
+
+  @override
+  void initState() {
+    super.initState();
+    _shown.animation.addListener(_onShown);
+  }
+
+  void _onShown() => _controller?.reportShown(_shown.value);
 
   bool get _reduced => MediaQuery.disableAnimationsOf(context);
 
@@ -257,11 +309,11 @@ class _LyricToolsBarState extends State<LyricToolsBar> with TickerProviderStateM
     } else {
       _shown.animateTo(target);
     }
-    if (widget.inPlaceGuard) setState(() {});
   }
 
   @override
   void dispose() {
+    _shown.animation.removeListener(_onShown);
     _controller?.removeListener(_onChange);
     _controller?.idle.removeListener(_onIdle);
     _swap.dispose();
@@ -326,12 +378,25 @@ class _LyricToolsBarState extends State<LyricToolsBar> with TickerProviderStateM
         );
       },
     );
-    return AnimatedBuilder(
-      animation: _shown.animation,
+    // A key that holds input focus keeps the tools (Android holdAwake).
+    final focusable = Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      onFocusChange: controller.holdAwake,
       child: swapped,
-      builder: (context, child) => AbsorbPointer(
-        absorbing: widget.inPlaceGuard && controller.idle.idle,
-        child: Opacity(opacity: _shown.value.clamp(0.0, 1.0), child: child),
+    );
+    return ValueListenableBuilder<bool>(
+      valueListenable: controller.hidden,
+      child: AnimatedBuilder(
+        animation: _shown.animation,
+        child: focusable,
+        builder: (context, child) => Opacity(opacity: _shown.value.clamp(0.0, 1.0), child: child),
+      ),
+      // Gone: no hit area, nothing announced. In place, the tap where they stood is absorbed (it only
+      // wakes them); in a slot that collapses, LyricToolsWakeGuard takes it.
+      builder: (context, hidden, child) => AbsorbPointer(
+        absorbing: hidden,
+        child: ExcludeSemantics(excluding: hidden, child: child),
       ),
     );
   }
@@ -670,11 +735,13 @@ class _LyricToolsAwayBuilderState extends State<LyricToolsAwayBuilder> with Tick
   );
 }
 
-/// While the tools are away, the first tap in the bottom [band] of this area
-/// only wakes them (lyricToolsWakeGuard): the slot they left collapsed and
-/// the title sank into it, so a blind tap aimed at a tool would land on the
-/// title. The tap is absorbed at hit test (the player's touch tracker wakes
-/// the tools); drags still reach the gestures around it.
+/// Once the tools are gone ([LyricToolsController.hidden], not while they
+/// still fade: a tap on a key that shows is the key's), the first tap in the
+/// bottom [band] of this area only wakes them (lyricToolsWakeGuard): the slot
+/// they left collapsed and the title or the lyric lines sank into it, so a
+/// blind tap aimed at a tool would open the title's album or seek the lyrics.
+/// The tap is absorbed at hit test (the player's touch tracker wakes the
+/// tools); drags still reach the gestures around it.
 class LyricToolsWakeGuard extends StatelessWidget {
   const LyricToolsWakeGuard({super.key, required this.enabled, required this.band, required this.child});
 
@@ -684,15 +751,15 @@ class LyricToolsWakeGuard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final idle = LyricToolsScope.maybeOf(context)?.idle;
-    if (!enabled || idle == null) return child;
+    final hidden = LyricToolsScope.maybeOf(context)?.hidden;
+    if (!enabled || hidden == null) return child;
     return Stack(
       fit: StackFit.passthrough,
       children: [
         child,
-        ListenableBuilder(
-          listenable: idle,
-          builder: (context, _) => !idle.idle
+        ValueListenableBuilder<bool>(
+          valueListenable: hidden,
+          builder: (context, gone, _) => !gone
               ? const SizedBox.shrink()
               : Positioned(
                   left: 0,

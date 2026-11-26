@@ -47,7 +47,7 @@ class AiSettingsRow extends ConsumerWidget {
     return SettingsItem(
       icon: YoinSymbols.sparkle,
       title: strings.aiTitle,
-      summary: ai.isReady ? null : strings.aiSummaryEmpty,
+      summary: ai.isReady ? null : strings.aiSummaryEmpty(ai.provider),
       summaryContent: ai.isReady
           ? MetaLine(
               groups: [MetaPlain(strings.aiProvider(ai.provider)), if (detail != null) MetaMuted(detail)],
