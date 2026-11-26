@@ -43,6 +43,7 @@ import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.MadeForYouKind
 import com.gpo.yoin.data.source.spotify.MadeForYouPlaylist
 import com.gpo.yoin.shared.albumabout.YoinAlbumAbout
+import com.gpo.yoin.shared.release.YoinReleaseMarks
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -1024,13 +1025,8 @@ class AppleMusicSource(
         internal fun appleReleaseType(own: JsonObject, catalog: JsonObject?): ReleaseType? {
             val name = own.text("name") ?: catalog?.text("name")
             fun flag(key: String) = (own[key] ?: catalog?.get(key))?.jsonPrimitive?.booleanOrNull
-            return when {
-                flag("isCompilation") == true -> ReleaseType.Compilation
-                flag("isSingle") == true || name?.endsWith(" - Single") == true -> ReleaseType.Single
-                name?.endsWith(" - EP") == true -> ReleaseType.EP
-                flag("isSingle") == false -> ReleaseType.Album
-                else -> null
-            }
+            // The rule is :shared's (golden release-marks.json), so iOS and HarmonyOS read the same kind.
+            return YoinReleaseMarks.appleMusicReleaseType(name, flag("isCompilation"), flag("isSingle"))
         }
 
         /**

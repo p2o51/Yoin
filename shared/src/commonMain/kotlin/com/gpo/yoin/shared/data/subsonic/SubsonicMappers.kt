@@ -15,6 +15,8 @@ import com.gpo.yoin.shared.data.model.SongArtist
 import com.gpo.yoin.shared.data.model.SongAudio
 import com.gpo.yoin.shared.data.model.SongInfo
 import com.gpo.yoin.shared.data.model.Starred
+import com.gpo.yoin.shared.release.ContentRating
+import com.gpo.yoin.shared.release.ReleaseMarkRules
 
 /*
  * Wire → neutral. Same semantics as the Android app's
@@ -58,6 +60,7 @@ internal fun SongDto.toSongInfo(): SongInfo = SongInfo(
     comment = comment?.trim()?.takeIf { it.isNotEmpty() },
     created = created?.takeIf { it.isNotEmpty() },
     composer = displayComposer?.trim()?.takeIf { it.isNotEmpty() },
+    contentRating = ContentRating.fromOpenSubsonic(explicitStatus),
 )
 
 /** The audio facts, null when the server sent none (a Subsonic that isn't OpenSubsonic). */
@@ -103,6 +106,7 @@ internal fun AlbumDto.toAlbumInfo(): AlbumInfo = AlbumInfo(
     // Android subsonicReleaseDate: this release's date, else the original's, else the year.
     releaseDate = releaseDate?.toIso() ?: originalReleaseDate?.toIso() ?: isoDate(year, null, null),
     originalReleaseDate = originalReleaseDate?.toIso(),
+    contentRating = ContentRating.fromOpenSubsonic(explicitStatus),
 )
 
 private fun ItemDateDto.toIso(): String? = isoDate(year, month, day)
@@ -128,12 +132,7 @@ private fun daysIn(year: Int, month: Int): Int = when (month) {
 
 /** OpenSubsonic `releaseTypes` → lower-case type; the first recognised value wins (Android: `subsonicReleaseType`). */
 internal fun subsonicReleaseType(releaseTypes: List<String>): String? =
-    releaseTypes.firstNotNullOfOrNull { type ->
-        when (val t = type.trim().lowercase()) {
-            "album", "ep", "single", "compilation" -> t
-            else -> null
-        }
-    }
+    ReleaseMarkRules.subsonicReleaseType(releaseTypes)?.name?.lowercase()
 
 internal fun ArtistDto.toArtistInfo(): ArtistInfo = ArtistInfo(
     ref = ref(id),

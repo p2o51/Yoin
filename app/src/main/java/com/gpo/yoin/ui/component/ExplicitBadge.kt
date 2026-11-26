@@ -43,11 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
+import com.gpo.yoin.shared.release.YoinReleaseMarks
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 /*
  * The "E" badge (owner 2026-11-25): a song or a release its service marks
@@ -67,20 +67,22 @@ import kotlin.math.roundToInt
  * the title's cap height — and never taller than [HeroMaxSide].
  */
 
-/** Google Sans Flex's cap height (OS/2 sCapHeight 1432 / 2000 em). */
-private const val CapHeightEm = 0.716f
+/*
+ * The geometry (cap / x-height, the E's share, the corner, the limits) and the size, gap and fit rules are
+ * :shared's (`YoinReleaseMarks`, golden release-marks.json), so iOS and HarmonyOS draw the same E.
+ */
 
-/** Google Sans Flex's x-height (OS/2 sxHeight 1023 / 2000 em): a hero badge's side. */
-private const val XHeightEm = 0.5115f
+/** Google Sans Flex's cap height (OS/2 sCapHeight 1432 / 2000 em). */
+private const val CapHeightEm = YoinReleaseMarks.capHeightEm
 
 /** A hero badge is never taller than this, whatever the title's size. */
-private val HeroMaxSide = 18.dp
+private val HeroMaxSide = YoinReleaseMarks.heroMaxSideDp.dp
 
 /** The knocked-out E's own cap height, as a share of the square. */
-private const val LetterShare = 0.58f
+private const val LetterShare = YoinReleaseMarks.letterShare
 
 /** The square's corner, as a share of its side (Apple's badge is about a fifth). */
-private const val CornerShare = 0.2f
+private const val CornerShare = YoinReleaseMarks.cornerShare
 
 /**
  * The square's side for [style]: its cap height, at least [MinSide] so the E still reads on small text.
@@ -89,14 +91,10 @@ private const val CornerShare = 0.2f
 internal fun Density.explicitBadgeSidePx(style: TextStyle, fallback: TextUnit, hero: Boolean = false): Float {
     val fontSize = if (style.fontSize.isSpecified) style.fontSize else fallback
     val size = if (fontSize.isSpecified) fontSize else 14.sp
-    return if (hero) {
-        (size.toPx() * XHeightEm).coerceAtMost(HeroMaxSide.toPx()).coerceAtLeast(MinSide.toPx())
-    } else {
-        max(size.toPx() * CapHeightEm, MinSide.toPx())
-    }
+    return YoinReleaseMarks.badgeSide(size.toPx(), hero, MinSide.toPx(), HeroMaxSide.toPx())
 }
 
-private val MinSide = 9.dp
+private val MinSide = YoinReleaseMarks.minSideDp.dp
 
 /**
  * Space between the title's last glyph and the badge: [ExplicitBadgeGap] (a list row's, the same as
@@ -106,8 +104,7 @@ private val MinSide = 9.dp
 internal fun Density.explicitBadgeGapPx(style: TextStyle, fallback: TextUnit, hero: Boolean = false): Int {
     val fontSize = if (style.fontSize.isSpecified) style.fontSize else fallback
     val size = if (fontSize.isSpecified) fontSize else 14.sp
-    val grown = if (hero) explicitBadgeSidePx(style, fallback, hero = true) * 0.5f else size.toPx() * 0.33f
-    return max(grown, ExplicitBadgeGap.toPx()).roundToInt()
+    return YoinReleaseMarks.badgeGap(size.toPx(), hero, MinSide.toPx(), HeroMaxSide.toPx(), ExplicitBadgeGap.toPx())
 }
 
 /**
@@ -116,7 +113,7 @@ internal fun Density.explicitBadgeGapPx(style: TextStyle, fallback: TextUnit, he
  * for that the badge is left out, so the name is never squeezed to a couple of glyphs beside it. Pure.
  */
 internal fun explicitBadgeFits(maxWidth: Int, titleRoom: Int, naturalTitle: Int): Boolean =
-    titleRoom >= min(naturalTitle, maxWidth / 2)
+    YoinReleaseMarks.explicitBadgeFits(maxWidth, titleRoom, naturalTitle)
 
 /**
  * "Explicit" for TalkBack on a title that may leave its badge out on a narrow tile
@@ -133,7 +130,7 @@ internal fun Modifier.explicitTitleSemantics(): Modifier {
 const val ExplicitBadgeTestTag = "ExplicitBadge"
 
 /** The badge's distance from a list row's title, as the note marker's (SongListItem, AlbumTrackRow). */
-val ExplicitBadgeGap = 6.dp
+val ExplicitBadgeGap = YoinReleaseMarks.gapDp.dp
 
 /**
  * The badge for a title set in [textStyle]: a cap-height rounded square in [color] with the

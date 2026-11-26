@@ -15,6 +15,7 @@ import com.gpo.yoin.data.model.SearchResultType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.shared.release.YoinReleaseMarks
 
 internal fun SpotifyTrackObject.toTrack(
     savedTrackIds: Set<String> = emptySet(),
@@ -85,10 +86,9 @@ internal fun SpotifyAlbumObject.toAlbum(
 internal fun SpotifyAlbumObject.contentRating(
     tracks: List<SpotifyTrackObject> = this.tracks?.items.orEmpty(),
 ): ContentRating? {
-    val total = totalTracks ?: this.tracks?.total
     return ContentRating.fromTracks(
         ratings = tracks.map { ContentRating.fromExplicitFlag(it.explicit) },
-        complete = total != null && tracks.size >= total,
+        complete = YoinReleaseMarks.tracklistComplete(tracks.size, totalTracks, this.tracks?.total),
     )
 }
 
@@ -120,12 +120,7 @@ internal fun SpotifySimplifiedAlbumObject.toAlbum(
  * own clients show a "single" with 4+ tracks as an EP, so this does too.
  */
 internal fun spotifyReleaseType(albumType: String?, totalTracks: Int?): ReleaseType? =
-    when (albumType?.lowercase()) {
-        "album" -> ReleaseType.Album
-        "compilation" -> ReleaseType.Compilation
-        "single" -> if ((totalTracks ?: 0) >= 4) ReleaseType.EP else ReleaseType.Single
-        else -> null
-    }
+    YoinReleaseMarks.spotifyReleaseType(albumType, totalTracks)
 
 internal fun SpotifyArtistObject.toArtist(
     isStarred: Boolean = false,

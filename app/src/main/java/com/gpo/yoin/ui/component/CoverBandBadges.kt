@@ -14,6 +14,9 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.shared.release.CoverBandItem
+import com.gpo.yoin.shared.release.CoverBandRole
+import com.gpo.yoin.shared.release.YoinReleaseMarks
 import kotlin.math.roundToInt
 
 /*
@@ -30,11 +33,11 @@ import kotlin.math.roundToInt
  */
 
 /** Space kept free at the band's end for the memory sticker on the cover's top-end corner. */
-private val StickerRoom = 14.dp
-private val BadgeGap = 4.dp
+private val StickerRoom = YoinReleaseMarks.bandStickerRoomDp.dp
+private val BadgeGap = YoinReleaseMarks.bandGapDp.dp
 
 /** The E's size on the band: about the tag's cap height, a touch larger so it reads at a glance. */
-private val BandBadgeTextSize = 17.sp
+private val BandBadgeTextSize = YoinReleaseMarks.bandBadgeTextSp.sp
 
 @Composable
 internal fun CoverBandBadges(
@@ -70,43 +73,36 @@ internal fun CoverBandBadges(
         val w = constraints.maxWidth
         val h = constraints.maxHeight
         val band = (h * (1f - coverFraction)).roundToInt()
-        val coverStart = (w * (1f - coverFraction)).roundToInt()
-        // The furthest start the row may take when the cover's edge leaves too little: just inside
-        // the shape's top-start lobe.
-        val minStart = (w * BandInsetFraction).roundToInt()
-        val gap = BadgeGap.roundToPx()
-        // The row stops short of the shape's top-end curve as it starts inside its top-start lobe:
-        // a badge running to the box's edge would hang half off the shape (its cut-out E then shows
-        // the page on one side and the shape on the other).
-        val end = w - maxOf(minStart, if (stickerRoom) StickerRoom.roundToPx() else 0)
-        var room = (end - minStart).coerceAtLeast(0)
         val byRole = roles.zip(measurables).toMap()
-        val placed = mutableMapOf<Role, androidx.compose.ui.layout.Placeable>()
-        // Kept in this order when the band is short: the E, then the kind, then the version (which may
-        // be cut, but never below MinTagWidth; the others are whole or left out).
-        for (role in listOf(Role.Explicit, Role.Kind, Role.Version)) {
-            val m = byRole[role] ?: continue
-            val need = if (placed.isEmpty()) 0 else gap
+        // Each mark's natural size (intrinsics: a measurable is measured once, below, at the width the rule
+        // gives it), then the rule — :shared's (golden release-marks.json), so HarmonyOS lays the band out the
+        // same: start at the cover's start edge, slide toward the shape's top-start lobe only as far as the row
+        // needs, stop as short of the shape's top-end curve; kept in the order E, kind, version (the version
+        // may be cut, never below MinTagWidth; the others whole or left out).
+        fun item(role: Role) = byRole[role]?.let { m ->
             val natural = m.maxIntrinsicWidth(band)
-            val left = room - need
-            val p = when (role) {
-                Role.Version -> if (left >= minOf(natural, MinTagWidth.roundToPx())) m.measure(Constraints(maxWidth = left)) else null
-                else -> if (natural <= left) m.measure(Constraints()) else null
-            }?.takeIf { it.height <= band } ?: continue
-            placed[role] = p
-            room -= p.width + need
+            CoverBandItem(natural, m.maxIntrinsicHeight(natural))
         }
-        val row = listOf(Role.Kind, Role.Version, Role.Explicit).mapNotNull { placed[it] }
-        val total = row.sumOf { it.width } + gap * (row.size - 1).coerceAtLeast(0)
-        // Start at the cover's start edge; slide toward the shape's lobe only as far as the row needs.
-        val start = (end - total).coerceIn(minStart, coverStart.coerceAtLeast(minStart))
+        val rule = YoinReleaseMarks.coverBand(
+            width = w,
+            height = h,
+            coverFraction = coverFraction,
+            stickerRoom = if (stickerRoom) StickerRoom.roundToPx() else 0,
+            gap = BadgeGap.roundToPx(),
+            minTagWidth = MinTagWidth.roundToPx(),
+            kind = item(Role.Kind),
+            version = item(Role.Version),
+            explicit = item(Role.Explicit),
+        )
+        val placed = rule.placed.map { p ->
+            val m = byRole.getValue(Role.valueOf(p.role.name))
+            p to m.measure(if (p.role == CoverBandRole.Version) Constraints(maxWidth = p.width) else Constraints())
+        }
         layout(w, h) {
-            var x = start
-            row.forEach { p ->
-                val y = (band - p.height) / 2
+            placed.forEach { (p, placeable) ->
+                val y = (rule.band - placeable.height) / 2
                 // Mirrored by hand: the cover sits bottom-end, so in RTL the band starts at the right.
-                p.place(if (rtl) w - x - p.width else x, y)
-                x += p.width + gap
+                placeable.place(if (rtl) w - p.x - placeable.width else p.x, y)
             }
         }
     }
@@ -133,11 +129,8 @@ private fun BandChip(text: String) {
     }
 }
 
-/** How far in from the shape's start the row may begin when it needs more than the cover's width. */
-private const val BandInsetFraction = 0.08f
-
 /** Below this a version tag is dropped rather than cut to an ellipsis. */
-private val MinTagWidth = 40.dp
+private val MinTagWidth = YoinReleaseMarks.bandMinTagWidthDp.dp
 
 /**
  * A list row's kind tag ("EP", "Single"; coverKindTag), version tag and "E" at the row's end,
