@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/providers.dart';
 import '../ai/ai_client.dart';
 import '../ai/ai_service.dart';
+import '../ai/ai_service_name.dart';
 import '../ai/ai_settings.dart';
 import '../albumabout/album_about_models.dart';
 import '../albumabout/yoin_album_about.dart';
@@ -154,7 +155,7 @@ class AlbumAboutRepository {
       await _write(album, reply.credits, reply.blurb, createdAt: first);
       return AlbumAboutRegenerated(before);
     } catch (e) {
-      return AlbumAboutRegenerateError(_message(e, 'Failed to ask Gemini'));
+      return AlbumAboutRegenerateError(_message(e, 'Failed to ask ${aiServiceName(ai.provider, zh: false)}'));
     }
   }
 
@@ -225,7 +226,7 @@ class AlbumAboutRepository {
       );
       return AskSuccess(reply.answer);
     } catch (e) {
-      return AskError(_message(e, 'Failed to ask Gemini'));
+      return AskError(_message(e, 'Failed to ask ${aiServiceName(ai.provider, zh: false)}'));
     }
   }
 

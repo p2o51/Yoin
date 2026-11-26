@@ -1,5 +1,8 @@
 import 'package:flutter/widgets.dart';
 
+import '../data/ai/ai_service_name.dart';
+import '../data/ai/ai_settings.dart' show AiProvider;
+
 /// Now Playing, the pill, the queue sheet and the bar's detail pose: English
 /// and Simplified Chinese, copied from Android res/values{,-zh-rCN}/strings*.xml
 /// (key in the comment). PLAY / PAUSE words are English-only on Android
@@ -11,6 +14,9 @@ class NowPlayingStrings {
 
   /// The transport shows the PLAY / PAUSE words only in English (NowPlayingScreen transport).
   final bool isEnglish;
+
+  /// [template] with the AI service in use filled in (`%1$s`; ai_* strings, 51 2026-11-25).
+  String _ai(String template, AiProvider p) => aiServiceCopy(template, p, zh: _zh);
 
   static NowPlayingStrings of(BuildContext context) {
     final code = Localizations.maybeLocaleOf(context)?.languageCode ?? 'en';
@@ -91,7 +97,7 @@ class NowPlayingStrings {
 
   /// Fallback when lyric translation fails without a provider-specific message.
   String get msgTranslateFailed => _zh ? '翻译歌词失败' : 'Failed to translate lyrics';
-  String get msgApiKeyMissing => _zh ? '缺少 Gemini API 密钥' : 'Gemini API key missing'; // np_ask_api_key_missing
+  String aiKeyMissing(AiProvider p) => _ai(_zh ? r'缺少 %1$s API 密钥' : r'%1$s API key missing', p); // ai_key_missing
   String get msgSwitch => _zh ? '切换' : 'Switch'; // np_msg_switch
 
   /// np_msg_translation_qq / _netease / _huawei / _lrclib / _available: a later source can translate.
@@ -151,12 +157,9 @@ class NowPlayingStrings {
   String get shareLayoutClipping => _zh ? '剪贴' : 'Clipping'; // np_share_layout_clipping
   String get shareLayoutTimeline => _zh ? '时间线' : 'Timeline'; // np_share_layout_timeline
   String shareLyricsGist(String gist) => _zh ? '歌词大意：$gist' : 'Gist: $gist'; // np_share_lyrics_gist
-  String shareAiSign(String name) => _zh ? '由 $name 整理' : 'By $name'; // np_share_ai_sign
-  String get shareAiGeneric => 'AI'; // np_share_ai_generic
+  /// "由 Gemini 整理", "由千问整理" (a Chinese name sits flush).
+  String shareAiSign(AiProvider p) => _ai(_zh ? r'由 %1$s 整理' : r'By %1$s', p); // np_share_ai_sign
   String shareNoteWritten(String date) => _zh ? '写于 $date' : 'Written $date'; // np_share_note_written
-  String get aiProviderGemini => 'Gemini'; // ai_provider_gemini (not translatable)
-  String get aiProviderDeepSeek => 'DeepSeek'; // ai_provider_deepseek (not translatable)
-  String get aiProviderQwen => _zh ? '千问' : 'Qwen'; // ai_provider_qwen
 
   String get cdFullScreen => _zh ? '全屏' : 'Full screen'; // np_cd_full_screen
   String get cdBackToPanel => _zh ? '返回侧栏' : 'Back to side panel'; // np_cd_back_to_panel
@@ -215,12 +218,11 @@ class NowPlayingStrings {
 
   // About (strings_nowplaying np_about_*, np_spine_*; strings_component cmp_song_info_*).
   String get aboutSearching => _zh ? '正在查找歌曲信息…' : 'Searching for song info…'; // np_about_searching
-  String get aboutKeyMissing => _zh ? '未设置 Gemini API 密钥' : 'No Gemini API key'; // np_about_api_key
+  String aiNoKey(AiProvider p) => _ai(_zh ? r'未设置 %1$s API 密钥' : r'No %1$s API key', p); // ai_no_key
   String get aboutOpenSettings => _zh ? '设置' : 'Settings'; // np_about_open_settings
   String get aboutRetry => _zh ? '重试' : 'Retry'; // np_about_retry
   String get songInfoTapLoad => _zh ? '加载歌曲信息' : 'Load song info'; // cmp_song_info_tap_load
   String get songInfoSearching => _zh ? '正在查找歌曲信息…' : 'Searching for song info…'; // cmp_song_info_searching
-  String get songInfoNoKey => _zh ? '未设置 Gemini API 密钥' : 'No Gemini API key'; // cmp_song_info_no_key
   String get songInfoSettings => _zh ? '设置' : 'Settings'; // cmp_song_info_settings
   String get songInfoRetry => _zh ? '重试' : 'Retry'; // cmp_song_info_retry
 
@@ -267,18 +269,16 @@ class NowPlayingStrings {
   String spineBit(int v) => '$v-bit'; // np_spine_bit
   String get aboutCdEntryMenu => _zh ? '这一条的选项' : 'Options for this entry'; // np_about_cd_entry_menu
   String get aboutManage => _zh ? '在剪贴簿里管理' : 'Manage in Scrapbook'; // np_about_manage
-  String get aboutRegenerate => _zh ? '用 Gemini 重新生成' : 'Regenerate with Gemini'; // np_about_regenerate
+  String aiRegenerateWith(AiProvider p) => _ai(_zh ? r'用 %1$s 重新生成' : r'Regenerate with %1$s', p); // ai_regenerate_with
   String get aboutRegenerated => _zh ? '已重新生成' : 'Regenerated'; // np_about_regenerated
-  String get aboutRegenerateNothing => _zh ? 'Gemini 没有新的内容' : 'Gemini had nothing new'; // np_about_regenerate_nothing
-  String get aboutRegenerateFailed =>
-      _zh ? 'Gemini 没能回答，再试一次' : "Gemini couldn't answer. Try again."; // np_about_regenerate_failed
+  String aiNothingNew(AiProvider p) => _ai(_zh ? r'%1$s 没有新的内容' : r'%1$s had nothing new', p); // ai_nothing_new
+  String aiFailed(AiProvider p) => _ai(_zh ? r'%1$s 没能回答，再试一次' : r"%1$s couldn't answer. Try again.", p); // ai_failed
   String get aboutUndo => _zh ? '撤销' : 'Undo'; // np_about_undo
 
-  // Ask Gemini (np_ask_*; cmp_quick_prompts, cmp_cd_gemini_thinking).
-  String get askGemini => _zh ? '问 Gemini' : 'Ask Gemini'; // np_ask_gemini
-  String get askPlaceholder => _zh ? '问 Gemini' : 'Ask Gemini'; // np_ask_placeholder
+  // Ask the AI service in use (ai_ask_provider; cmp_quick_prompts, ai_writing).
+  String aiAskProvider(AiProvider p) => _ai(_zh ? r'问 %1$s' : r'Ask %1$s', p); // ai_ask_provider
   String get quickPromptsLabel => _zh ? '快捷提问' : 'Quick questions'; // cmp_quick_prompts_label
-  String get cdGeminiThinking => _zh ? 'Gemini 正在写' : 'Gemini is writing'; // cmp_cd_gemini_thinking
+  String aiWriting(AiProvider p) => _ai(_zh ? r'%1$s 正在写…' : r'%1$s is writing…', p); // ai_writing
 
   /// cmp_quick_prompts (string-array).
   List<String> get quickPrompts => _zh
