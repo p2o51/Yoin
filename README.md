@@ -113,8 +113,8 @@ Every provider implements the [`MusicSource`](app/src/main/java/com/gpo/yoin/dat
 
 ## Platforms and status
 
-- **Android (`0.6.3`):** In closed testing on Google Play for Android 8.0+. Join in about two minutes via [yoin.gojyuplus.com](https://yoin.gojyuplus.com).
-- **iOS and iPadOS (`0.6.3`):** In development for iPhone, iPad and Mac, with multi-account playback, Memories, All Memories, Apple Intelligence lyric cards, iPad split layouts and Google Drive sync shared with Android.
+- **Android (`0.6.4`):** In closed testing on Google Play for Android 8.0+. Join in about two minutes via [yoin.gojyuplus.com](https://yoin.gojyuplus.com).
+- **iOS and iPadOS (`0.6.4`):** In TestFlight for iPhone, iPad and Mac, with multi-account playback, Sing mode, Open in Yoin, Explicit `E` badges & EP filtering, Memories and library search, 3-tab Share cards, Album About & release dates, in-place Home editing & two-column iPad layouts, Apple Intelligence lyric cards, and iCloud/Google Drive sync shared with Android.
 - **HarmonyOS (`harmony/`):** Native HarmonyOS version in development for phones and 2-in-1 PCs.
 
 ## Build
