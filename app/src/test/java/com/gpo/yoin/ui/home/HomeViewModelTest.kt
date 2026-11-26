@@ -2366,6 +2366,40 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun should_dropTheNotedTrackCard_when_itsNoteIsDeleted() = runTest {
+        // Now Playing deletes a note (its undo window closed): the table's
+        // change stamp moves and Jump Back In's note 1×2 leaves the shelf —
+        // no reload, no stale "N/A · song — words" card.
+        val profile = "subsonic-note-deleted"
+        val stamp = MutableStateFlow(5L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var notes = listOf(
+            SongNote(
+                id = "note-gone",
+                profileId = profile,
+                trackId = "noted-song",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                content = "delete me",
+                createdAt = 1L,
+                updatedAt = 1L,
+                title = "Noted",
+                artist = "Artist"
+            )
+        )
+        coEvery { repository.getRecentSongNotes(any()) } answers { notes }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        val noted = { (viewModel.uiState.value as HomeUiState.Content).widgetGrid.map { it.stableId } }
+        assertEquals(listOf("grid-note:note-gone"), noted())
+
+        notes = emptyList()
+        stamp.value = 4L
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), noted())
+    }
+
+    @Test
     fun should_keepRediscoverSongs_when_aReloadCannotReadThem() = runTest {
         val profile = "subsonic-rd-songs-read-fails"
         val repository = memorySignalRepository(profile = profile)
