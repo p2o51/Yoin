@@ -394,6 +394,11 @@ internal object ShareCardsGoldenFixtures {
             listOf(entry("canonical", "creation_location", "  Taipei,\n\tTaiwan  "), entry("canonical", "review", "\n  Para\n\ngraph.  \n")),
             ShareAboutSources("  Fang   Wenshan ", null, null, null, null, null),
         ),
+        about(
+            "the AI's **bold** stays in the paragraph and values (drawn through boldRuns)",
+            listOf(entry("canonical", "producer", "**周杰倫**"), entry("canonical", "review", "这首歌是**周杰倫**写给外婆的。")),
+            labels = "zh",
+        ),
         about("a blank AI row is skipped", listOf(entry("canonical", "lyricist", " \n "), canonReview)),
         about(
             "blank lyrics credits are no credits: the AI's rows show",
@@ -431,6 +436,23 @@ internal object ShareCardsGoldenFixtures {
         v("a template without spaces", "template" to str("由%1\$s整理"), "provider" to str("千问")),
         v("a full-width name", "template" to str("由 %1\$s 整理"), "provider" to str("ＡＩ")),
     )
+
+    private val boldRuns = listOf(
+        "plain" to "收录于 2003 年专辑《叶惠美》。",
+        "a bold run" to "这首歌是**周杰倫**写给外婆的。",
+        "underscores" to "It opens the album __Ye Hui Mei__ (2003).",
+        "two runs" to "**作词**方文山，**作曲**周杰倫",
+        "an unclosed marker stays" to "**未闭合的粗体",
+        "a single asterisk and underscore stay" to "a * b _ c",
+        "single-delimited italics stay as written" to "_italic_ and *em*",
+        "three asterisks" to "***x***",
+        "an empty bold run is dropped" to "a****b",
+        "the other marker inside" to "__a**b__",
+        "across a line break" to "**第一行\n第二行**之后",
+        "a bold run at the end" to "Recorded at **Alfa Studio**",
+        "markers only" to "****",
+        "empty" to "",
+    ).map { (name, text) -> v(name, "text" to str(text)) }
 
     private fun noteVector(name: String, notes: List<ShareNote>, noteId: String?, positionMs: Long, durationMs: Long = 300_000L) = v(
         name,
@@ -555,6 +577,7 @@ internal object ShareCardsGoldenFixtures {
         "verticalForm" to verticalForms,
         "about" to abouts,
         "aiSign" to aiSigns,
+        "boldRuns" to boldRuns,
         "note" to notes,
         "time" to times,
         "tones" to tones,

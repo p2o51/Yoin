@@ -376,6 +376,46 @@ object YoinShareCards {
     }
 
     /**
+     * How About's words are drawn on the image, as on Now Playing's About page: the AI's `**bold**` / `__bold__`
+     * runs set bold, their markers dropped; a marker with no closing pair stays as written. [ShareAbout]'s
+     * paragraph and credit values keep the markers; draw them through this (Android
+     * `markdownBoldAnnotatedString`, HarmonyOS `markdownBoldSpan`). Plain stretches are merged, empty bold runs
+     * dropped. The heading is drawn as written.
+     */
+    fun boldRuns(text: String): List<ShareTextRun> {
+        val runs = mutableListOf<ShareTextRun>()
+        val plain = StringBuilder()
+        fun flush() {
+            if (plain.isNotEmpty()) runs += ShareTextRun(plain.toString(), bold = false)
+            plain.clear()
+        }
+        var index = 0
+        while (index < text.length) {
+            val c = text[index]
+            val marker = if ((c == '*' || c == '_') && index + 1 < text.length && text[index + 1] == c) "$c$c" else null
+            if (marker == null) {
+                plain.append(c)
+                index += 1
+                continue
+            }
+            val close = text.indexOf(marker, startIndex = index + 2)
+            if (close == -1) {
+                plain.append(marker)
+                index += 2
+                continue
+            }
+            val bold = text.substring(index + 2, close)
+            if (bold.isNotEmpty()) {
+                flush()
+                runs += ShareTextRun(bold, bold = true)
+            }
+            index = close + 2
+        }
+        flush()
+        return runs
+    }
+
+    /**
      * About's sign on the image: the platform's "由 %1$s 整理" / "By %1$s" with the AI service's name filled in,
      * the space before or after a Chinese name dropped (由千问整理, 由 Gemini 整理) — album About's rule
      * ([com.gpo.yoin.shared.albumabout.YoinAlbumAbout.aiCopy]).

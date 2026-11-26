@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
 import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
@@ -13,6 +14,7 @@ import com.gpo.yoin.data.model.LyricCreditRole
 import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.shared.notes.YoinNoteReader
 import com.gpo.yoin.shared.share.YoinShareCards
+import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import java.io.File
 import kotlin.math.round
 import kotlinx.serialization.json.Json
@@ -160,6 +162,29 @@ class ShareCardsPinTest {
         }
         section("verticalForm").forEach { v ->
             assertEquals(v.name, v.string("vertical"), v.string("text")!!.map(::verticalForm).joinToString(""))
+        }
+    }
+
+    @Test
+    fun should_setAboutsBoldAsPinned_throughNowPlayingsRenderer() {
+        // The About layouts draw values and the paragraph through markdownBoldAnnotatedString (ShareCards.kt).
+        section("boldRuns").forEach { v ->
+            val styled = markdownBoldAnnotatedString(v.string("text")!!)
+            val runs = mutableListOf<Pair<String, Boolean>>()
+            var at = 0
+            fun add(text: String, bold: Boolean) {
+                if (text.isEmpty()) return
+                val last = runs.lastOrNull()
+                if (last != null && last.second == bold && !bold) runs[runs.lastIndex] = (last.first + text) to false else runs += text to bold
+            }
+            styled.spanStyles.sortedBy { it.start }.forEach { span ->
+                add(styled.text.substring(at, span.start), false)
+                add(styled.text.substring(span.start, span.end), span.item.fontWeight == FontWeight.Bold)
+                at = span.end
+            }
+            add(styled.text.substring(at), false)
+            val expected = v.array("runs").map { it.jsonObject.string("text")!! to it.jsonObject.bool("bold") }
+            assertEquals(v.name, expected, runs)
         }
     }
 

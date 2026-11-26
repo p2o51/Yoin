@@ -30,7 +30,7 @@ internal object ShareCardsGolden {
     /** Input fields first, then the output fields [outputs] adds. */
     val sections: List<String> = listOf(
         "isCjk", "content", "layoutStore", "currentLine", "passageStarts", "caption", "cardLineSize", "poster",
-        "playerExcerpt", "verticalPlan", "verticalLyrics", "verticalText", "verticalForm", "about", "aiSign", "note", "time",
+        "playerExcerpt", "verticalPlan", "verticalLyrics", "verticalText", "verticalForm", "about", "aiSign", "boldRuns", "note", "time",
         "tones", "retone", "storyZoom", "storyFits", "exportSize", "fitScale", "fileName",
     )
 
@@ -111,6 +111,11 @@ internal object ShareCardsGolden {
             )
         }
         "aiSign" -> obj("sign" to str(YoinShareCards.aiSign(v.string("template")!!, v.string("provider")!!)))
+        "boldRuns" -> obj(
+            "runs" to JsonArray(
+                YoinShareCards.boldRuns(v.string("text")!!).map { obj("text" to str(it.text), "bold" to JsonPrimitive(it.bold)) },
+            ),
+        )
         "note" -> {
             val note = YoinShareCards.notePick(v.array("notes").map { noteOf(it.jsonObject) }, v.string("noteId"), v.long("positionMs"))
             val duration = v.long("durationMs")

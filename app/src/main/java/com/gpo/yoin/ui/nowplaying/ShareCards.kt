@@ -70,6 +70,7 @@ import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.LocalSoftwareBitmaps
 import com.gpo.yoin.ui.component.NoteMarkupText
+import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -660,6 +661,9 @@ private fun Modifier.sideways(maxLength: Dp): Modifier = layout { measurable, _ 
 // About: Receipt, Quote, Liner notes (tertiary).
 // ---------------------------------------------------------------------------
 
+// About's paragraph and credit values are the AI's words: its **bold** reads bold, as on Now Playing's About
+// page (markdownBoldAnnotatedString; the runs are YoinShareCards.boldRuns'). Headings stay as written.
+
 @Composable
 private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, frame: ShareFrame, modifier: Modifier) {
     val about = content.about ?: return
@@ -677,7 +681,7 @@ private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, fra
                         modifier = Modifier.width(88.dp).padding(top = 2.dp, end = 12.dp),
                     )
                     Text(
-                        text = credit.value,
+                        text = markdownBoldAnnotatedString(credit.value),
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                         color = colors.content,
                         textAlign = TextAlign.End,
@@ -694,7 +698,7 @@ private fun AboutReceiptBody(content: ShareContent, colors: ShareCardColors, fra
                 modifier = Modifier.padding(top = 16.dp),
             )
             Text(
-                text = paragraph,
+                text = markdownBoldAnnotatedString(paragraph),
                 style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                 color = colors.content,
                 modifier = Modifier.padding(top = 6.dp),
@@ -730,7 +734,7 @@ private fun AboutQuoteBody(content: ShareContent, colors: ShareCardColors, frame
         }
         about.paragraph?.let { paragraph ->
             Text(
-                text = paragraph,
+                text = markdownBoldAnnotatedString(paragraph),
                 style = lyricHeroStyle(19f, 1.5f),
                 color = colors.content,
                 modifier = Modifier.padding(top = 18.dp),
@@ -768,7 +772,7 @@ private fun CreditChip(credit: ShareCredit, colors: ShareCardColors, modifier: M
         Text(credit.label, style = MaterialTheme.typography.labelSmall, color = colors.secondary, maxLines = 1)
         Spacer(Modifier.width(6.dp))
         Text(
-            text = credit.value,
+            text = markdownBoldAnnotatedString(credit.value),
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
             color = colors.content,
             maxLines = 1,
@@ -821,7 +825,7 @@ private fun AboutLinerBody(content: ShareContent, colors: ShareCardColors, frame
             }
             about.paragraph?.let { paragraph ->
                 Text(
-                    text = paragraph,
+                    text = markdownBoldAnnotatedString(paragraph),
                     style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
                     color = colors.content,
                     modifier = Modifier.padding(top = 12.dp),
@@ -843,7 +847,7 @@ private fun LinerCell(credit: ShareCredit, colors: ShareCardColors, modifier: Mo
     ) {
         Text(credit.label, style = MaterialTheme.typography.labelSmall, color = colors.secondary)
         Text(
-            text = credit.value,
+            text = markdownBoldAnnotatedString(credit.value),
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
             color = colors.content,
             modifier = Modifier.padding(top = 2.dp),

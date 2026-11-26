@@ -189,6 +189,11 @@ class ShareCardRulesTest {
         assertEquals("晴天", YoinShareCards.caption("晴天", " "))
         assertEquals("由千问整理", YoinShareCards.aiSign("由 %1\$s 整理", "千问"))
         assertEquals("由 Gemini 整理", YoinShareCards.aiSign("由 %1\$s 整理", "Gemini"))
+        assertEquals(
+            listOf(ShareTextRun("这首歌是", false), ShareTextRun("周杰倫", true), ShareTextRun("写的。", false)),
+            YoinShareCards.boldRuns("这首歌是**周杰倫**写的。"),
+        )
+        assertEquals(listOf(ShareTextRun("**未闭合", false)), YoinShareCards.boldRuns("**未闭合"))
         assertEquals("1:05", YoinShareCards.time(65_000L))
         assertEquals("62:05", YoinShareCards.time(3_725_000L))
     }

@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import '../data/share/yoin_share_cards.dart';
+
 /// Now Playing, the pill, the queue sheet and the bar's detail pose: English
 /// and Simplified Chinese, copied from Android res/values{,-zh-rCN}/strings*.xml
 /// (key in the comment). PLAY / PAUSE words are English-only on Android
@@ -151,7 +153,8 @@ class NowPlayingStrings {
   String get shareLayoutClipping => _zh ? '剪贴' : 'Clipping'; // np_share_layout_clipping
   String get shareLayoutTimeline => _zh ? '时间线' : 'Timeline'; // np_share_layout_timeline
   String shareLyricsGist(String gist) => _zh ? '歌词大意：$gist' : 'Gist: $gist'; // np_share_lyrics_gist
-  String shareAiSign(String name) => _zh ? '由 $name 整理' : 'By $name'; // np_share_ai_sign
+  // np_share_ai_sign; 由千问整理 / 由 Gemini 整理 (no space beside a Chinese name).
+  String shareAiSign(String name) => YoinShareCards.aiSign(_zh ? '由 %1\$s 整理' : 'By %1\$s', name);
   String get shareAiGeneric => 'AI'; // np_share_ai_generic
   String shareNoteWritten(String date) => _zh ? '写于 $date' : 'Written $date'; // np_share_note_written
   String get aiProviderGemini => 'Gemini'; // ai_provider_gemini (not translatable)
