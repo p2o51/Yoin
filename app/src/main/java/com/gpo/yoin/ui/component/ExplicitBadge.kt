@@ -59,10 +59,22 @@ import kotlin.math.roundToInt
  * colour (onSurfaceVariant): it says what the song is without competing with
  * its name. The E is a knockout, so the page behind shows through on any
  * surface (covers' colours, the album page's spectrum bar, Now Playing's aurora).
+ *
+ * Now Playing's big titles take the [hero] size instead (owner 2026-11-26: the
+ * cap-height E was too big beside a 24–36sp title): the title's x-height, so
+ * the square stands as tall as its lowercase letters on the same baseline —
+ * Apple Music's proportion, where the player's E is about three quarters of
+ * the title's cap height — and never taller than [HeroMaxSide].
  */
 
 /** Google Sans Flex's cap height (OS/2 sCapHeight 1432 / 2000 em). */
 private const val CapHeightEm = 0.716f
+
+/** Google Sans Flex's x-height (OS/2 sxHeight 1023 / 2000 em): a hero badge's side. */
+private const val XHeightEm = 0.5115f
+
+/** A hero badge is never taller than this, whatever the title's size. */
+private val HeroMaxSide = 18.dp
 
 /** The knocked-out E's own cap height, as a share of the square. */
 private const val LetterShare = 0.58f
@@ -70,23 +82,32 @@ private const val LetterShare = 0.58f
 /** The square's corner, as a share of its side (Apple's badge is about a fifth). */
 private const val CornerShare = 0.2f
 
-/** The square's side for [style]: its cap height, at least [MinSide] so the E still reads on small text. */
-internal fun Density.explicitBadgeSidePx(style: TextStyle, fallback: TextUnit): Float {
+/**
+ * The square's side for [style]: its cap height, at least [MinSide] so the E still reads on small text.
+ * [hero] (Now Playing's big titles): its x-height instead, at most [HeroMaxSide].
+ */
+internal fun Density.explicitBadgeSidePx(style: TextStyle, fallback: TextUnit, hero: Boolean = false): Float {
     val fontSize = if (style.fontSize.isSpecified) style.fontSize else fallback
     val size = if (fontSize.isSpecified) fontSize else 14.sp
-    return max(size.toPx() * CapHeightEm, MinSide.toPx())
+    return if (hero) {
+        (size.toPx() * XHeightEm).coerceAtMost(HeroMaxSide.toPx()).coerceAtLeast(MinSide.toPx())
+    } else {
+        max(size.toPx() * CapHeightEm, MinSide.toPx())
+    }
 }
 
 private val MinSide = 9.dp
 
 /**
  * Space between the title's last glyph and the badge: [ExplicitBadgeGap] (a list row's, the same as
- * the note marker's), growing with large type (a third of the type size).
+ * the note marker's), growing with large type (a third of the type size). A [hero] badge, smaller
+ * than its title's capitals, sits half its own side away instead (at least [ExplicitBadgeGap]).
  */
-internal fun Density.explicitBadgeGapPx(style: TextStyle, fallback: TextUnit): Int {
+internal fun Density.explicitBadgeGapPx(style: TextStyle, fallback: TextUnit, hero: Boolean = false): Int {
     val fontSize = if (style.fontSize.isSpecified) style.fontSize else fallback
     val size = if (fontSize.isSpecified) fontSize else 14.sp
-    return max(size.toPx() * 0.33f, ExplicitBadgeGap.toPx()).roundToInt()
+    val grown = if (hero) explicitBadgeSidePx(style, fallback, hero = true) * 0.5f else size.toPx() * 0.33f
+    return max(grown, ExplicitBadgeGap.toPx()).roundToInt()
 }
 
 /**
@@ -129,10 +150,12 @@ fun ExplicitBadge(
      * ([explicitTitleSemantics]), so it is read whether or not the badge is drawn.
      */
     describe: Boolean = true,
+    /** Now Playing's big titles: the title's x-height rather than its cap height ([explicitBadgeSidePx]). */
+    hero: Boolean = false,
 ) {
     val density = LocalDensity.current
     val fallbackSize = LocalTextStyle.current.fontSize
-    val sidePx = with(density) { explicitBadgeSidePx(textStyle, fallbackSize) }
+    val sidePx = with(density) { explicitBadgeSidePx(textStyle, fallbackSize, hero) }
     val measurer = rememberTextMeasurer(cacheSize = 2)
     val letterStyle = remember(textStyle, sidePx) {
         TextStyle(
@@ -179,7 +202,7 @@ fun ExplicitBadge(
  * find where its text ends: a cut title ends on its ellipsis and the badge follows it, so the badge
  * never falls off the end. [maxLines] as [title] sets it; on more than one line the badge follows
  * the last. [fillsWidth]: [title] takes all the width it is given (a marquee), so it is given just
- * its text's width and the badge follows that.
+ * its text's width and the badge follows that. [hero]: Now Playing's smaller badge ([ExplicitBadge]).
  */
 @Composable
 fun ExplicitTitle(
@@ -190,6 +213,7 @@ fun ExplicitTitle(
     maxLines: Int = 1,
     fillsWidth: Boolean = false,
     badgeColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    hero: Boolean = false,
     title: @Composable (modifier: Modifier) -> Unit,
 ) {
     if (!explicit) {
@@ -203,10 +227,10 @@ fun ExplicitTitle(
         modifier = modifier.explicitTitleSemantics(),
         content = {
             title(Modifier)
-            ExplicitBadge(textStyle = style, color = badgeColor, describe = false)
+            ExplicitBadge(textStyle = style, color = badgeColor, describe = false, hero = hero)
         },
     ) { measurables, constraints ->
-        val gap = explicitBadgeGapPx(style, fallbackSize)
+        val gap = explicitBadgeGapPx(style, fallbackSize, hero)
         val bounded = constraints.hasBoundedWidth
         // +1: the measured width is rounded down; a pixel less would cut or scroll.
         val natural = measurer.measure(text, style, maxLines = 1, softWrap = false).size.width + 1

@@ -137,6 +137,54 @@ class ExplicitBadgeTest {
     }
 
     @Test
+    fun should_setNowPlayingsBadgeAtTheTitlesXHeight_when_theTitleIsBig() {
+        rule.setContent {
+            YoinTheme {
+                Column {
+                    Box(modifier = Modifier.width(380.dp).testTag("hero")) {
+                        NowPlayingMarqueeTitle(
+                            text = "HUMBLE.",
+                            style = MaterialTheme.typography.displaySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            stretchScale = 1f,
+                            explicit = true,
+                        )
+                    }
+                    val style = MaterialTheme.typography.headlineMedium
+                    Box(modifier = Modifier.width(380.dp).testTag("twoLines")) {
+                        ExplicitTitle(text = "HUMBLE.", explicit = true, style = style, maxLines = 2, hero = true) { m ->
+                            Text("HUMBLE.", style = style, maxLines = 2, modifier = m)
+                        }
+                    }
+                }
+            }
+        }
+
+        val badges = rule.onAllNodesWithTag(ExplicitBadgeTestTag, useUnmergedTree = true)
+        val hero = badges[0].getBoundsInRoot()
+        val twoLines = badges[1].getBoundsInRoot()
+        // displaySmall 36sp: x-height 18.4dp, held to 18dp (the cap height's 25.8dp was too big).
+        assertEquals(18f, (hero.bottom - hero.top).value, 1f)
+        // headlineMedium 28sp: its x-height, 14.3dp (cap height 20dp).
+        assertEquals(14.3f, (twoLines.bottom - twoLines.top).value, 1f)
+    }
+
+    @Test
+    fun should_keepTheCapHeightBadge_when_notAHero() {
+        rule.setContent {
+            YoinTheme {
+                val style = MaterialTheme.typography.headlineMedium
+                ExplicitTitle(text = "HUMBLE.", explicit = true, style = style) { m ->
+                    Text("HUMBLE.", style = style, modifier = m)
+                }
+            }
+        }
+
+        val badge = rule.onNodeWithTag(ExplicitBadgeTestTag, useUnmergedTree = true).getBoundsInRoot()
+        assertEquals(20f, (badge.bottom - badge.top).value, 1f)
+    }
+
+    @Test
     fun should_keepTheBadgeBesideAVersionTag_when_bothFollowALongName() {
         rule.setContent {
             YoinTheme {

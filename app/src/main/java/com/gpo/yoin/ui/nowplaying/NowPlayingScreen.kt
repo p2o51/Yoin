@@ -3090,6 +3090,7 @@ private fun WidePlayingContent(
                                     explicit = state.isExplicit,
                                     style = MaterialTheme.typography.headlineMedium,
                                     maxLines = 2,
+                                    hero = true,
                                     modifier = titleRouteModifier,
                                 ) { titleModifier ->
                                     Text(
@@ -3915,6 +3916,7 @@ private fun LandscapePlayingContent(
                     explicit = state.isExplicit,
                     style = MaterialTheme.typography.headlineSmall,
                     maxLines = 2,
+                    hero = true,
                 ) { titleModifier ->
                     Text(
                         text = state.songTitle,
@@ -4420,6 +4422,7 @@ private fun TabletopPlayingContent(
                             text = state.songTitle,
                             explicit = state.isExplicit,
                             style = tabletopTitleStyle,
+                            hero = true,
                             modifier = tabletopTitleRoute?.let { route ->
                                 Modifier
                                     .graphicsLayer {
@@ -6477,7 +6480,8 @@ internal fun NowPlayingMarqueeTitle(
         }
         val fullBadgeRoomPx = if (explicit) {
             with(density) {
-                ceil(explicitBadgeSidePx(style, fallbackSize)).toInt() + explicitBadgeGapPx(style, fallbackSize)
+                ceil(explicitBadgeSidePx(style, fallbackSize, hero = true)).toInt() +
+                    explicitBadgeGapPx(style, fallbackSize, hero = true)
             }
         } else {
             0
@@ -6573,9 +6577,10 @@ internal fun NowPlayingMarqueeTitle(
             ExplicitBadge(
                 textStyle = style,
                 describe = false,
+                hero = true,
                 modifier = Modifier
                     .alignByBaseline()
-                    .padding(start = with(density) { explicitBadgeGapPx(style, fallbackSize).toDp() })
+                    .padding(start = with(density) { explicitBadgeGapPx(style, fallbackSize, hero = true).toDp() })
                     .graphicsLayer {
                         // Rides the fitted title's stretch, so the gap stays the same.
                         if (!shouldMarquee) {
