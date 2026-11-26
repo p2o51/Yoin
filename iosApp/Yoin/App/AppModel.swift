@@ -87,8 +87,9 @@ final class AppModel {
     /// Deferred stage toggle when ⌘F or ⌘L opens Now Playing from the closed bar.
     enum PendingNPKeyCommand { case focus, lyrics }
     @ObservationIgnored var pendingNPKeyCommand: PendingNPKeyCommand?
-    /// Home's edit mode, for ⌘[ (HomeView registers it).
-    @ObservationIgnored weak var homeEdit: HomeEditController?
+    /// Home's edit mode, for ⌘[ and the shell's chrome (HomeView registers it). Observed: the floating bar and
+    /// the mini player step away while Home is edited (Android hides its nav for edit mode's own chrome).
+    var homeEdit: HomeEditController?
     @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024
