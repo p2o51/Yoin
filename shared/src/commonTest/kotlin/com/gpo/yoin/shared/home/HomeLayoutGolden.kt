@@ -54,7 +54,12 @@ internal object HomeLayoutGolden {
             "reconcile" -> {
                 val raw = (v["document"] as? JsonObject)?.let(HomeGoldenJson::encode)
                 val read = YoinHomeLayout.decode(raw)
-                obj("state" to stateJson(read), "isDefault" to bool(YoinHomeLayout.isDefault(read)))
+                val persist = YoinHomeLayout.persist(read)
+                obj(
+                    "state" to stateJson(read),
+                    "isDefault" to bool(YoinHomeLayout.isDefault(read)),
+                    "persist" to obj("clear" to bool(persist.clear), "document" to str(persist.documentJson)),
+                )
             }
             "ops" -> resultJson(applyOp(state("state"), v))
             "predicates" -> {
@@ -184,7 +189,8 @@ internal object HomeLayoutGolden {
     const val ABOUT = "Golden vectors for Home's layout core (com.gpo.yoin.shared.home, parity p4; Android PR #250 / " +
         "#292): the stored document (codec: unknown document and entry keys kept, a malformed entry drops alone, a " +
         "non-object wide reads as none), reconcile (retired ids dropped, unknown ids retained, first occurrence wins, " +
-        "appended sections and WideDefault pairs for free partners), every edit (changed false = the same layout " +
+        "appended sections and WideDefault pairs for free partners; persist is what writing the layout read back " +
+        "unchanged does), every edit (changed false = the same layout " +
         "back: no Undo step), the defaults and the persist rule, the pair helpers, the feed rows, the unit rules " +
         "and the edit session's draft / echo / step rules. Generated from :shared Kotlin through YoinHomeLayout by " +
         "HomeLayoutGoldenTest (androidHostTest); do not edit by hand. Every vector is its inputs followed by the " +
