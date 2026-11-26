@@ -2,15 +2,18 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
-import 'package:flutter/gestures.dart' show kTouchSlop;
+import 'package:flutter/gestures.dart' show PointerScaleEvent, PointerSignalEvent, kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show SchedulerBinding, SchedulerPhase;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../memories/ledger/memory_ledger_home_card.dart';
 import '../memories/ledger/memory_ledger_view_model.dart';
 import '../data/home/home_drag_core.dart';
+import '../data/home/home_drag_rules.dart' show DragArrangement, dragRows;
 import '../data/home/home_edit_rules.dart';
+import '../data/home/home_grid_rules.dart';
 import '../data/model/model.dart';
 import '../memories/memories_pull.dart';
 import '../nowplaying/haptics.dart';
@@ -33,6 +36,9 @@ import 'home_edit_lift.dart';
 import 'home_edit_list.dart';
 import 'home_edit_wiggle.dart';
 import 'home_feed_density.dart';
+import 'home_feed_rows.dart';
+import 'home_grid_resize.dart';
+import 'home_grid_sections.dart';
 import 'home_jbi_hidden.dart';
 import 'home_lyric_count_handle.dart';
 import 'home_header.dart';
@@ -150,7 +156,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     vsync: this,
     specs: () => _specs,
     wiggle: _wiggle,
-    commitOrder: (order) => ref.read(homeEditProvider.notifier).commitOrder(order),
+    commitArrangement: (arrangement, {required twoColumn}) => ref
+        .read(homeEditProvider.notifier)
+        .commitArrangement(arrangement.ids, arrangement.pairs, twoColumn: twoColumn),
     finishDeferredExit: (reason) {
       if (mounted) ref.read(homeEditProvider.notifier).finishExit(done: reason == HomeEditExitReason.done);
     },
@@ -179,8 +187,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
   double _spacing = 0;
   double? _pageHeight;
 
-  /// The geometry a drag was laid out in (width, frame class, tabletop): a change mid-drag rolls it back.
-  (double, FeedFrameClass, bool)? _dragGeometry;
+  /// The geometry a drag was laid out in (width, frame class, tabletop, two columns): a change mid-drag rolls it
+  /// back (and drops a two-column resize).
+  (double, FeedFrameClass, bool, bool)? _dragGeometry;
+
+  /// The feed lays out in two columns now (homeFeedTwoColumn: a Wide frame ≥ 840 × 480, never tabletop).
+  bool _twoColumn = false;
+
+  /// Two columns: each displayed section's cell frame (its own margins and width), as last built.
+  final Map<HomeSection, HomeFeedFrame> _cellFrames = {};
+
+  /// Two columns' ⌟: the span and units resize in flight.
+  late final HomeGridResize _grid = HomeGridResize(
+    vsync: this,
+    commitSpan: (section, commit) => ref.read(homeEditProvider.notifier).commitSpan(section, commit),
+    commitUnits: (section, units) => ref.read(homeEditProvider.notifier).setUnits(section, units),
+    reduced: () => _reduced,
+    slop: () => kTouchSlop,
+  );
+
+  /// What the feed shows at its width (HomeLayout.shownAt): the large-screen default for a never-customized
+  /// layout in two columns.
+  HomeLayout get _shownLayout => ref.read(homeLayoutProvider).shownAt(_twoColumn);
 
   /// When the feed last scrolled (a blank tap this soon after only stops the fling).
   final Stopwatch _clock = Stopwatch()..start();
@@ -240,10 +268,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _edit;
     _rows;
     _lyricCount;
+    _grid;
     _wiggle;
     _press;
     _drag.addListener(_onDrag);
-    _drag.resizeActive = () => _rows.dragging;
+    _drag.resizeActive = () => _rows.dragging || _grid.dragging;
     _edit.animation.addListener(_onEditProgress);
     _editController.deferExit = _deferExit;
     _backOrder.bindHomeEdit(() => ref.read(homeEditProvider).editing);
@@ -291,6 +320,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _press.dispose();
     _rows.dispose();
     _lyricCount.dispose();
+    _grid.dispose();
     _paletteGate.dispose();
     super.dispose();
   }
@@ -376,12 +406,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     } else if (n is ScrollEndNotification) {
       _scrolling = false;
       if (_warmedUp) {
-        _paletteGate.value = true;
+        _openPaletteGate();
       } else {
         _armGate();
       }
     }
     return false;
+  }
+
+  /// A scroll can end inside a layout (a trackpad's pan-zoom drag cancelled as a pinch stills the feed): the
+  /// palette gate then opens after the frame.
+  void _openPaletteGate() {
+    if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.persistentCallbacks) {
+      _paletteGate.value = true;
+      return;
+    }
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_scrolling) _paletteGate.value = true;
+    });
   }
 
   @override
@@ -391,7 +433,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (_specs.reduced != _reduced) _specs = HomeEditSpecs(reduced: _reduced);
     ref.listen(homeViewModelProvider, (_, next) => _onState(next));
     final state = ref.watch(homeViewModelProvider);
-    final layout = ref.watch(homeLayoutProvider);
+    final info = YoinWindowInfo.of(context);
+    final twoColumn = homeFeedTwoColumn(info);
+    _twoColumn = twoColumn;
+    // Edits are made on what the feed shows at its width (the draft follows a width change: homeDraftAtWidth).
+    ref.read(homeEditProvider.notifier).twoColumn = twoColumn;
+    final layout = ref.watch(homeLayoutProvider).shownAt(twoColumn);
     final signals = ref.watch(homeMemorySignalsProvider);
     final editing = ref.watch(homeEditProvider).editing;
     ref.listen(homeEditProvider.select((e) => e.editing), (_, on) => _onEditing(on));
@@ -406,18 +453,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     final content = state is HomeContent ? state : _lastContent;
 
     final feed = AnimatedBuilder(
-      animation: Listenable.merge([_frameBlend.animation, _edit.animation]),
+      animation: Listenable.merge([_frameBlend.animation, _edit.animation, _grid]),
       builder: (context, _) => LayoutBuilder(
         builder: (context, constraints) {
           // Margins and widths follow the LIVE width; N and the cover columns the resting one.
           final width = constraints.maxWidth;
           // A resize, a new width class or tabletop mid-drag takes the drag's geometry away: it rolls back
           // to the order before the lift, nothing written (Android HomeDragEngine.cancel).
-          final geometry = (width, density.frameClass, YoinWindowInfo.of(context).isTabletop);
-          if (_drag.isCarrying && _dragGeometry != null && _dragGeometry != geometry) {
-            scheduleMicrotask(() {
-              if (mounted) _drag.cancel();
-            });
+          final geometry = (width, density.frameClass, info.isTabletop, twoColumn);
+          if (_dragGeometry != null && _dragGeometry != geometry) {
+            if (_drag.isCarrying) {
+              scheduleMicrotask(() {
+                if (mounted) _drag.cancel();
+              });
+            }
+            if (_grid.active) scheduleMicrotask(_grid.snap);
           }
           _dragGeometry = geometry;
           final target = feedFrameInsets(width, density.frameClass);
@@ -520,7 +570,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               // The compact list covers the feed: nothing in it needs painting meanwhile.
               child: Opacity(
                 opacity: _drag.list.covers ? 0 : 1,
-                child: HomeRowsScope(engine: _rows, child: list),
+                // Two columns: the ⌟ is the grid's (span and units), not the one-column row resize.
+                child: twoColumn ? list : HomeRowsScope(engine: _rows, child: list),
               ),
             ),
           );
@@ -538,7 +589,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       ),
       child: CompositedTransformTarget(
         link: _pageLink,
-        child: Stack(
+        // A PC's trackpad pinches the list in and out the way two fingers do (PointerPanZoom), and a
+        // Ctrl + wheel's scale steps it; a mouse uses the header's list / cards switch.
+        child: Listener(
+          onPointerPanZoomStart: (_) => _trackpadPinch(start: true),
+          onPointerPanZoomUpdate: (event) => _trackpadPinch(scale: event.scale),
+          onPointerPanZoomEnd: (_) => _trackpadPinch(end: true),
+          onPointerSignal: _onPointerSignal,
+          child: Stack(
         key: _pageKey,
         fit: StackFit.expand,
         children: [
@@ -596,8 +654,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           if (state is HomeError) Positioned.fill(child: _ErrorPage(error: state.error)),
         ],
         ),
+        ),
       ),
     );
+  }
+
+  /// A trackpad's pinch in edit mode (nothing lifted): the list follows its scale as two fingers' would.
+  void _trackpadPinch({bool start = false, double? scale, bool end = false}) {
+    if (!mounted || !ref.read(homeEditProvider).editing) return;
+    final list = _drag.list;
+    if (start) {
+      if (_drag.liftSection == null && !_drag.isCarrying && !_rows.dragging && !_grid.dragging) list.pinchStart();
+    } else if (scale != null) {
+      list.pinchBy(scale);
+    } else if (end) {
+      list.pinchEnd();
+    }
+  }
+
+  /// Ctrl + wheel (a PointerScaleEvent) in edit mode: in toward the list, out toward the full layout.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScaleEvent || !mounted || !ref.read(homeEditProvider).editing) return;
+    if (_drag.liftSection != null || _drag.isCarrying || _drag.list.pinching) return;
+    final list = _drag.list;
+    if (event.scale < 1 && !list.on) list.set(true);
+    if (event.scale > 1 && list.on) list.set(false);
   }
 
   /// The compact list (HomeEditList): the feed's order, its own gestures run through Home's executor.
@@ -666,93 +747,162 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
               if (!added.contains(r.albumId)) r,
           ]
         : const <HomeRediscoverItem>[];
-    Widget padded(Widget child) => Padding(
-      padding: EdgeInsetsDirectional.only(start: frame.start, end: frame.end),
+    final nowMs = ref.read(homeClockProvider)().millisecondsSinceEpoch;
+    void playLyric(HomeLyricHighlight card) => ref.read(lyricHighlightCardsProvider.notifier).play(card);
+    Widget lyricIntroCard(LyricHighlightIntro intro) => LyricHighlightIntroCard(
+      intro: intro,
+      onDismiss: ref.read(lyricHighlightIntroProvider.notifier).dismiss,
+    );
+    // Edit mode's "not now": a tap on a card opens its menu (owner 2026-10-13). Always in the tree, so
+    // entering and leaving keep the shelf's state.
+    Widget jbiScope(Widget child) => JbiHideScope(
+      onTap: editing ? (cardContext, card) => _openJbiHideMenu(content.scopeKey, cardContext, card) : null,
       child: child,
     );
-    for (final section in visible) {
-      final (Widget? body, int beat) = switch (section) {
-        HomeSection.activities => (
-          padded(ActivitiesSection(content: content, frame: frame, preset: layout.rowsOf(HomeSection.activities))),
-          0,
+
+    // Whether a section has anything to show (an empty one shows its placeholder only while editing).
+    bool has(HomeSection section) => switch (section) {
+      HomeSection.activities => true,
+      HomeSection.jumpBackIn => jbi.isNotEmpty,
+      HomeSection.recentlyAdded => content.recentlyAddedTracks.isNotEmpty || content.recentlyAddedAlbums.isNotEmpty,
+      HomeSection.recentlyPlayed => content.recentlyPlayed.isNotEmpty,
+      HomeSection.yourPlaylists => content.playlists.isNotEmpty,
+      HomeSection.rediscover => rediscover.isNotEmpty,
+      HomeSection.memoryGrid => ledger != null && !ledger.isEmpty,
+      HomeSection.otherProfiles => otherProfileItems.isNotEmpty,
+      HomeSection.madeForYou => madeForYou.isNotEmpty,
+      HomeSection.lyricHighlight => lyricIntro != null || lyricCards.isNotEmpty,
+    };
+
+    // The staged reveal's beat: the hero first, Jump Back In second, the rest together.
+    int beatOf(HomeSection section) => switch (section) {
+      HomeSection.activities => 0,
+      HomeSection.jumpBackIn => 1,
+      _ => 2,
+    };
+
+    Widget padded(HomeFeedFrame f, Widget child) => Padding(
+      padding: EdgeInsetsDirectional.only(start: f.start, end: f.end),
+      child: child,
+    );
+
+    // One column: the section's own layout for the feed's frame.
+    Widget columnBody(HomeSection section) => switch (section) {
+      HomeSection.activities => padded(
+        frame,
+        ActivitiesSection(content: content, frame: frame, preset: layout.rowsOf(HomeSection.activities)),
+      ),
+      HomeSection.jumpBackIn => padded(
+        frame,
+        jbiScope(JumpBackInSection(cards: jbi, frame: frame, preset: layout.rowsOf(HomeSection.jumpBackIn))),
+      ),
+      HomeSection.recentlyAdded => RecentlyAddedSection(
+        tracks: content.recentlyAddedTracks,
+        albums: content.recentlyAddedAlbums,
+        frame: frame,
+      ),
+      HomeSection.recentlyPlayed => RecentlyPlayedSection(albums: content.recentlyPlayed, frame: frame),
+      HomeSection.yourPlaylists => YourPlaylistsSection(playlists: content.playlists, frame: frame),
+      HomeSection.rediscover => RediscoverSection(items: rediscover, frame: frame, nowMs: nowMs),
+      HomeSection.memoryGrid => padded(
+        frame,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            HomeSectionTitle(HomeStrings.of(context).sectionMemoryGrid),
+            const SizedBox(height: HomeSectionMetrics.shelfSpacing),
+            HomeEditBlockWiggle(child: MemoryLedgerHomeCard(state: ledger!)),
+          ],
         ),
-        HomeSection.jumpBackIn => (
-          jbi.isEmpty
-              ? null
-              : padded(JbiHideScope(
-                  // Edit mode's "not now": a tap on a card opens its menu
-                  // (owner 2026-10-13). Always in the tree, so entering and
-                  // leaving keep the shelf's state.
-                  onTap: editing ? (cardContext, card) => _openJbiHideMenu(content.scopeKey, cardContext, card) : null,
-                  child: JumpBackInSection(cards: jbi, frame: frame, preset: layout.rowsOf(HomeSection.jumpBackIn)),
-                )),
-          1,
-        ),
-        HomeSection.recentlyAdded => (
-          content.recentlyAddedTracks.isEmpty && content.recentlyAddedAlbums.isEmpty
-              ? null
-              : RecentlyAddedSection(tracks: content.recentlyAddedTracks, albums: content.recentlyAddedAlbums, frame: frame),
-          2,
-        ),
-        HomeSection.recentlyPlayed => (
-          content.recentlyPlayed.isEmpty ? null : RecentlyPlayedSection(albums: content.recentlyPlayed, frame: frame),
-          2,
-        ),
-        HomeSection.yourPlaylists => (
-          content.playlists.isEmpty ? null : YourPlaylistsSection(playlists: content.playlists, frame: frame),
-          2,
-        ),
-        HomeSection.rediscover => (
-          rediscover.isEmpty
-              ? null
-              : RediscoverSection(items: rediscover, frame: frame, nowMs: ref.read(homeClockProvider)().millisecondsSinceEpoch),
-          2,
-        ),
-        HomeSection.memoryGrid => (
-            ledger == null || ledger.isEmpty
-                ? null
-                : padded(Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      HomeSectionTitle(HomeStrings.of(context).sectionMemoryGrid),
-                      const SizedBox(height: HomeSectionMetrics.shelfSpacing),
-                      HomeEditBlockWiggle(child: MemoryLedgerHomeCard(state: ledger)),
-                    ],
-                  )),
-            2
-          ),
-        HomeSection.otherProfiles => (
-          otherProfileItems.isEmpty ? null : OtherProfilesSection(items: otherProfileItems, frame: frame),
-          2,
-        ),
-        // The service's playlists for the account; a tap opens the playlist.
-        HomeSection.madeForYou => (
-          madeForYou.isEmpty ? null : MadeForYouSection(playlists: madeForYou, frame: frame),
-          2,
-        ),
-        // Lines the user picked, two to four cards; a tap plays from one.
-        HomeSection.lyricHighlight => (
-          lyricIntro != null
-              ? padded(LyricHighlightIntroCard(
-                  intro: lyricIntro,
-                  onDismiss: ref.read(lyricHighlightIntroProvider.notifier).dismiss,
-                ))
-              : lyricCards.isEmpty
-              ? null
-              : LyricHighlightSection(
-                  cards: lyricCards,
-                  count: lyricCardsFor(layout.rowsOf(HomeSection.lyricHighlight)),
-                  frame: frame,
-                  scrollEnabled: !editingNow,
-                  onPlay: (card) => ref.read(lyricHighlightCardsProvider.notifier).play(card),
-                ),
-          2,
-        ),
-      };
-      // Editing, an empty section shows its placeholder on its plate.
-      if (body == null && !editingNow) continue;
-      if (body == null) {
+      ),
+      HomeSection.otherProfiles => OtherProfilesSection(items: otherProfileItems, frame: frame),
+      // The service's playlists for the account; a tap opens the playlist.
+      HomeSection.madeForYou => MadeForYouSection(playlists: madeForYou, frame: frame),
+      // Lines the user picked, two to four cards; a tap plays from one.
+      HomeSection.lyricHighlight =>
+        lyricIntro != null
+            ? padded(frame, lyricIntroCard(lyricIntro))
+            : LyricHighlightSection(
+                cards: lyricCards,
+                count: lyricCardsFor(layout.rowsOf(HomeSection.lyricHighlight)),
+                frame: frame,
+                scrollEnabled: !editingNow,
+                onPlay: playLyric,
+              ),
+    };
+
+    // Two columns: the section's own layout on the grid, for its cell's width and its row's units.
+    Widget gridBody(HomeSection section, HomeFeedFrame f, HomeColumnCell cell) => switch (section) {
+      HomeSection.activities => GridActivitiesSection(content: content, frame: f, cell: cell),
+      HomeSection.jumpBackIn => jbiScope(GridJumpBackInSection(cards: jbi, frame: f, cell: cell)),
+      HomeSection.recentlyAdded => GridRecentlyAddedSection(
+        tracks: content.recentlyAddedTracks,
+        albums: content.recentlyAddedAlbums,
+        frame: f,
+        cell: cell,
+        scrollable: !editingNow,
+      ),
+      HomeSection.recentlyPlayed => gridRecentlyPlayed(context, content.recentlyPlayed, f, cell, !editingNow),
+      HomeSection.yourPlaylists => gridYourPlaylists(context, content.playlists, f, cell, !editingNow),
+      HomeSection.rediscover => GridRediscoverSection(
+        items: rediscover,
+        nowMs: nowMs,
+        frame: f,
+        cell: cell,
+        scrollable: !editingNow,
+      ),
+      HomeSection.memoryGrid => GridMemorySection(state: ledger!, frame: f, cell: cell),
+      HomeSection.otherProfiles => gridOtherProfiles(context, otherProfileItems, f, cell, !editingNow),
+      HomeSection.madeForYou => gridMadeForYou(context, madeForYou, f, cell, !editingNow),
+      HomeSection.lyricHighlight => GridLyricCardsSection(
+        cards: lyricCards,
+        count: lyricCardsFor(layout.rowsOf(HomeSection.lyricHighlight)),
+        frame: f,
+        cell: cell,
+        onPlay: playLyric,
+        scrollable: !editingNow,
+        intro: lyricIntro == null ? null : lyricIntroCard(lyricIntro),
+      ),
+    };
+
+    // A section that lands after the feed is up grows in; the first paint does not.
+    Widget appear(HomeSection section, Widget body) {
+      final animate = _sectionsSeeded && !_shownSections.contains(section);
+      _shownSections.add(section);
+      final revealed = section == HomeSection.activities && content.activityEntries.isEmpty
+          ? body
+          : StagedBeat(
+              beat: _reveal.beats[beatOf(section)].animation,
+              rise: beatOf(section) == 0 ? HomeRevealMetrics.heroRise : HomeRevealMetrics.rise,
+              scaleFrom: beatOf(section) == 0 ? HomeRevealMetrics.heroScaleFrom : 1,
+              child: body,
+            );
+      return SectionAppear(animate: animate, child: revealed);
+    }
+
+    if (!_twoColumn) {
+      _cellFrames.clear();
+      for (final section in visible) {
+        final shows = has(section);
+        // Editing, an empty section shows its placeholder on its plate.
+        if (!shows && !editingNow) continue;
         final i = visible.indexOf(section);
+        if (!shows) {
+          out.add(_editItem(
+            section,
+            frame,
+            spacing,
+            e,
+            i,
+            visible,
+            // No cards: the whole block sways (homeEditBlockWiggle).
+            padded(frame, HomeEditBlockWiggle(child: HomeEditPlaceholder(section: section))),
+            resizable: false,
+          ));
+          continue;
+        }
+        // Rows (D1): a section with presets, showing its cards (not Activities' empty card).
+        final resizable = section.supportsRows && !(section == HomeSection.activities && content.activityEntries.isEmpty);
         out.add(_editItem(
           section,
           frame,
@@ -760,43 +910,139 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
           e,
           i,
           visible,
-          // No cards: the whole block sways (homeEditBlockWiggle).
-          padded(HomeEditBlockWiggle(child: HomeEditPlaceholder(section: section))),
-          resizable: false,
+          appear(section, columnBody(section)),
+          resizable: resizable,
+          childTaps: section == HomeSection.jumpBackIn,
+          // Lyric Cards takes its card count from its own dots, not the row resize.
+          handle: section == HomeSection.lyricHighlight ? HomeLyricCountHandle(engine: _lyricCount, progress: e) : null,
         ));
-        continue;
       }
-      // A section that lands after the feed is up grows in; the first paint does not.
-      final animate = _sectionsSeeded && !_shownSections.contains(section);
-      _shownSections.add(section);
-      final revealed = section == HomeSection.activities && content.activityEntries.isEmpty
-          ? body
-          : StagedBeat(
-              beat: _reveal.beats[beat].animation,
-              rise: beat == 0 ? HomeRevealMetrics.heroRise : HomeRevealMetrics.rise,
-              scaleFrom: beat == 0 ? HomeRevealMetrics.heroScaleFrom : 1,
-              child: body,
-            );
-      // Rows (D1): a section with presets, showing its cards (not Activities' empty card).
-      final resizable = section.supportsRows && !(section == HomeSection.activities && content.activityEntries.isEmpty);
-      out.add(_editItem(
-        section,
-        frame,
-        spacing,
-        e,
-        visible.indexOf(section),
-        visible,
-        SectionAppear(animate: animate, child: revealed),
-        resizable: resizable,
-        childTaps: section == HomeSection.jumpBackIn,
-        // Lyric Cards takes its card count from its own dots, not the row resize.
-        handle: section == HomeSection.lyricHighlight ? HomeLyricCountHandle(engine: _lyricCount, progress: e) : null,
-      ));
+    } else {
+      // Two columns (HomeFeedRows): rows of one full section or two halves, every cell exactly its row's grid
+      // height, each laid out for its own width. A partner with nothing to show leaves its half full width.
+      final displayed = [
+        for (final s in visible)
+          if (editingNow || has(s)) s,
+      ];
+      final pairs = (_drag.activeList ? null : _drag.arrangement?.pairs) ?? layout.pairs;
+      final rows = homeFeedRows(displayed, pairs, true);
+      _cellFrames.clear();
+      final enabled = layout.visibleV1Sections;
+      final total = frame.start + frame.content + frame.end;
+      const gap = HomeColumnTokens.rowGap;
+      for (final row in rows) {
+        final live = _grid.liveHeight(row);
+        final units = live != null ? _grid.unitTarget : layout.unitsOfRow(row);
+        final height = live ?? homeGridHeightDp(units);
+        final span = _grid.liveSpan(row);
+        final widths = homeRowCellWidths(
+          row,
+          frame.content.floor(),
+          gap.round(),
+          span?.$1,
+          (span?.$2 ?? frame.content).round(),
+        );
+        final sections = row.sections;
+        final half = row is HomeFeedRowHalves;
+        final cells = <(HomeSection, Widget)>[];
+        for (var k = 0; k < sections.length; k++) {
+          final section = sections[k];
+          final w = k < widths.length ? widths[k].toDouble() : frame.content;
+          // The cell reaches from the page edge (or the middle of the row's gap) to the other: its own margins.
+          final HomeFeedFrame cellFrame;
+          final double left;
+          if (!half) {
+            cellFrame = homeCellFrame(start: frame.start, content: w, end: math.max(0, total - frame.start - w));
+            left = 0;
+          } else if (k == 0) {
+            cellFrame = homeCellFrame(start: frame.start, content: w, end: gap / 2);
+            left = 0;
+          } else {
+            cellFrame = homeCellFrame(start: gap / 2, content: w, end: frame.end);
+            left = total - (gap / 2 + w + frame.end);
+          }
+          _cellFrames[section] = cellFrame;
+          final cellWidth = cellFrame.start + cellFrame.content + cellFrame.end;
+          if (_lifted == section) _liftSize = Size(cellWidth, height);
+          final cell = HomeColumnCell(units: units, half: half || span?.$1 == section, height: height);
+          final shows = has(section);
+          final body = shows
+              ? appear(section, gridBody(section, cellFrame, cell))
+              : padded(cellFrame, HomeEditBlockWiggle(child: HomeEditPlaceholder(section: section)));
+          final place = HomeGridPlace.of(
+            section,
+            rows: rows,
+            enabledOrder: enabled,
+            fullWidth: frame.content,
+            layout: layout,
+          );
+          final i = visible.indexOf(section);
+          cells.add((
+            section,
+            Positioned(
+              left: left,
+              top: 0,
+              width: cellWidth,
+              height: height,
+              child: _editItem(
+                section,
+                cellFrame,
+                0,
+                e,
+                i,
+                visible,
+                HomeGridBox(height: height, child: body),
+                resizable: false,
+                childTaps: section == HomeSection.jumpBackIn && shows,
+                grid: place,
+              ),
+            ),
+          ));
+        }
+        // The dragged block (or the one a span drag widens) draws over its partner.
+        final top = span?.$1 ?? _drag.onTopSection;
+        cells.sort((a, b) => (a.$1 == top ? 1 : 0).compareTo(b.$1 == top ? 1 : 0));
+        out.add(
+          Padding(
+            key: ValueKey(('home-row', row.first)),
+            padding: EdgeInsets.only(top: spacing),
+            child: SizedBox(
+              height: height,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (final (_, cell) in cells) cell,
+                  if (span != null) Positioned.fill(child: IgnorePointer(child: _spanOutline(row, span.$1, frame))),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
     }
     if (!_sectionsSeeded) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _sectionsSeeded = true);
     }
     return out;
+  }
+
+  /// A span drag's dashed outline over [row]: the width [dragged] will snap to.
+  Widget _spanOutline(HomeFeedRow row, HomeSection dragged, HomeFeedFrame frame) {
+    final half = (frame.content - HomeColumnTokens.rowGap) / 2;
+    final toHalf = _grid.spanTarget != HomeSpan.full;
+    final width = toHalf ? half : frame.content;
+    final rightAnchored = row is HomeFeedRowHalves && row.right == dragged;
+    final left = rightAnchored ? frame.start + frame.content - width : frame.start;
+    return CustomPaint(
+      painter: HomeSpanOutlinePainter(
+        color: Theme.of(context).colorScheme.primary,
+        left: left,
+        width: width,
+        top: 0,
+        bottom: 0,
+        strong: _grid.spanDragging,
+      ),
+    );
   }
 
   /// One feed item: its gap above and the edit plate (inert at rest). The
@@ -813,10 +1059,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     required bool resizable,
     bool childTaps = false,
     Widget? handle,
+    HomeGridPlace? grid,
   }) {
     final edit = ref.read(homeEditProvider.notifier);
     final lifted = _lifted == section;
     final track = resizable ? _rows.track(section) : null;
+    // Two columns: the ⌟ drags the span and the units, the reader steps the units and pairs without a drag.
+    final shownNow = edit.shown;
+    final gridHandle = grid == null
+        ? null
+        : HomeGridHandle(
+            place: grid,
+            resize: _grid,
+            progress: e,
+            onSpan: (commit) => edit.commitSpan(section, commit),
+            onUnits: (units) => edit.setUnits(section, units),
+            enabled: () =>
+                mounted && ref.read(homeEditProvider).editing && !_drag.isCarrying && _drag.liftSection == null,
+          );
+    final canBeside = grid != null && !identical(shownNow.withBesidePrevious(section), shownNow);
     final rtl = Directionality.of(context) == TextDirection.rtl;
     final contentLeft = rtl ? frame.end : frame.start;
     // The section itself, under its own key: lifted, it moves (state and the
@@ -838,15 +1099,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
             rowCount: track != null && track.stopCount > 1 && track.restStop < track.rowCounts.length
                 ? track.rowCounts[track.restStop]
                 : null,
-            onMoreRows: track != null && track.stopCount > 1 && _rows.canStep(section, 1)
+            onMoreRows: grid != null
+                ? (grid.range.contains(grid.units + 1) ? () => edit.setUnits(section, grid.units + 1) : null)
+                : track != null && track.stopCount > 1 && _rows.canStep(section, 1)
                 ? () => _rows.step(section, 1)
                 : null,
-            onFewerRows: track != null && track.stopCount > 1 && _rows.canStep(section, -1)
+            onFewerRows: grid != null
+                ? (grid.range.contains(grid.units - 1) ? () => edit.setUnits(section, grid.units - 1) : null)
+                : track != null && track.stopCount > 1 && _rows.canStep(section, -1)
                 ? () => _rows.step(section, -1)
                 : null,
-            resizeHandle: track != null && track.stopCount > 1
-                ? HomeRowsHandle(section: section, engine: _rows, track: track, progress: e)
-                : handle,
+            onPlaceBeside: canBeside ? () => edit.placeBesidePrevious(section) : null,
+            onMakeFull: grid != null && grid.span != HomeSpan.full ? () => edit.setFull(section) : null,
+            resizeHandle:
+                gridHandle ??
+                (track != null && track.stopCount > 1
+                    ? HomeRowsHandle(section: section, engine: _rows, track: track, progress: e)
+                    : handle),
             lift: lifted ? _drag.lift.value.clamp(0.0, 1.0) : 0,
             liftTint: lifted ? _drag.liftTint.value.clamp(0.0, 1.0) : 0,
             grow: _plateGrow(section, e),
@@ -903,7 +1172,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       child: AnimatedBuilder(
         animation: _drag.paint,
         builder: (context, child) => Transform.translate(
-          offset: Offset(0, _drag.makeWay(section, inList: false)),
+          offset: Offset(_drag.makeWayX(section, inList: false), _drag.makeWay(section, inList: false)),
           child: child,
         ),
         // A list paints in order, so a lifted section could never pass over the
@@ -1043,7 +1312,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     _editController.carrying = _drag.isCarrying;
     // A lift puts any row resize at rest first.
     final holding = _drag.isCarrying || _drag.liftSection != null;
-    if (holding && !_dragHolding) _rows.snapAll();
+    if (holding && !_dragHolding) {
+      _rows.snapAll();
+      _grid.snap();
+    }
     _dragHolding = holding;
     // The feed's block rises into the overlay; a strip of the compact list draws itself.
     final section = _drag.activeList || _drag.list.on ? null : _drag.onTopSection;
@@ -1096,6 +1368,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
       _plateFrom = _plateFrom?.withLatch(0);
       _wiggle.held = null;
       _rows.onExit();
+      _grid.snap();
       // The "not now" menu folds away with edit mode (out of the listener's frame).
       final base = _hideMenuBase;
       if (base != null) {
@@ -1131,11 +1404,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     return topLeft & box.size;
   }
 
-  /// [section]'s block (top, bottom) in page px, its gap above left out; null when it isn't laid out.
+  /// [section]'s block (top, bottom) in page px, its gap above left out; null when it isn't laid out. Two
+  /// columns: its cell (the row carries the gap).
   (double, double)? _bandOf(HomeSection section) {
     final item = _pageRectOf(_itemKeys[section]);
     if (item == null) return null;
-    return (item.top + _spacing, item.bottom);
+    return (item.top + (_twoColumn ? 0 : _spacing), item.bottom);
+  }
+
+  /// Two columns: [section]'s cell content edges (left, right) in page px; null when it isn't laid out.
+  (double, double)? _cellEdgesOf(HomeSection section) {
+    final item = _pageRectOf(_itemKeys[section]);
+    final frame = _cellFrames[section];
+    if (item == null || frame == null) return null;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    final left = item.left + (rtl ? frame.end : frame.start);
+    return (left, left + frame.content);
   }
 
   /// The plate's reach past the content: (horizontal, vertical) at the current P.
@@ -1171,11 +1455,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with TickerProviderStat
     if (editing && _hideKeys.values.any((k) => _pageRectOf(k)?.contains(p) ?? false)) {
       return const HomeEditHitExcluded();
     }
-    final order = ref.read(homeLayoutProvider).visibleV1Sections;
+    final order = _shownLayout.visibleV1Sections;
     final bands = <SectionBand>[
       for (final section in order)
         if (_bandOf(section) case (final top, final bottom))
-          SectionBand(section, top, bottom, bleeds: homeEditBleedingSections.contains(section)),
+          if (!_twoColumn)
+            SectionBand(section, top, bottom, bleeds: homeEditBleedingSections.contains(section))
+          else if (_cellEdgesOf(section) case (final left, final right))
+            SectionBand(section, top, bottom, left: left, right: right),
     ];
     HomeSection? handle;
     if (editing) {
@@ -1449,7 +1736,8 @@ class _DragHandle extends StatelessWidget {
   );
 }
 
-/// The feed as the drag sees it (Android LazyListDragHost over the feed): page px.
+/// The feed as the drag sees it (Android LazyListDragHost over the feed): page px. In two columns its rows are
+/// the drawn arrangement's, each band its first section's cell, and a slot's content starts at its cell's.
 class _FeedDragHost implements HomeDragHost {
   _FeedDragHost(this._home);
 
@@ -1459,14 +1747,21 @@ class _FeedDragHost implements HomeDragHost {
   bool get isList => false;
 
   @override
-  List<HomeSection> order() => _home.ref.read(homeLayoutProvider).visibleV1Sections;
+  bool get twoColumn => _home._twoColumn;
+
+  @override
+  List<HomeSection> order() => _home._shownLayout.visibleV1Sections;
+
+  @override
+  Map<HomeSection, HomeSection> pairs() => _home._twoColumn ? _home._shownLayout.pairs : const {};
 
   @override
   List<DragItemBand> visibleRows() {
     final drag = _home._drag;
-    final drawn = (drag.activeList ? null : drag.arrangement?.ids) ?? order();
+    final drawn = (drag.activeList ? null : drag.arrangement) ?? DragArrangement(order(), pairs());
+    final keys = _home._twoColumn ? [for (final row in dragRows(drawn.ids, drawn.pairs, true)) row.first] : drawn.ids;
     final out = <DragItemBand>[
-      for (final s in drawn)
+      for (final s in keys)
         if (_home._bandOf(s) case (final top, final bottom)) DragItemBand(s, top, bottom),
     ];
     out.sort((a, b) => a.top.compareTo(b.top));
@@ -1483,6 +1778,36 @@ class _FeedDragHost implements HomeDragHost {
   double contentWidth() {
     final (left, right) = _home._contentBounds();
     return right - left;
+  }
+
+  @override
+  Offset? slotOf(HomeSection section) {
+    final band = _home._bandOf(section);
+    if (band == null) return null;
+    if (!_home._twoColumn) return Offset(contentLeft(), band.$1);
+    final edges = _home._cellEdgesOf(section);
+    return edges == null ? null : Offset(edges.$1, band.$1);
+  }
+
+  @override
+  Map<HomeSection, Offset> placesOf(DragArrangement arrangement) {
+    if (!_home._twoColumn) return homeStackPlaces(arrangement.ids, extentOf);
+    // Two columns: rows at the sum of the row heights (and gaps) above them; a right half a half and a gap in.
+    final layout = _home._shownLayout;
+    final half = (contentWidth() - HomeColumnTokens.rowGap) / 2;
+    final out = <HomeSection, Offset>{};
+    var y = 0.0;
+    for (final row in dragRows(arrangement.ids, arrangement.pairs, true)) {
+      switch (row) {
+        case HomeFeedRowFull(:final section):
+          out[section] = Offset(0, y);
+        case HomeFeedRowHalves(:final left, :final right):
+          out[left] = Offset(0, y);
+          out[right] = Offset(half + HomeColumnTokens.rowGap, y);
+      }
+      y += homeGridHeightDp(layout.unitsOfRow(row)) + _home._spacing;
+    }
+    return out;
   }
 
   @override
