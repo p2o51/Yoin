@@ -62,6 +62,8 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
@@ -1076,74 +1078,79 @@ private fun LibraryContentBody(
     // cutouts clear (and yields to the keyboard), but NOT the bottom — the
     // results list runs under the gesture bar with its own bottom padding
     // instead of stopping on a hard inset line above it.
-    ExpandedFullScreenSearchBar(
-        state = searchBarState,
-        inputField = inputField,
-        windowInsets = {
-            WindowInsets.safeDrawing
-                .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
-                .union(WindowInsets.ime)
-        },
-    ) {
-        // Full bleed, unlike the results column below: the chips rest on the
-        // results' left edge and scroll out under the surface's edges.
-        LibrarySearchFilterRow(
-            catalogScope = when {
-                state.canSearchAppleMusicCatalog -> LibrarySearchScope.AppleMusicGlobal
-                state.canSearchSpotifyCatalog -> LibrarySearchScope.SpotifyGlobal
-                else -> null
+    // The search surface is a dialog window of its own, and Material reads its status bar icon colour
+    // from LocalContentColor here. The shell is no Surface, so that was the default black: dark icons
+    // on a dark page. The page's own content colour gives the bar the right icons in both themes.
+    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+        ExpandedFullScreenSearchBar(
+            state = searchBarState,
+            inputField = inputField,
+            windowInsets = {
+                WindowInsets.safeDrawing
+                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                    .union(WindowInsets.ime)
             },
-            selectedScope = state.searchScope,
-            onScopeSelected = onSearchScopeSelected,
-            filters = state.availableSearchFilters,
-            selectedFilter = state.searchFilter,
-            onFilterSelected = onSearchFilterSelected,
-            fillCanvas = fillCanvas,
-            modifier = Modifier.padding(vertical = 8.dp)
-        )
-        SearchResultsContent(
-            searchResults = state.searchResults,
-            isSearching = state.isSearching,
-            searchError = state.searchError,
-            onRetrySearch = onRetrySearch,
-            more = searchMoreFor(state.searchResults, state.searchFilter, state.searchPaging),
-            onLoadMore = onLoadMoreSearch,
-            filter = state.searchFilter,
-            resultsQuery = searchResultsAnchor.first,
-            resultsScope = searchResultsAnchor.second,
-            scrollMemory = searchScrollMemory,
-            activeSongId = activeSongId,
-            isPlaying = isPlaying,
-            notedSongIds = notedSongIds,
-            canAddToLibrary = state.canAddToLibrary,
-            trackLibraryStates = trackLibraryStates,
-            workingLibraryTrackIds = workingLibraryTrackIds,
-            libraryActionFeedback = state.libraryActionFeedback,
-            onArtistClick = fromSearch(onSearchArtistClick),
-            onAlbumClick = fromSearch(onSearchAlbumClick),
-            onPlaylistClick = fromSearch(onSearchPlaylistClick),
-            onSongClick = onSearchSongClick,
-            onSongLongClick = { song -> onSongLongClick(song, leaveSearch) },
-            onAddSongToLibrary = onAddSongToLibrary,
-            coverArtUrlBuilder = coverArtUrlBuilder,
-            memories = state.searchMemories,
-            memoryAttachments = state.searchMemoryAttachments,
-            profileId = state.searchProfileId,
-            providerName = state.searchProviderName,
-            onNoteClick = { note, track -> leaveSearch(); onSearchNoteClick(note, track) },
-            onMemoryAlbumClick = { albumId ->
-                ScrapbookFocusRequest.requestAlbum(albumId)
-                fromSearch(onSearchAlbumClick)(albumId)
-            },
-            onLedgerAlbumClick = { album -> leaveSearch(); onSearchLedgerAlbumClick(album) },
-            onShowAll = onSearchFilterSelected,
-            // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
-            // 单独走同一套宽度策略(Wide 铺满、其余夹宽,helper 自带
-            // fillMaxWidth)。
-            modifier = Modifier
-                .weight(1f)
-                .libraryPageWidth(fillCanvas),
-        )
+        ) {
+            // Full bleed, unlike the results column below: the chips rest on the
+            // results' left edge and scroll out under the surface's edges.
+            LibrarySearchFilterRow(
+                catalogScope = when {
+                    state.canSearchAppleMusicCatalog -> LibrarySearchScope.AppleMusicGlobal
+                    state.canSearchSpotifyCatalog -> LibrarySearchScope.SpotifyGlobal
+                    else -> null
+                },
+                selectedScope = state.searchScope,
+                onScopeSelected = onSearchScopeSelected,
+                filters = state.availableSearchFilters,
+                selectedFilter = state.searchFilter,
+                onFilterSelected = onSearchFilterSelected,
+                fillCanvas = fillCanvas,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+            SearchResultsContent(
+                searchResults = state.searchResults,
+                isSearching = state.isSearching,
+                searchError = state.searchError,
+                onRetrySearch = onRetrySearch,
+                more = searchMoreFor(state.searchResults, state.searchFilter, state.searchPaging),
+                onLoadMore = onLoadMoreSearch,
+                filter = state.searchFilter,
+                resultsQuery = searchResultsAnchor.first,
+                resultsScope = searchResultsAnchor.second,
+                scrollMemory = searchScrollMemory,
+                activeSongId = activeSongId,
+                isPlaying = isPlaying,
+                notedSongIds = notedSongIds,
+                canAddToLibrary = state.canAddToLibrary,
+                trackLibraryStates = trackLibraryStates,
+                workingLibraryTrackIds = workingLibraryTrackIds,
+                libraryActionFeedback = state.libraryActionFeedback,
+                onArtistClick = fromSearch(onSearchArtistClick),
+                onAlbumClick = fromSearch(onSearchAlbumClick),
+                onPlaylistClick = fromSearch(onSearchPlaylistClick),
+                onSongClick = onSearchSongClick,
+                onSongLongClick = { song -> onSongLongClick(song, leaveSearch) },
+                onAddSongToLibrary = onAddSongToLibrary,
+                coverArtUrlBuilder = coverArtUrlBuilder,
+                memories = state.searchMemories,
+                memoryAttachments = state.searchMemoryAttachments,
+                profileId = state.searchProfileId,
+                providerName = state.searchProviderName,
+                onNoteClick = { note, track -> leaveSearch(); onSearchNoteClick(note, track) },
+                onMemoryAlbumClick = { albumId ->
+                    ScrapbookFocusRequest.requestAlbum(albumId)
+                    fromSearch(onSearchAlbumClick)(albumId)
+                },
+                onLedgerAlbumClick = { album -> leaveSearch(); onSearchLedgerAlbumClick(album) },
+                onShowAll = onSearchFilterSelected,
+                // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
+                // 单独走同一套宽度策略(Wide 铺满、其余夹宽,helper 自带
+                // fillMaxWidth)。
+                modifier = Modifier
+                    .weight(1f)
+                    .libraryPageWidth(fillCanvas),
+            )
+        }
     }
 }
 
