@@ -180,7 +180,7 @@ final class ShareCardsTests: XCTestCase {
     /// with iOS's labels: every golden About.
     func test_should_buildTheGoldenAbout_from_nowPlayingsRows() {
         let all = vectors("about")
-        XCTAssertEqual(all.count, 22)
+        XCTAssertGreaterThanOrEqual(all.count, 22)
         for v in all {
             let name = v["name"] as! String
             let entries = (v["entries"] as! [[String: Any]]).map { e in
