@@ -470,7 +470,7 @@ struct LandingView: View {
         profilesAtStart = Set(ids)
         flow.setHasAccount(!ids.isEmpty)
         if session.mode == .rerun, model.store.isReal {
-            homeLayout = HomeLayout.reconcile(HomeLayoutStore.shared.prefs(model.store.homeScope))
+            homeLayout = HomeLayoutStore.shared.layout(model.store.homeScope)
         }
         defer { started = true }
         guard !reduced else { return }

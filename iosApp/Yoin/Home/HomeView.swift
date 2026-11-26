@@ -83,8 +83,17 @@ struct HomeView: View {
             GeometryReader { g in
                 feedScroll
                     .frame(width: g.size.width, height: g.size.height)
+                    // Edit mode's compact list, over the feed while it is pinched in (HomeEditList).
+                    .overlay {
+                        if edit.list.shown, let feed {
+                            HomeEditList(edit: edit, background: [scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow],
+                                         margin: density.margin) { covers($0, feed) }
+                        }
+                    }
                     .onChange(of: g.size, initial: true) { _, size in
                         guard abs(size.width - feedSize.width) > 0.5 || abs(size.height - feedSize.height) > 0.5 else { return }
+                        // A rotation, a resize or a size-class flip mid-drag: its geometry is gone, it rolls back.
+                        if abs(size.width - feedSize.width) > 0.5 { edit.cancelDrag() }
                         feedSize = size
                         let nextWidth = HomeDensity(width: size.width, height: size.height).content
                         if abs(nextWidth - contentWidth) > 0.5 { contentWidth = nextWidth }
@@ -150,6 +159,11 @@ struct HomeView: View {
         .task { spotifyElsewhere.look(model) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { spotifyElsewhere.look(model) } else if phase == .background { spotifyElsewhere.reset() }
+            // Off to the background: a drag rolls back, then edit mode closes (design.md 退出).
+            if phase == .background {
+                edit.cancelDrag()
+                edit.exit(.programmatic)
+            }
             // Lyric Cards pick only while Yoin is in front (Android: the process lifecycle).
             if phase == .active { LyricHighlightProcessor.shared.appBecameActive(model) }
             else { LyricHighlightProcessor.shared.appResignedActive() }
@@ -203,6 +217,11 @@ struct HomeView: View {
         #if DEBUG
         // Recording aids, off the view's lifecycle (Home is rebuilt once at launch).
         .onAppear {
+            // `-homeLayoutReset YES` (UI tests): this account's Home back to the default first.
+            if UserDefaults.standard.bool(forKey: "homeLayoutReset") {
+                HomeLayoutStore.shared.clear(model.store.homeScope)
+                edit.load(scope: model.store.homeScope)
+            }
             HomeEditScript.edit = edit
             let focus = pill?.recall.dropFirst().first?.albumId
             Task { await MemoriesScript.run(memories, focus: focus) }
@@ -241,6 +260,7 @@ struct HomeView: View {
     }
 
     private var feedScroll: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
@@ -251,7 +271,8 @@ struct HomeView: View {
                                       rows: rowsHandle(section, feed),
                                       // Whenever the block shows anything, the Beta intro alone included
                                       // (Android HomeEditBlock: every block that isn't a placeholder).
-                                      lyricCount: section == .lyricHighlight && hasContent(section, feed)) {
+                                      lyricCount: section == .lyricHighlight && hasContent(section, feed),
+                                      count: shown.count) {
                             sectionView(section, feed)
                         }
                     }
@@ -277,16 +298,21 @@ struct HomeView: View {
             }
             .padding(.horizontal, density.margin)
             .coordinateSpace(.named(HomeEditController.feedSpace))
-            .background(HomeHoldObserver(edit: edit))
-            .overlay(alignment: .topLeading) { CarriedStrip(edit: edit, covers: feed.map { covers(edit.hole ?? .activities, $0) } ?? []) }
+            // Edit mode's gestures (the shared machine) and the drag's host; a lifted block holds the pan off.
+            .background(HomeEditTouchView(edit: edit))
             .background(HomePullBridge(memories: memories, edit: edit) {
                 bubble.cue(.outOfReach, pill: nil)
             })
         }
+        .accessibilityIdentifier("home.feed")
+        // The header's Add: the tray, a little below the top.
+        .onChange(of: edit.trayRequest) {
+            guard !edit.list.on else { return }
+            withAnimation(Yoin.spatial) { proxy.scrollTo(HomeEditTray.id, anchor: UnitPoint(x: 0.5, y: 0.1)) }
+        }
+        }
         .environment(\.homeMargin, density.margin)
         .contentMargins(.bottom, 24, for: .scrollContent)
-        // A carried section owns the finger: the feed doesn't scroll under it.
-        .scrollDisabled(edit.carried != nil)
         // `-screen home-bottom` opens scrolled to the end (screenshots).
         .defaultScrollAnchor(LaunchConfig.screen == "home-bottom" ? .bottom : .top)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
@@ -430,6 +456,7 @@ struct HomeView: View {
         .buttonStyle(PressScale())
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
+        .modifier(EditFrameReport(space: HomeEditController.feedSpace) { edit.reportExcluded("footer", frame: $0, owner: $1) })
     }
 
     // MARK: Header (HomeGreetingTitle.kt)
@@ -518,6 +545,10 @@ struct HomeView: View {
         }
         .frame(minHeight: 48)
         .padding(.top, 12)
+        // Out of edit mode the header's own holds (Glass Lab, the account switch) win over entering edit.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(HomeEditController.feedSpace)) } action: {
+            edit.reportExcluded(HomeEditController.normalOnly + "header", frame: $0)
+        }
     }
 
     // MARK: Activities (bento, phone preset L)
@@ -1917,7 +1948,7 @@ private struct HomeCoverEffects: View {
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onChange(of: covered) { _, c in if c { edit.exit() } }
+            .onChange(of: covered) { _, c in if c { edit.exit(.programmatic) } }
             .onChange(of: spotifyElsewhereOnScreen, initial: true) { _, on in spotifyElsewhere.setOnScreen(on) }
     }
 }
