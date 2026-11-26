@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.home
 
 import com.gpo.yoin.data.home.HomeLayoutDocument
 import com.gpo.yoin.data.home.HomeSectionPref
+import com.gpo.yoin.shared.home.HomeFeedRow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
