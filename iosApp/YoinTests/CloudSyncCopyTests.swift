@@ -29,7 +29,8 @@ final class CloudSyncCopyTests: XCTestCase {
     func test_should_listEverythingTheSyncCarries_androidsLinesAndIOSsOwn() {
         let lines = CloudSyncView.syncedLines
         XCTAssertEqual(lines, [loc("Notes on songs"), loc("Song and album ratings, album reviews"),
-                               loc("Memory titles, About and Ask"), loc("Home layout"), loc("AI lyric translations"),
+                               AiProviderName.copy(loc("Memory titles, About and Ask %@"), AiProviderName.current),
+                               loc("Home layout"), loc("AI lyric translations"),
                                loc("Playlist cloud backups"), loc("Translation language and Spotify Client ID"),
                                loc("Account names, server addresses")])
         // No scroll edge style on iOS (Android's settings line names it).

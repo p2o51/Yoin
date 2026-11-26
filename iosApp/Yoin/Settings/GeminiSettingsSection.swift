@@ -67,7 +67,8 @@ struct GeminiSettingsSection: View {
 
     private var summary: String {
         guard settings.hasKey else {
-            return String(localized: "Song info, Ask Gemini, translation and Memory titles")
+            // Names the chosen service like the rest of the app (问千问 / Ask DeepSeek; Custom: Ask AI).
+            return AiProviderName.settingsSummary(AiProviderName.name(settings.effectiveAiSettings.provider))
         }
         return Self.configuredSummary(settings)
     }

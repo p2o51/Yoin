@@ -37,4 +37,12 @@ enum AiProviderName {
     static func nothingNew(_ name: String) -> String { copy(String(localized: "%@ had nothing new"), name) }
     static func keyMissing(_ name: String) -> String { copy(String(localized: "%@ API key missing"), name) }
     static func noKey(_ name: String) -> String { copy(String(localized: "No %@ API key"), name) }
+    /// Settings › AI features before a key is set (Android `settings_gemini_summary_empty`, 51 2026-11-26).
+    static func settingsSummary(_ name: String) -> String {
+        copy(String(localized: "Song info, Ask %@, translation and Memory titles"), name)
+    }
+    /// Cloud sync's "What syncs" line for the AI's words (51 2026-11-26: it said 问 Gemini whatever answered).
+    static func syncedAboutAndAsk(_ name: String) -> String {
+        copy(String(localized: "Memory titles, About and Ask %@"), name)
+    }
 }
