@@ -398,6 +398,16 @@ final class ShareToneColors {
   final ShareInk backdrop;
 }
 
+/// A stretch of an About value or paragraph that is (or isn't) set bold
+/// ([YoinShareCards.boldRuns]).
+@immutable
+final class ShareTextRun {
+  const ShareTextRun(this.text, this.bold);
+
+  final String text;
+  final bool bold;
+}
+
 /// An exported PNG's size in pixels.
 @immutable
 final class ShareExportSize {

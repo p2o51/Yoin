@@ -21,7 +21,7 @@ import '../notes/note_markup_text.dart';
 import '../theme/theme.dart';
 import '../theme/tokens.dart';
 import '../ui/component/spring_cross_fade.dart';
-import 'about_widgets.dart' show DashedRule;
+import 'about_widgets.dart' show DashedRule, markdownBoldSpan;
 import 'lyrics_share.dart';
 import 'nowplaying_strings.dart';
 import 'share_content.dart';
@@ -811,8 +811,8 @@ class _AboutReceipt extends StatelessWidget {
                       ),
                     ),
                     Expanded(
-                      child: Text(
-                        credit.value,
+                      child: Text.rich(
+                        markdownBoldSpan(credit.value),
                         textAlign: TextAlign.end,
                         style: shareWeight(text.bodyMedium!, 500).copyWith(color: colors.content),
                       ),
@@ -829,8 +829,8 @@ class _AboutReceipt extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                paragraph,
+              child: Text.rich(
+                markdownBoldSpan(paragraph),
                 style: text.bodyMedium!.copyWith(height: 22 / (text.bodyMedium!.fontSize ?? 14), color: colors.content),
               ),
             ),
@@ -886,7 +886,10 @@ class _AboutQuote extends StatelessWidget {
           if (paragraph != null)
             Padding(
               padding: const EdgeInsets.only(top: 18),
-              child: Text(paragraph, style: shareHeroStyle(19, 1.5).copyWith(color: colors.content)),
+              child: Text.rich(
+                markdownBoldSpan(paragraph),
+                style: shareHeroStyle(19, 1.5).copyWith(color: colors.content),
+              ),
             ),
           if (about.credits.isNotEmpty)
             Padding(
@@ -949,7 +952,12 @@ class _CreditChip extends StatelessWidget {
               labelFits ? label : Flexible(child: label),
               const SizedBox(width: 6),
               Flexible(
-                child: Text(credit.value, maxLines: 1, overflow: TextOverflow.ellipsis, style: valueStyle),
+                child: Text.rich(
+                  markdownBoldSpan(credit.value),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: valueStyle,
+                ),
               ),
             ],
           );
@@ -1031,8 +1039,8 @@ class _AboutLiner extends StatelessWidget {
               if (paragraph != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    paragraph,
+                  child: Text.rich(
+                    markdownBoldSpan(paragraph),
                     style: text.bodyMedium!.copyWith(
                       height: 22 / (text.bodyMedium!.fontSize ?? 14),
                       color: colors.content,
@@ -1072,7 +1080,10 @@ class _LinerCell extends StatelessWidget {
             Text(credit.label, style: text.labelSmall!.copyWith(color: colors.secondary)),
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text(credit.value, style: shareWeight(text.titleMedium!, 600).copyWith(color: colors.content)),
+              child: Text.rich(
+                markdownBoldSpan(credit.value),
+                style: shareWeight(text.titleMedium!, 600).copyWith(color: colors.content),
+              ),
             ),
           ],
         ),

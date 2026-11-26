@@ -249,5 +249,8 @@ data class ShareInk(val source: ShareInkSource, val tone: Int?)
  */
 data class ShareToneColors(val card: ShareInk, val content: ShareInk, val backdrop: ShareInk)
 
+/** A stretch of an About value or paragraph that is (or isn't) set bold ([YoinShareCards.boldRuns]). */
+data class ShareTextRun(val text: String, val bold: Boolean)
+
 /** An exported PNG's size in pixels. */
 data class ShareExportSize(val width: Int, val height: Int)
