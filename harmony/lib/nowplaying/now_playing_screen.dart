@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
+import '../data/ai/ai_settings.dart';
 import '../data/memory/memory_store.dart';
 import '../data/model/model.dart';
 import '../detail/detail_routes.dart';
@@ -54,6 +55,8 @@ import 'lyric_tools.dart';
 import 'lyrics_logic.dart';
 import 'lyrics_selection.dart';
 import 'lyrics_share.dart';
+import 'share_content.dart';
+import 'share_sheet.dart';
 import 'lyrics_sheets.dart';
 import 'lyrics_view.dart';
 import 'marquee.dart';
@@ -546,31 +549,72 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     _tools.selection.exit();
   }
 
-  /// Share: the pick frozen into the share sheet; shared → out of select mode.
+  /// Share: the pick frozen into the share sheet (opened on 歌词); shared → out of select mode.
   void _shareLyrics(NowPlayingContent? content, LyricSheet sheet) {
     final selected = _tools.selection.selected;
     final lines = selectedLyricLines(sheet.rows, selected);
     if (content == null || lines.isEmpty) return;
     final selection = _tools.selection;
-    // Taken now: the sheet outlives a song change (and may outlive this page).
-    final keeper = ref.read(lyricHighlightKeeperProvider);
-    final track = content.track;
     _glowLines();
-    showLyricsShareSheet(
-      context,
-      snapshot: LyricsShareSnapshot(
-        lines: lines,
-        passageStarts: lyricPassageStarts(sheet.rows, selected),
-        showTranslation: content.showTranslation,
-        songTitle: content.track.title ?? '',
-        artist: content.track.artist ?? '',
-        cover: content.track.coverArt,
+    _openShare(
+      ShareRequest(
+        ShareTab.lyrics,
+        lyrics: shareLyricsPick(
+          lines,
+          lyricPassageStarts(sheet.rows, selected),
+          showTranslation: content.showTranslation,
+        ),
       ),
       onShared: selection.exit,
-      onMessage: _say,
-      // Saved or shared: Home's Lyric Cards keep the lines as the user's own pick.
-      onKept: () =>
-          keeper.keepUserPick(track: track, lines: [for (final l in lines) l.text], startMs: lines.first.startMs),
+    );
+  }
+
+  /// Share as image (Android ShareSheetRequestHost): the sheet on [request]'s
+  /// tab, with everything the song on show can share frozen now — the sheet
+  /// outlives a song change. Nothing opens when the song has nothing for that
+  /// tab. Saved or shared from 歌词: Home's Lyric Cards keep the lines as the
+  /// user's own pick.
+  void _openShare(ShareRequest request, {VoidCallback? onShared}) {
+    final state = ref.read(nowPlayingViewModelProvider);
+    if (state is! NowPlayingContent) return;
+    final track = state.track;
+    final lyrics = state.lyrics;
+    final about = ref.read(nowPlayingAboutProvider).about;
+    final content = nowPlayingShareContent(
+      track: track,
+      coverUrl: shareCoverUrl(ref.read(activeSourceProvider).value, track.coverArt),
+      durationMs: state.durationMs ?? (track.durationSec ?? 0) * 1000,
+      lyricRows: lyrics is LyricsReady ? lyrics.sheet.rows : const [],
+      showTranslation: state.showTranslation,
+      positionMs: ref.read(playheadClockProvider).positionMs(),
+      aboutEntries: about is AboutReady ? about.entries : const [],
+      credits: state.lyricCredits,
+      notes: _notes.notes,
+      strings: NowPlayingStrings.of(context),
+      aiProvider: ref.read(aiSettingsProvider).value?.provider ?? AiProvider.gemini,
+      lyrics: request.lyrics,
+      aboutFocus: request.aboutFocus,
+      noteId: request.noteId,
+    );
+    if (!content.has(request.tab)) return;
+    final keeper = ref.read(lyricHighlightKeeperProvider);
+    unawaited(
+      showShareSheet(
+        context,
+        content: content,
+        initialTab: request.tab,
+        onMessage: _say,
+        onShared: onShared,
+        onKept: () {
+          final pick = content.lyrics;
+          if (pick == null || pick.lines.isEmpty) return;
+          keeper.keepUserPick(
+            track: track,
+            lines: [for (final l in pick.lines) l.text],
+            startMs: pick.lines.first.startMs,
+          );
+        },
+      ),
     );
   }
 
@@ -1075,7 +1119,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> with Ticker
     return NoteMentionLeave(
       // A note's mention opens its page the way Go to album does: the player closes first.
       leave: (open) => _leaveTo(widget.controller, open),
-      child: NowPlayingSignalScope(signal: _signal, child: screen),
+      child: NowPlayingShareScope(
+        open: _openShare,
+        child: NowPlayingSignalScope(signal: _signal, child: screen),
+      ),
     );
   }
 }

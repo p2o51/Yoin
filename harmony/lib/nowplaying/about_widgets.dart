@@ -22,6 +22,8 @@ import '../ui/component/yoin_loading_indicator.dart';
 import 'about_logic.dart';
 import 'haptics.dart';
 import 'nowplaying_strings.dart';
+import 'share_content.dart';
+import 'share_sheet.dart';
 
 /// [text] with `**bold**` / `__bold__` runs set bold (markdownBoldAnnotatedString).
 TextSpan markdownBoldSpan(String text, {TextStyle? style}) {
@@ -1022,8 +1024,11 @@ class _ReadyAboutState extends State<_ReadyAbout> with TickerProviderStateMixin 
 }
 
 /// The long-pressed row's sheet (AboutEntrySheet): its heading and the start
-/// of its text, then Manage in Scrapbook (when the song has an album page)
-/// and Regenerate with Gemini (not for the listener's own entry).
+/// of its text, then Manage in Scrapbook (when the song has an album page),
+/// Regenerate with Gemini (not for the listener's own entry) and Share as
+/// image (inside Now Playing; not for the listener's own entry either —
+/// About's image carries only the AI's words), which opens the share sheet on
+/// 关于 with this row's paragraph.
 Future<void> showAboutEntrySheet(
   BuildContext context, {
   required SongAboutEntry entry,
@@ -1031,9 +1036,12 @@ Future<void> showAboutEntrySheet(
   required AboutEntryActions actions,
 }) {
   final strings = NowPlayingStrings.of(context);
+  final share = NowPlayingShareScope.maybeOf(context);
   final rows = <(String, IconData, VoidCallback)>[
     if (actions.canManage()) (strings.aboutManage, YoinSymbols.note, () => actions.onManage(entry)),
     if (!entry.isOwn) (strings.aboutRegenerate, YoinSymbols.sparkle, () => actions.onRegenerate(entry)),
+    if (!entry.isOwn && share != null)
+      (strings.shareSheetTitle, YoinSymbols.share, () => share(ShareRequest(ShareTab.about, aboutFocus: entry))),
   ];
   return showModalBottomSheet<void>(
     context: context,

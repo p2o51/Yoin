@@ -6,11 +6,14 @@ import '../notes/editor/note_format_toolbar.dart';
 import '../notes/editor/note_markup_field.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import 'haptics.dart';
 import 'note_controller.dart';
 import 'note_line.dart';
 import 'note_logic.dart';
 import 'nowplaying_strings.dart';
 import 'playhead_clock.dart';
+import 'share_content.dart';
+import 'share_sheet.dart';
 
 typedef _N = NowPlayingNoteTokens;
 
@@ -115,6 +118,9 @@ class _NoteWriteBarState extends State<NoteWriteBar> with TickerProviderStateMix
     final draft = _notes.draft;
     final hasWords = draft.text.trim().isNotEmpty;
     final canSave = draft.canSave;
+    // Share as image (Android NoteWriteBar onShareEditing): only inside Now Playing.
+    final share = NowPlayingShareScope.maybeOf(context);
+    final shareId = draft.isUntouchedEdit ? draft.editingNoteId : null;
     final field = NoteMarkupField(
       controller: _notes.text,
       focusNode: _notes.focus,
@@ -170,7 +176,21 @@ class _NoteWriteBarState extends State<NoteWriteBar> with TickerProviderStateMix
               if (!open) ...[
                 const SizedBox(width: _N.barItemGap),
                 Icon(YoinSymbols.edit, size: _N.barWriteGlyph, color: colors.onSurfaceVariant),
-              ],
+              ] else if (share != null)
+                // The open card's top-right corner, beside the first line: a note opened for editing and not yet
+                // changed offers Share there — never in the formatting row, whose tools keep their room.
+                _NoteShareSlot(
+                  visible: shareId != null,
+                  label: strings.shareSheetTitle,
+                  onTap: () {
+                    final id = shareId;
+                    if (id == null) return;
+                    YoinHaptics.contextClick();
+                    // The keyboard going closes the unchanged edit (NowPlayingNotes), then the sheet opens on it.
+                    _notes.focus.unfocus();
+                    share(ShareRequest(ShareTab.note, noteId: id));
+                  },
+                ),
             ],
           ),
           if (open)
@@ -416,5 +436,84 @@ class _RenderSizeReporter extends RenderProxyBox {
       final reported = size;
       WidgetsBinding.instance.addPostFrameCallback((_) => onSize(reported));
     }
+  }
+}
+
+/// The open card's Share key (a note opened for editing, not yet changed):
+/// it slides in and out on the spatial spring, fading on the effects spring.
+class _NoteShareSlot extends StatefulWidget {
+  const _NoteShareSlot({required this.visible, required this.label, required this.onTap});
+
+  final bool visible;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  State<_NoteShareSlot> createState() => _NoteShareSlotState();
+}
+
+class _NoteShareSlotState extends State<_NoteShareSlot> with TickerProviderStateMixin {
+  late final SpringValue _width = SpringValue(
+    vsync: this,
+    initial: widget.visible ? 1 : 0,
+    spring: YoinSprings.standardDefaultSpatial,
+  );
+  late final SpringValue _alpha = SpringValue(
+    vsync: this,
+    initial: widget.visible ? 1 : 0,
+    spring: YoinSprings.defaultEffects,
+  );
+
+  @override
+  void didUpdateWidget(_NoteShareSlot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visible == widget.visible) return;
+    final target = widget.visible ? 1.0 : 0.0;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _width.snapTo(target);
+      _alpha.animateTo(target);
+    } else {
+      _width.animateTo(target);
+      _alpha.animateTo(target);
+    }
+  }
+
+  @override
+  void dispose() {
+    _width.dispose();
+    _alpha.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_width.animation, _alpha.animation]),
+      builder: (context, child) {
+        final w = _width.value.clamp(0.0, 1.0);
+        if (w <= 0.001 && _alpha.value <= 0.01) return const SizedBox.shrink();
+        return ClipRect(
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            widthFactor: w,
+            child: Opacity(opacity: _alpha.value.clamp(0.0, 1.0), child: child),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsetsDirectional.only(start: _N.barItemGap),
+        child: SizedBox.square(
+          dimension: _N.stampChipHeight,
+          child: IconButton(
+            key: const ValueKey('note-share'),
+            tooltip: widget.label,
+            padding: EdgeInsets.zero,
+            onPressed: widget.visible ? widget.onTap : null,
+            icon: Icon(YoinSymbols.share, size: _N.barWriteGlyph, color: colors.onSurfaceVariant),
+          ),
+        ),
+      ),
+    );
   }
 }
