@@ -11,8 +11,12 @@ library;
 
 import 'dart:io' show Platform;
 
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
+
+import '../data/home/home_grid_rules.dart' show homeTwoColumn;
 
 /// The tips, in the order the bubble goes through them (Android's enum
 /// order, HarmonyOS's own first). The bubble shows the [title]; readers hear
@@ -49,7 +53,7 @@ enum HomeBubbleTip {
   miniPlayerMenu(YoinSymbols.playCircle, (2026, 11, 16)),
   focusCover(YoinSymbols.openInFull, (2026, 11, 3)),
   downloads(YoinSymbols.download, (2026, 11, 4)),
-  editHome(YoinSymbols.dragHandle, (2026, 10, 17)),
+  editHome(YoinSymbols.dragHandle, (2026, 11, 23)),
   pullForMemories(YoinSymbols.memory, (2026, 11, 17)),
   coverMenu(YoinSymbols.album, (2026, 11, 16)),
   songMenu(YoinSymbols.queue, (2026, 11, 16)),
@@ -73,6 +77,10 @@ enum HomeBubbleTip {
 
   /// Whether this device folds, from the posture host (`display.isFoldable()`). Null until known: foldable-only tips stay listed.
   static bool? deviceFolds;
+
+  /// Tests: whether the device counts as a large screen ([homeTipLargeScreen]); null reads the screen.
+  @visibleForTesting
+  static bool? largeScreenOverride;
 
   DateTime get updated => DateTime(_day.$1, _day.$2, _day.$3);
 
@@ -128,7 +136,9 @@ enum HomeBubbleTip {
     name => zh ? '名字的由来' : 'Behind the name', // home_tip_name_title
   };
 
-  String text({required bool zh}) => switch (this) {
+  /// What the bubble's reader and the tip's page say. [largeScreen] false (a device that can never lay Home out
+  /// in two columns: a phone) leaves out what only large screens do (Rearrange Home's drop beside a section).
+  String text({required bool zh, bool largeScreen = true}) => switch (this) {
     // Carbon 2026-11-17 (.argon/harmony-tips-1117d).
     coverStamp =>
       zh
@@ -279,8 +289,14 @@ enum HomeBubbleTip {
           ? 'Subsonic 账号可在歌曲、专辑或歌单菜单里下载，管理在设置 › 账号 › 当前账号 › 存储 › 下载'
           : 'Subsonic accounts can download from song, album, or playlist menus; manage in Settings › Accounts › your '
                 'active account › Storage › Downloads',
-    // home_tip_edit_home
-    editHome => zh ? '长按首页，重新排版' : 'Long-press Home to rearrange sections',
+    // home_tip_edit_home (Android 2026-11-23); a phone's copy without the large-screen clause (iOS's).
+    editHome =>
+      largeScreen
+          ? (zh
+                ? '编辑首页时双指捏合收成列表，长按直接拖动排序，大屏上拖到旁边即可并排'
+                : 'While editing Home, pinch to collapse into a list, long-press to drag, or drop beside a section on '
+                      'large screens.')
+          : (zh ? '编辑首页时双指捏合收成列表，长按直接拖动排序' : 'While editing Home, pinch to collapse into a list or long-press to drag.'),
     // home_tip_pull_memories (the demo's deck wears the real aurora since 11-17).
     pullForMemories => zh ? '首页往下拉，打开 Memories' : 'Pull down on Home to open Memories',
     // home_tip_cover_menu
@@ -307,6 +323,22 @@ enum HomeBubbleTip {
     // home_tip_name
     name => zh ? 'Yoin 的名字来自日语「余韻」：余音不散' : 'Yoin comes from the Japanese word "余韻" — a lingering resonance',
   };
+}
+
+/// This device can lay Home out in two columns at all (shared `homeTwoColumn` on its screen or window in its
+/// best orientation, ≥ 840 × 480): a tablet, a PC, a Mate XT. A device that folds counts too (its folded
+/// screen says nothing about its open one). Phones can't: their tips leave out what only large screens do.
+bool homeTipLargeScreen(BuildContext context) {
+  final override = HomeBubbleTip.largeScreenOverride;
+  if (override != null) return override;
+  if (HomeBubbleTip.deviceFolds == true) return true;
+  final view = View.maybeOf(context);
+  if (view == null) return true;
+  bool fits(Size size) => homeTwoColumn(math.max(size.width, size.height), math.min(size.width, size.height), false);
+  final display = view.display;
+  final screen = display.devicePixelRatio > 0 ? display.size / display.devicePixelRatio : Size.zero;
+  final window = view.devicePixelRatio > 0 ? view.physicalSize / view.devicePixelRatio : Size.zero;
+  return fits(screen) || fits(window);
 }
 
 /// The bubble's own strings (strings_home.xml, key in the comment).

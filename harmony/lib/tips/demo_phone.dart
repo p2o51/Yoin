@@ -6,7 +6,9 @@
 /// whatever is drawn under it.
 ///
 /// A touch dot acts the gesture out on a loop — tap (a ripple), hold (its
-/// ring fills), drag — and the phone answers the way the app does. The
+/// ring fills), drag, a two-finger pinch — and the phone answers the way the
+/// app does. A `wide` phone is a tablet on its side (Expanded width, Home in
+/// two columns) for a scene only large screens have. The
 /// user's first touch takes the phone over; left alone for
 /// [TipTokens.takeoverIdleMs], the demo starts again. It runs only while
 /// `playing` (its page is the settled one); reduced motion keeps the phone
@@ -23,6 +25,15 @@ import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/adaptive/yoin_window_info.dart';
 import '../ui/component/corner_mask.dart';
+
+/// The wide frame (Android TipDemoPhone `wide`): a tablet on its side, as tall as a phone is wide is long.
+abstract final class DemoWideTokens {
+  /// Width over height of the frame (16:10).
+  static const double aspect = 10 / 16;
+
+  /// The screen it lays out: Expanded width, tall enough for two columns (≥ 840 × 480).
+  static const double screenWidth = 880;
+}
 
 /// Where the scene's named parts are, for the demo touch to go to.
 class DemoTargets {
@@ -128,6 +139,9 @@ class DemoFinger {
       press = AnimationController.unbounded(vsync: vsync),
       ring = AnimationController(vsync: vsync),
       ripple = AnimationController(vsync: vsync, value: 1),
+      x2 = AnimationController.unbounded(vsync: vsync, value: 0.5),
+      y2 = AnimationController.unbounded(vsync: vsync, value: 0.5),
+      alpha2 = AnimationController(vsync: vsync),
       _dragClock = AnimationController(vsync: vsync);
 
   final DemoTargets _targets;
@@ -138,13 +152,20 @@ class DemoFinger {
   final AnimationController ring;
   final AnimationController ripple;
 
+  /// A second finger (a pinch): where it is and how much it shows.
+  final AnimationController x2;
+  final AnimationController y2;
+  final AnimationController alpha2;
+
   /// A drag's own clock (not painted).
   final AnimationController _dragClock;
 
   int _run = 0;
   bool _stopped = true;
 
-  Listenable get listenable => Listenable.merge([x, y, alpha, press, ring, ripple]);
+  Listenable get listenable => Listenable.merge([x, y, alpha, press, ring, ripple, x2, y2, alpha2]);
+
+  List<AnimationController> get _all => [x, y, alpha, press, ring, ripple, x2, y2, alpha2, _dragClock];
 
   void _start(int run) {
     _run = run;
@@ -157,17 +178,18 @@ class DemoFinger {
     final waiting = _waiting;
     _waiting = null;
     if (waiting != null && !waiting.isCompleted) waiting.completeError(const DemoStopped());
-    for (final c in [x, y, alpha, press, ring, ripple, _dragClock]) {
+    for (final c in _all) {
       c.stop(canceled: true);
     }
     alpha.value = 0;
+    alpha2.value = 0;
     press.value = 0;
     ring.value = 0;
     ripple.value = 1;
   }
 
   void _dispose() {
-    for (final c in [x, y, alpha, press, ring, ripple, _dragClock]) {
+    for (final c in _all) {
       c.dispose();
     }
   }
@@ -320,6 +342,33 @@ class DemoFinger {
     if (release) await _spring(press, 0);
   }
 
+  /// Two fingers down around ([cx], [cy]), one above the other [fromGap] apart (a fraction of the screen's
+  /// height), closing or opening to [toGap] over [ms]; [onProgress] gets 0..1 every frame. The second finger
+  /// lifts after; the first stays where it ends (Android DemoFinger.pinch).
+  Future<void> pinch(double cx, double cy, double fromGap, double toGap, int ms, {ValueChanged<double>? onProgress}) async {
+    x2.value = cx;
+    y2.value = cy + fromGap / 2;
+    await Future.wait([_spring(x, cx), _spring(y, cy - fromGap / 2)]);
+    if (alpha.value < 0.05) await _tween(alpha, 1, TipTokens.fingerAppearMs);
+    await Future.wait([_tween(alpha2, 1, TipTokens.fingerAppearMs), _tween(press, 1, TipTokens.fingerDragPressMs)]);
+    void step() {
+      final t = _dragClock.value;
+      final gap = fromGap + (toGap - fromGap) * t;
+      y.value = cy - gap / 2;
+      y2.value = cy + gap / 2;
+      onProgress?.call(t);
+    }
+
+    _dragClock.value = 0;
+    _dragClock.addListener(step);
+    try {
+      await _tween(_dragClock, 1, ms, curve: Curves.easeInOut);
+    } finally {
+      _dragClock.removeListener(step);
+    }
+    await Future.wait([_tween(alpha2, 0, TipTokens.liftMs), _spring(press, 0)]);
+  }
+
   /// Comes up after a [drag] with `release: false`.
   Future<void> release() => _spring(press, 0);
 
@@ -330,6 +379,7 @@ class DemoFinger {
   void hide() {
     _check(_run);
     alpha.value = 0;
+    alpha2.value = 0;
     press.value = 0;
     ring.value = 0;
     ripple.value = 1;
@@ -342,8 +392,12 @@ typedef DemoScript = Future<void> Function(DemoFinger finger);
 /// How much bigger than 168 × 300 the phone is drawn in a [window] this size:
 /// a tall window (a tablet held upright) gets a bigger phone, the demo being
 /// the page's subject; width keeps it to half the window.
-double demoPhoneGrow(Size window, {bool tall = false}) {
-  final phoneWidth = tall ? TipTokens.phoneHeight * TipTokens.tallAspect : TipTokens.phoneWidth;
+double demoPhoneGrow(Size window, {bool tall = false, bool wide = false}) {
+  final phoneWidth = wide
+      ? TipTokens.phoneHeight
+      : tall
+      ? TipTokens.phoneHeight * TipTokens.tallAspect
+      : TipTokens.phoneWidth;
   return math
       .min(
         window.height * TipTokens.phoneHeightShare / TipTokens.phoneHeight,
@@ -367,6 +421,7 @@ class DemoPhone extends StatefulWidget {
     required this.script,
     required this.child,
     this.tall = false,
+    this.wide = false,
     this.screenWidth,
   });
 
@@ -376,6 +431,10 @@ class DemoPhone extends StatefulWidget {
   /// A 20:9 phone as tall as the others (narrower), for a scene whose layout
   /// differs on a 16:9 screen (Now Playing's focus).
   final bool tall;
+
+  /// A tablet on its side (Expanded width, Home in two columns), for a scene only large screens have: 300 wide,
+  /// 16:10, its screen laid out [DemoWideTokens.screenWidth] wide.
+  final bool wide;
 
   /// The screen, laid out [TipTokens.screenWidth] wide.
   final Widget child;
@@ -467,11 +526,22 @@ class _DemoPhoneState extends State<DemoPhone> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final phoneWidth = widget.tall ? TipTokens.phoneHeight * TipTokens.tallAspect : TipTokens.phoneWidth;
-    final screenWidth = widget.screenWidth ?? (widget.tall ? TipTokens.tallScreenWidth : TipTokens.screenWidth);
-    final screenHeight = screenWidth * TipTokens.phoneHeight / phoneWidth;
-    final grow = demoPhoneGrow(MediaQuery.sizeOf(context), tall: widget.tall);
-    final size = Size(phoneWidth * grow, TipTokens.phoneHeight * grow);
+    final phoneWidth = widget.wide
+        ? TipTokens.phoneHeight
+        : widget.tall
+        ? TipTokens.phoneHeight * TipTokens.tallAspect
+        : TipTokens.phoneWidth;
+    final phoneHeight = widget.wide ? TipTokens.phoneHeight * DemoWideTokens.aspect : TipTokens.phoneHeight;
+    final screenWidth =
+        widget.screenWidth ??
+        (widget.wide
+            ? DemoWideTokens.screenWidth
+            : widget.tall
+            ? TipTokens.tallScreenWidth
+            : TipTokens.screenWidth);
+    final screenHeight = screenWidth * phoneHeight / phoneWidth;
+    final grow = demoPhoneGrow(MediaQuery.sizeOf(context), tall: widget.tall, wide: widget.wide);
+    final size = Size(phoneWidth * grow, phoneHeight * grow);
     final corner = BorderRadius.circular(TipTokens.phoneCorner);
     final screen = MediaQuery(
       data: MediaQuery.of(context).copyWith(
@@ -565,6 +635,12 @@ class _FingerPainter extends CustomPainter {
           ..strokeWidth = TipTokens.rippleStroke
           ..color = color.withValues(alpha: (1 - ripple) * 0.5 * a),
       );
+    }
+    final a2 = finger.alpha2.value.clamp(0.0, 1.0);
+    if (a2 > 0) {
+      final c2 = Offset(size.width * finger.x2.value, size.height * finger.y2.value);
+      canvas.drawCircle(c2, r * shrink, Paint()..color = color.withValues(alpha: 0.22 * a2));
+      canvas.drawCircle(c2, r * TipTokens.fingerDot * shrink, Paint()..color = color.withValues(alpha: 0.9 * a2));
     }
     final ring = finger.ring.value;
     if (ring > 0) {
