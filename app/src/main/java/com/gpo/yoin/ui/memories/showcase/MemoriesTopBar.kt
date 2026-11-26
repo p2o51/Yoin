@@ -425,7 +425,12 @@ internal fun MemoryPageBarSlots(
         }
         if (inDiaryMorph) {
             val interactive = diaryOpen && shown
-            val tapToCard = if (interactive) Modifier.handPointer().clickable(onClick = onCloseDiary) else Modifier
+            // No ripple: it would draw a square around the rounded cover and a slab behind the text.
+            val tapToCard = if (interactive) {
+                Modifier.handPointer().clickable(interactionSource = null, indication = null, onClick = onCloseDiary)
+            } else {
+                Modifier
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)

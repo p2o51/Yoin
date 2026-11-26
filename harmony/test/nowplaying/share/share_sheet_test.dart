@@ -215,7 +215,7 @@ void main() {
   testWidgets('should_keepTheLinesAndSendTheCaption_when_lyricsShared', (tester) async {
     final h = await _pump(tester);
     await _tapAndWait(tester, const ValueKey('share-share'));
-    expect(h.share.calls, ['share true 他夏了夏天\n苏打绿']);
+    expect(h.share.calls, ['share true 他夏了夏天 · 苏打绿']);
     expect(h.events, ['kept', 'shared']);
   });
 

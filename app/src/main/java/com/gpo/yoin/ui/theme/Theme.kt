@@ -59,11 +59,12 @@ fun YoinTheme(
     // The wallpaper's hue as an Expressive scheme (DefaultColorScheme.kt).
     val defaultScheme = colorSchemeOverride ?: remember(context, darkTheme) { defaultColorScheme(context, darkTheme) }
 
-    // Edge-to-edge + system bar icon colors are set up once in
-    // MainActivity.onCreate via enableEdgeToEdge(SystemBarStyle.auto(...)). The
-    // theme composable intentionally doesn't touch the window — doing it here
-    // (in a SideEffect) was running post-composition and caused a first-frame
-    // status-bar height jump on cold start.
+    // Edge-to-edge + system bar icon colors are set up in each Activity's
+    // onCreate by enableYoinEdgeToEdge(), which also sets the icons again on a
+    // light / dark switch the Activity handles itself. The theme composable
+    // intentionally doesn't touch the window — doing it here (in a SideEffect)
+    // was running post-composition and caused a first-frame status-bar height
+    // jump on cold start.
 
     // Resolve a single seed from cover art, then build a SPEC_2025 expressive scheme.
     var extractedScheme by remember { mutableStateOf<ColorScheme?>(null) }

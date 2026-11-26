@@ -9,7 +9,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yoin/data/notes/note_markup.dart';
+import 'package:flutter/painting.dart';
+import 'package:yoin/data/share/share_scripts.dart';
 import 'package:yoin/data/share/yoin_share_cards.dart';
+import 'package:yoin/nowplaying/about_widgets.dart' show markdownBoldSpan;
 
 const _goldenPath = '../shared/src/commonTest/resources/golden/share-cards.json';
 
@@ -28,6 +31,8 @@ const _sections = [
   'verticalText',
   'verticalForm',
   'about',
+  'aiSign',
+  'boldRuns',
   'note',
   'time',
   'tones',
@@ -51,7 +56,27 @@ void main() {
       expect(golden[section], isA<List<dynamic>>(), reason: section);
     }
     final total = _sections.map((s) => (golden[s] as List).length).reduce((a, b) => a + b);
-    expect(total, greaterThanOrEqualTo(275));
+    expect(total, greaterThanOrEqualTo(308));
+  });
+
+  test('should_drawAboutsBoldAsTheVectors_throughMarkdownBoldSpan', () {
+    // The About share layouts draw values and the paragraph through Now Playing's markdownBoldSpan.
+    for (final raw in golden['boldRuns'] as List) {
+      final v = raw as Map<String, dynamic>;
+      final runs = <Map<String, Object?>>[];
+      for (final child in markdownBoldSpan(v['text'] as String).children ?? const <InlineSpan>[]) {
+        final span = child as TextSpan;
+        final bold = span.style?.fontWeight == FontWeight.w700;
+        final text = span.text ?? '';
+        if (text.isEmpty) continue;
+        if (!bold && runs.isNotEmpty && runs.last['bold'] == false) {
+          runs.last['text'] = '${runs.last['text']}$text';
+        } else {
+          runs.add({'text': text, 'bold': bold});
+        }
+      }
+      _expectJson(runs, v['runs'], 'boldRuns ${v['name']}');
+    }
   });
 
   test('should_copyKotlinsConstants_when_comparingTheTables', () {
@@ -183,6 +208,14 @@ Map<String, Object?> _outputs(String section, Map<String, dynamic> v, Map<String
           ShareTab.about,
         ),
       };
+    case 'aiSign':
+      return {'sign': YoinShareCards.aiSign(v['template'] as String, v['provider'] as String)};
+    case 'boldRuns':
+      return {
+        'runs': [
+          for (final r in YoinShareCards.boldRuns(v['text'] as String)) {'text': r.text, 'bold': r.bold},
+        ],
+      };
     case 'note':
       final note = YoinShareCards.notePick(
         [for (final n in v['notes'] as List) _noteOf(n as Map<String, dynamic>)],
@@ -281,6 +314,7 @@ Map<String, Object?> _constants() => {
   'storyMaxZoom': YoinShareCards.storyMaxZoomLimit,
   'storyZoomSteps': 8,
   'storyFitSlackPx': 0.5,
+  'captionSeparator': YoinShareCards.captionSeparator,
   'posterMaxLines': YoinShareCards.posterMaxLines,
   'posterStoryLeadBoostSp': YoinShareCards.posterStoryLeadBoostSp,
   'posterTranslationSeparator': YoinShareCards.posterTranslationSeparator,
@@ -300,6 +334,10 @@ Map<String, Object?> _constants() => {
   'paperBackdropTone': YoinShareCards.paperBackdropTone,
   'fileTitleMaxChars': YoinShareCards.fileTitleMaxChars,
   'galleryFolder': YoinShareCards.galleryFolder,
+  'cjkCommonLetters': [
+    for (final cp in ShareScripts.cjkCommonLetters.toList()..sort())
+      'U+${cp.toRadixString(16).toUpperCase().padLeft(4, '0')}',
+  ],
   'kindCanonical': YoinShareCards.kindCanonical,
   'kindAsk': YoinShareCards.kindAsk,
   'kindOwn': YoinShareCards.kindOwn,

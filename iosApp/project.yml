@@ -33,6 +33,9 @@ targets:
     platform: iOS
     sources:
       - path: Yoin
+      # The share extension's confirmation and its words, for the QA screenshot (-openInDemo share-confirm).
+      - path: YoinShare/ShareConfirmation.swift
+      - path: YoinShare/Share.xcstrings
       # Sing on-device CoreML model (7.6 MB FP32 .mlpackage.zip, single file so Xcode writes its exact
       # filename in OnDemandResources.plist instead of an empty "" directory entry): delivered via Apple
       # ODR tag `sing_model_v1` (Download Only On Demand) so the main IPA carries 0 MB of ML weights.
@@ -48,6 +51,10 @@ targets:
       - framework: ../shared/build/XCFrameworks/current/YoinShared.xcframework
         embed: false
       - target: YoinWidgets
+        embed: true
+        codeSign: true
+      # "Open in Yoin" in the share sheet (YoinShare/, docs/open-in-yoin.md).
+      - target: YoinShare
         embed: true
         codeSign: true
       - package: GoogleSignIn
@@ -231,6 +238,40 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+        SKIP_INSTALL: YES
+  # "Open in Yoin" in the share sheet: keeps the shared link or text in the App Group for Yoin's next return
+  # to the front and says so (YoinShare/ShareConfirmation.swift). Public API only, no network.
+  YoinShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: YoinShare
+      - path: Yoin/OpenIn/OpenInInbox.swift
+    entitlements:
+      path: YoinShare/YoinShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.gpo.yoin
+    info:
+      path: YoinShare/Info.plist
+      properties:
+        # Localized in YoinShare/InfoPlist.xcstrings (Android open_in_share_label).
+        CFBundleDisplayName: Open in Yoin
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # A link (Spotify's and Apple Music's share sheets, Safari) or text (a chat).
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gpo.yoin.share
         TARGETED_DEVICE_FAMILY: "1,2"
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
         SKIP_INSTALL: YES

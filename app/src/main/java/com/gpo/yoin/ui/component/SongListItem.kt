@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.ui.draw.clip
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -88,6 +89,8 @@ fun SongListItem(
         modifier = modifier
             .fillMaxWidth()
             .handPointer()
+            // Surface clips after its modifier: clip here so the ripple keeps the row's corners.
+            .clip(YoinContainerShapes.ListRow)
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = ripple(),

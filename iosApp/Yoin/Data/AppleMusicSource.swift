@@ -826,6 +826,22 @@ final class AppleMusicSource {
 
     // MARK: Playback
 
+    /// One catalog song as a queue entry (Open in Yoin: an Apple Music song link, docs/open-in-yoin.md),
+    /// its JSON kept for the player. Nil when it can't be read in this storefront.
+    func catalogEntry(_ rawId: String) async -> PlaylistEntry? {
+        guard let root = try? await get(try await catalog("songs") + "/\(rawId)", ["include": "albums,artists"]),
+              let song = songs(AppleMusicJSON.resources(root)).first else { return nil }
+        return AppleMusicMapping.entry(song)
+    }
+
+    /// Catalog resources (`GET /v1/catalog/{storefront}/{type}/{id}`'s `data`) with the developer token only:
+    /// no Music User Token is needed for a catalog read (Open in Yoin's no-login metadata).
+    nonisolated static func catalogResources(storefront: String, type: String, id: String) async throws -> [AppleMusicJSON.Object] {
+        guard let url = URL(string: "https://api.music.apple.com/v1/catalog/\(storefront)/\(type)/\(id)") else { return [] }
+        let response = try await MusicDataRequest(urlRequest: URLRequest(url: url)).response()
+        return AppleMusicJSON.resources(AppleMusicJSON.object(response.data))
+    }
+
     /// The MusicKit song a queue entry plays: decoded from the JSON a list
     /// gave, else read again (catalog by id, library by library id).
     func song(_ rawId: String) async -> Song? {

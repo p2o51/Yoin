@@ -1562,52 +1562,55 @@ struct NowPlayingView: View, Equatable {
                 ], scheme: scheme, size: keySize)
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
             } else {
-                HStack(spacing: 8) {
-                    LyricKeyRow(keys: [
-                        LyricKey(icon: "search", label: String(localized: "Search lyrics"), enabled: idle) {
-                            actions.openSearch(t)
-                        },
-                        LyricKey(icon: "translate", label: String(localized: "Translate lyrics"), enabled: idle && hasLines,
-                                 busy: actions.inFlight == .translate) {
-                            withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
-                        },
-                        // ✓ = select lines; with no lines it opens the editor (paste lyrics).
-                        LyricKey(icon: "check", label: hasLines ? String(localized: "Select lyrics") : String(localized: "Add lyrics"), enabled: idle) {
-                            if hasLines {
-                                withAnimation(Yoin.effects) {
-                                    lyricsSelected = []
-                                    lyricsSelecting = true
+                GlassEffectContainer(spacing: 0) {
+                    HStack(spacing: 8) {
+                        LyricKeyRow(keys: [
+                            LyricKey(icon: "search", label: String(localized: "Search lyrics"), enabled: idle) {
+                                actions.openSearch(t)
+                            },
+                            LyricKey(icon: "translate", label: String(localized: "Translate lyrics"), enabled: idle && hasLines,
+                                     busy: actions.inFlight == .translate) {
+                                withAnimation(Yoin.spatial) { actions.translate(t, lines: loaded?.lines ?? []) }
+                            },
+                            // ✓ = select lines; with no lines it opens the editor (paste lyrics).
+                            LyricKey(icon: "check", label: hasLines ? String(localized: "Select lyrics") : String(localized: "Add lyrics"), enabled: idle) {
+                                if hasLines {
+                                    withAnimation(Yoin.effects) {
+                                        lyricsSelected = []
+                                        lyricsSelecting = true
+                                    }
+                                } else {
+                                    openLyricsEditor(t)
                                 }
-                            } else {
-                                openLyricsEditor(t)
-                            }
-                        },
-                        LyricKey(icon: "recenter", label: String(localized: "Return to current line"),
-                                 enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
-                            lyricsFollow = true
-                            lyricsRecenterTick += 1
-                        },
-                    ], scheme: scheme, size: keySize)
-                    if showSing {
-                        SingLyricsCapsuleKey(
-                            phase: model.sing.phase,
-                            level: model.sing.sliderPosition,
-                            failureTick: model.sing.failureTick,
-                            scheme: scheme,
-                            keySize: keySize,
-                            haptics: demo == nil,
-                            onToggle: {
-                                model.sing.toggle(track: t, openLyrics: false)
                             },
-                            onLevelChange: { nextLevel in
-                                model.sing.setSliderPosition(nextLevel)
+                            LyricKey(icon: "recenter", label: String(localized: "Return to current line"),
+                                     enabled: idle && !lyricsFollow && (loaded?.synced ?? false)) {
+                                lyricsFollow = true
+                                lyricsRecenterTick += 1
                             },
-                            onExit: {
-                                model.sing.exit()
-                            }
-                        )
+                        ], scheme: scheme, size: keySize)
+                        if showSing {
+                            SingLyricsCapsuleKey(
+                                phase: model.sing.phase,
+                                level: model.sing.sliderPosition,
+                                failureTick: model.sing.failureTick,
+                                scheme: scheme,
+                                keySize: keySize,
+                                haptics: demo == nil,
+                                onToggle: {
+                                    model.sing.toggle(track: t, openLyrics: false)
+                                },
+                                onLevelChange: { nextLevel in
+                                    model.sing.setSliderPosition(nextLevel)
+                                },
+                                onExit: {
+                                    model.sing.exit()
+                                }
+                            )
+                        }
                     }
                 }
+                .animation(Yoin.spatial, value: model.sing.isActive)
                 .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .leading)))
             }
         }

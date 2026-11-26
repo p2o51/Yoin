@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.detail
 
-import com.gpo.yoin.ui.component.handPointer
+import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.component.pointerPressPreview
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -130,6 +133,7 @@ private fun AlbumHeroLastPlayStyle(): TextStyle =
 internal fun AlbumHeroLastPlay(epochMillis: Long, interactive: Boolean, modifier: Modifier = Modifier) {
     val flight = LocalAlbumPageFlight.current
     val (day, time) = albumLastPlayLabels(epochMillis, LocalContext.current.resources)
+    val interaction = remember { MutableInteractionSource() }
     Text(
         text = "$day $time",
         style = AlbumHeroLastPlayStyle(),
@@ -140,7 +144,16 @@ internal fun AlbumHeroLastPlay(epochMillis: Long, interactive: Boolean, modifier
         modifier = if (flight == null) {
             modifier
         } else {
-            modifier.handPointer(enabled = interactive).clickable(enabled = interactive, role = Role.Button, onClick = flight.openScrapbook)
+            // Text, not a tile: no square ripple behind it (a pointer's wash keeps rounded corners).
+            modifier
+                .pointerPressPreview(interaction, shape = YoinShapeTokens.Small, enabled = interactive)
+                .clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    enabled = interactive,
+                    role = Role.Button,
+                    onClick = flight.openScrapbook,
+                )
         },
     )
 }

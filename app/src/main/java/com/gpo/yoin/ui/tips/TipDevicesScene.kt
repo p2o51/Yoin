@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.tips
 
+import com.gpo.yoin.ui.theme.YoinShapeTokens
+import androidx.compose.ui.draw.clip
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -130,6 +132,8 @@ internal fun SpotifySpeakersDemo(playing: Boolean) {
                                 .fillMaxWidth()
                                 .then(if (name == DemoSonosName) Modifier.demoTarget("living-room") else Modifier)
                                 .handPointer()
+                                // The press keeps the panel's rounding, never a square band.
+                                .clip(YoinShapeTokens.Large)
                                 .clickable {
                                     if (name == DemoSonosName) onSonos = true
                                     panelOpen = false

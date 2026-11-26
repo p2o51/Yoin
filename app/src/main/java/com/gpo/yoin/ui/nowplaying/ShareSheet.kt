@@ -91,8 +91,10 @@ import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.remote.ai.AiProvider
 import com.gpo.yoin.shared.share.YoinShareCards
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.handPointer
 import com.gpo.yoin.ui.component.pointerPressPreview
+import com.gpo.yoin.ui.component.sheetScrollEdge
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -298,7 +300,7 @@ internal fun ShareSources.content(
 // The sheet.
 // ---------------------------------------------------------------------------
 
-private enum class SaveStatus { Idle, Saving, Saved, Failed }
+internal enum class SaveStatus { Idle, Saving, Saved, Failed }
 
 /**
  * Share as image: the tab ([initialTab] first, when it has something), its layout, Card / Story, a tone,
@@ -452,7 +454,7 @@ internal fun ShareSheet(
 
 /** The sheet's content: one column on a phone, two panes at Expanded width. */
 @Composable
-private fun ShareSheetBody(
+internal fun ShareSheetBody(
     content: ShareContent,
     tabs: List<ShareTab>,
     tab: ShareTab,
@@ -543,33 +545,37 @@ private fun ShareSheetBody(
             }
         }
     } else {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 16.dp + navBottom)
-                .semantics { paneTitle = title },
-        ) {
-            tabRow()
-            Spacer(Modifier.height(12.dp))
-            LayoutLabel()
-            ShareLayoutThumbs(
-                content = content,
-                tab = tab,
-                selected = layout,
-                format = format,
-                tone = tone,
-                onSelect = onLayout,
-                thumbWidth = ThumbWidth,
-                rows = 1,
-            )
-            Spacer(Modifier.height(16.dp))
-            preview(windowHeight * PreviewMaxHeightFraction, 1f)
-            Spacer(Modifier.height(16.dp))
-            formatAndTones()
-            Spacer(Modifier.height(16.dp))
-            actions()
+        val scroll = rememberScrollState()
+        Column(modifier = Modifier.fillMaxWidth().semantics { paneTitle = title }) {
+            // The tabs name the sheet and stay put; the rest scrolls under the tide line, never cut flat
+            // under the handle (the sheets' one top edge, SheetScrollEdge.kt; owner 2026-11-26).
+            Box(Modifier.padding(horizontal = 24.dp)) { tabRow() }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .sheetScrollEdge(scroll)
+                    .verticalScroll(scroll)
+                    .padding(horizontal = 24.dp)
+                    .padding(top = 12.dp, bottom = 16.dp + navBottom),
+            ) {
+                LayoutLabel()
+                ShareLayoutThumbs(
+                    content = content,
+                    tab = tab,
+                    selected = layout,
+                    format = format,
+                    tone = tone,
+                    onSelect = onLayout,
+                    thumbWidth = ThumbWidth,
+                    rows = 1,
+                )
+                Spacer(Modifier.height(16.dp))
+                preview(windowHeight * PreviewMaxHeightFraction, 1f)
+                Spacer(Modifier.height(16.dp))
+                formatAndTones()
+                Spacer(Modifier.height(16.dp))
+                actions()
+            }
         }
     }
 }
@@ -660,7 +666,8 @@ private fun ShareTabs(tabs: List<ShareTab>, selected: ShareTab, onSelect: (Share
                         scaleX = stretch
                         transformOrigin = TransformOrigin(0f, 0.5f)
                     }
-                    .pointerPressPreview(interaction)
+                    // A pointer's wash rounds to the word, never a square behind it.
+                    .pointerPressPreview(interaction, shape = YoinShapeTokens.Small)
                     .selectable(
                         selected = isSelected,
                         interactionSource = interaction,
@@ -688,8 +695,9 @@ private fun LayoutLabel() {
 
 /**
  * 版式: each layout the tab offers as a live thumbnail of the image (in the format and tone picked) with its
- * name; the picked one wears a 2dp primary ring and its name in primary. [rows] > 1 (the wide sheet) lays
- * them out in that many rows; one row scrolls sideways if it must.
+ * name; the picked one wears a 2dp primary ring and its name in primary, bold. Nothing square behind it: no
+ * ripple or backdrop over the thumbnail-and-name block (owner 2026-11-26) — a press squeezes the thumbnail.
+ * [rows] > 1 (the wide sheet) lays them out in that many rows; one row scrolls sideways if it must.
  */
 @Composable
 private fun ShareLayoutThumbs(
@@ -752,11 +760,18 @@ private fun LayoutThumb(
     )
     val height = width * ThumbAspect
     val name = stringResource(layout.label)
+    val interaction = remember { MutableInteractionSource() }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .width(width + ThumbRingInset * 2)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .selectable(
+                selected = selected,
+                interactionSource = interaction,
+                indication = null,
+                role = Role.RadioButton,
+                onClick = onClick,
+            )
             .handPointer()
             .semantics { this.selected = selected }
             .testTag("$ShareThumbTagPrefix${layout.name}"),
@@ -764,6 +779,7 @@ private fun LayoutThumb(
         Box(
             contentAlignment = Alignment.TopCenter,
             modifier = Modifier
+                .elasticPress(interaction, pressedScale = ThumbPressedScale)
                 .border(2.dp, ring, RoundedCornerShape(ThumbCorner + ThumbRingInset))
                 .padding(ThumbRingInset)
                 .size(width, height)
@@ -885,6 +901,7 @@ private val WideThumbWidth = 112.dp
 private const val ThumbAspect = 88f / 70f
 private val ThumbCorner = 12.dp
 private val ThumbRingInset = 4.dp
+private const val ThumbPressedScale = 0.94f
 
 /** Expanded: a two-pane sheet this wide at most, this share of the window tall; the preview may grow 1.5×. */
 private val WideSheetMinWidth = 840.dp

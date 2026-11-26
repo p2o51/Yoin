@@ -87,6 +87,24 @@ class ShareImageTest {
     }
 
     @Test
+    fun should_setTheAisBoldBold_notPrintItsAsterisks_onEveryAboutLayout() {
+        // iOS #352: the AI's **bold** printed as literal asterisks. Each About layout draws it as NP's About page does.
+        val bold = PreviewShareContent.copy(
+            about = AboutSharePick(
+                credits = listOf(ShareCredit("Producer", "**Jay Chou**", ai = true)),
+                heading = "About",
+                paragraph = "Written for his **grandmother** in 2003.",
+            ),
+        )
+        for (layout in listOf(ShareLayout.AboutReceipt, ShareLayout.AboutQuote, ShareLayout.AboutLiner)) {
+            draw(bold, layout, LyricsShareFormat.Card)
+            rule.onNode(hasText("**", substring = true)).assertDoesNotExist()
+            rule.onNode(hasText("Written for his grandmother in 2003.")).assertExists()
+            rule.onNode(hasText("Jay Chou")).assertExists()
+        }
+    }
+
+    @Test
     fun should_drawEveryStory_when_theNoteHasAMentionChip() {
         // A mention's pill holds a SubcomposeLayout: the story's fit must not ask it for intrinsics.
         for (layout in ShareLayout.entries) {

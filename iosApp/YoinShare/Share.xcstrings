@@ -1,0 +1,39 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Done" : {
+      "comment" : "Closes the share confirmation.",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "完成"
+          }
+        }
+      }
+    },
+    "Open Yoin to continue" : {
+      "comment" : "Share extension confirmation line. Copy: Rebecca, 2026-11-25.",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开 Yoin 即可继续"
+          }
+        }
+      }
+    },
+    "Saved to Yoin" : {
+      "comment" : "Share extension confirmation title. Copy: Rebecca, 2026-11-25.",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已存到 Yoin"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

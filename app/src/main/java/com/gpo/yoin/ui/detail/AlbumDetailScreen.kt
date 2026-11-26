@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.theme.YoinContainerShapes
+import com.gpo.yoin.ui.component.pointerPressPreview
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.gpo.yoin.ui.component.NoteMarkupText
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
@@ -1596,13 +1599,19 @@ private fun AlbumHeroComment(
             val writtenAt = content.userReviewAt?.let { at ->
                 albumLastPlayLabels(at, LocalContext.current.resources).first
             }
+            val interaction = remember { MutableInteractionSource() }
             Column(
-                modifier = Modifier.handPointer(enabled = interactive).clickable(
-                    enabled = interactive,
-                    role = Role.Button,
-                    onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
-                    onClick = onEditComment,
-                ),
+                // Text, not a tile: no square ripple behind the paragraph (a pointer's wash keeps the row's corners).
+                modifier = Modifier
+                    .pointerPressPreview(interaction, shape = YoinContainerShapes.ListRow, enabled = interactive)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        enabled = interactive,
+                        role = Role.Button,
+                        onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
+                        onClick = onEditComment,
+                    ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 NoteMarkupText(
