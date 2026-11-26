@@ -1,7 +1,7 @@
 /// Share as image (Android PR #335, owner 2026-11-25): one sheet, three tabs
 /// — the lyrics, the song's About (AI / objective text, tertiary) and one of
 /// the listener's notes (their own words, primary) — each with its own
-/// layouts, Card / Story, and four tones. The plain models the rules
+/// layouts, Card / Story, and its tones. The plain models the rules
 /// ([YoinShareCards]) read and answer: a port of :shared
 /// `com.gpo.yoin.shared.share.ShareCardModels.kt` (golden vectors
 /// shared/src/commonTest/resources/golden/share-cards.json). Every platform
@@ -77,8 +77,9 @@ enum ShareLayout {
 }
 
 /// Whose words an image carries: the lyrics keep their own pairings; About is
-/// AI / objective text and reads tertiary; a note is the listener's own and
-/// reads primary.
+/// AI / objective text and opens tertiary; a note is the listener's own and
+/// opens primary. The colour rule only decides the default: every tab offers
+/// both colour families (owner 2026-11-26, 「放开，这个是给用户选择的」).
 enum ShareRole {
   lyrics('Lyrics'),
   ai('Ai'),
@@ -88,28 +89,39 @@ enum ShareRole {
 
   final String kotlinName;
 
-  /// The four tones the role offers, in swatch order (the sheet keeps the slot, 0–3, across tabs).
+  /// The tones the role offers, in swatch order: the lyrics' four (primary
+  /// container, its inverse, tertiary, tertiary container) for every role, and
+  /// for About and Note Paper after them, inked in the role's colour.
   List<ShareTone> tones() => switch (this) {
     ShareRole.lyrics => const [ShareTone.soft, ShareTone.deep, ShareTone.vivid, ShareTone.mist],
-    ShareRole.ai || ShareRole.own => const [ShareTone.soft, ShareTone.deep, ShareTone.vivid, ShareTone.paper],
+    ShareRole.ai ||
+    ShareRole.own => const [ShareTone.soft, ShareTone.deep, ShareTone.vivid, ShareTone.mist, ShareTone.paper],
+  };
+
+  /// The tone an image opens on until the listener picks one: the role's
+  /// colour rule — the lyrics and a note primary container (Soft), About
+  /// tertiary container (Mist).
+  ShareTone get defaultTone => switch (this) {
+    ShareRole.lyrics || ShareRole.own => ShareTone.soft,
+    ShareRole.ai => ShareTone.mist,
   };
 }
 
-/// An image's colour pairing ([YoinShareCards.toneColors]).
+/// An image's colour pairing ([YoinShareCards.toneColors]); the same colours on every tab, Paper aside.
 enum ShareTone {
-  /// Container + on-container: the default.
+  /// Primary container + its on-colour: the lyrics' and a note's default.
   soft('Soft'),
 
   /// The soft pair inverted.
   deep('Deep'),
 
-  /// The role colour + its on-colour (tertiary for the lyrics).
+  /// Tertiary + its on-colour.
   vivid('Vivid'),
 
-  /// Tertiary container + its on-colour — the lyrics' fourth slot.
+  /// Tertiary container + its on-colour: About's default.
   mist('Mist'),
 
-  /// A white paper card with the role's colour as ink, in dark mode too — About and Note's fourth slot.
+  /// A white paper card with the role's colour as ink, in dark mode too — About and Note only.
   paper('Paper');
 
   const ShareTone(this.kotlinName);

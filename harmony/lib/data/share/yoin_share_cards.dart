@@ -144,8 +144,17 @@ abstract final class YoinShareCards {
     return null;
   }
 
-  /// The tone in swatch [slot] (0–3) for [role]; the sheet keeps the slot across tabs.
-  static ShareTone tone(ShareRole role, int slot) => role.tones()[slot];
+  /// The tones [tab] offers, in swatch order ([ShareRole.tones]).
+  static List<ShareTone> tones(ShareTab tab) => tab.role.tones();
+
+  /// The tone [tab] opens on until the listener picks one ([ShareRole.defaultTone]).
+  static ShareTone defaultTone(ShareTab tab) => tab.role.defaultTone;
+
+  /// The tone [tab] draws: the listener's [picked] tone (kept across tabs
+  /// while the sheet is open) where [tab] offers it, else the tab's default —
+  /// none picked yet, or Paper picked on About / Note and the lyrics shown.
+  static ShareTone resolveTone(ShareTab tab, ShareTone? picked) =>
+      picked != null && tones(tab).contains(picked) ? picked : defaultTone(tab);
 
   // ── lyrics ──
 
@@ -622,49 +631,39 @@ abstract final class YoinShareCards {
   static const int paperBackdropTone = 90;
 
   /// [tone]'s colours for [role], as roles of the playing palette's scheme
-  /// (Now Playing's theme is the cover's). The lyrics keep their pairings
-  /// (Vivid and Mist tertiary); About draws from tertiary, a note from primary,
-  /// with Paper in the fourth slot: a white card, the role re-toned as ink. The
-  /// fourth slot follows the role: a lyrics image asked for Paper draws Mist
-  /// and the others the other way round, so a slot kept across tabs stays valid.
+  /// (Now Playing's theme is the cover's). Soft / Deep / Vivid / Mist are the
+  /// lyrics' pairings on every tab (owner 2026-11-26: About and Note offer
+  /// every colour family; their defaults, [ShareRole.defaultTone], still follow
+  /// the colour rule). Paper is About and Note's: a white card with the role
+  /// (tertiary for About, primary for a note) re-toned as ink. The lyrics
+  /// don't offer Paper; asked for it, they draw Mist.
   static ShareToneColors toneColors(ShareTone tone, ShareRole role) {
-    if (role == ShareRole.lyrics) {
-      return switch (tone) {
-        ShareTone.soft => const ShareToneColors(
-          ShareInk(ShareInkSource.primaryContainer),
-          ShareInk(ShareInkSource.onPrimaryContainer),
-          ShareInk(ShareInkSource.primary),
-        ),
-        ShareTone.deep => const ShareToneColors(
-          ShareInk(ShareInkSource.onPrimaryContainer),
-          ShareInk(ShareInkSource.primaryContainer),
-          ShareInk(ShareInkSource.primaryContainer),
-        ),
-        ShareTone.vivid => const ShareToneColors(
-          ShareInk(ShareInkSource.tertiary),
-          ShareInk(ShareInkSource.onTertiary),
-          ShareInk(ShareInkSource.tertiaryContainer),
-        ),
-        ShareTone.mist || ShareTone.paper => const ShareToneColors(
-          ShareInk(ShareInkSource.tertiaryContainer),
-          ShareInk(ShareInkSource.onTertiaryContainer),
-          ShareInk(ShareInkSource.tertiary),
-        ),
-      };
-    }
-    final aiRole = role == ShareRole.ai;
-    final main = aiRole ? ShareInkSource.tertiary : ShareInkSource.primary;
-    final onMain = aiRole ? ShareInkSource.onTertiary : ShareInkSource.onPrimary;
-    final container = aiRole ? ShareInkSource.tertiaryContainer : ShareInkSource.primaryContainer;
-    final onContainer = aiRole ? ShareInkSource.onTertiaryContainer : ShareInkSource.onPrimaryContainer;
     return switch (tone) {
-      ShareTone.soft => ShareToneColors(ShareInk(container), ShareInk(onContainer), ShareInk(main)),
-      ShareTone.deep => ShareToneColors(ShareInk(onContainer), ShareInk(container), ShareInk(container)),
-      ShareTone.vivid => ShareToneColors(ShareInk(main), ShareInk(onMain), ShareInk(container)),
-      ShareTone.mist || ShareTone.paper => ShareToneColors(
+      ShareTone.soft => const ShareToneColors(
+        ShareInk(ShareInkSource.primaryContainer),
+        ShareInk(ShareInkSource.onPrimaryContainer),
+        ShareInk(ShareInkSource.primary),
+      ),
+      ShareTone.deep => const ShareToneColors(
+        ShareInk(ShareInkSource.onPrimaryContainer),
+        ShareInk(ShareInkSource.primaryContainer),
+        ShareInk(ShareInkSource.primaryContainer),
+      ),
+      ShareTone.vivid => const ShareToneColors(
+        ShareInk(ShareInkSource.tertiary),
+        ShareInk(ShareInkSource.onTertiary),
+        ShareInk(ShareInkSource.tertiaryContainer),
+      ),
+      ShareTone.mist => const ShareToneColors(
+        ShareInk(ShareInkSource.tertiaryContainer),
+        ShareInk(ShareInkSource.onTertiaryContainer),
+        ShareInk(ShareInkSource.tertiary),
+      ),
+      ShareTone.paper when role == ShareRole.lyrics => toneColors(ShareTone.mist, role),
+      ShareTone.paper => ShareToneColors(
         const ShareInk(ShareInkSource.white),
-        ShareInk(main, paperInkTone),
-        ShareInk(main, paperBackdropTone),
+        ShareInk(role == ShareRole.ai ? ShareInkSource.tertiary : ShareInkSource.primary, paperInkTone),
+        ShareInk(role == ShareRole.ai ? ShareInkSource.tertiary : ShareInkSource.primary, paperBackdropTone),
       ),
     };
   }
