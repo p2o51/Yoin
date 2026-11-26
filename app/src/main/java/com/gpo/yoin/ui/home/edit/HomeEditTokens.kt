@@ -161,7 +161,7 @@ internal object HomeEditTokens {
     const val VelocityMinDtMs = 4L
 
     // Session.
-    const val UndoMax = 20
+    const val UndoMax = com.gpo.yoin.shared.home.HOME_EDIT_UNDO_MAX
     const val HideScale = .96f
 
     /** Bar "Add" scrolls the tray top to this far below the viewport top. */

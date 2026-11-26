@@ -25,7 +25,9 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.home.HomeFeedRow
+import com.gpo.yoin.shared.home.HomeDragTokens as SharedDragTokens
+import com.gpo.yoin.shared.home.DragSideStep
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeLayout
 import com.gpo.yoin.ui.home.HomeSection
 import kotlin.math.abs
@@ -719,33 +721,33 @@ internal class HomeDragEngine(
 
     private companion object {
         // A frame after a stall scrolls no more than this far in time.
-        const val MaxFrameSeconds = 1f / 24f
+        const val MaxFrameSeconds = SharedDragTokens.MaxFrameSeconds
     }
 }
 
 /** Numbers of the drag. */
 internal object HomeDragTokens {
     /** The list scrolls while the finger is this close to the bar (or the status tide)… */
-    val AutoScrollEdge = 72.dp
+    val AutoScrollEdge = SharedDragTokens.AutoScrollEdge.dp
 
     /** …from this many dp/s where the band starts… */
-    val AutoScrollMin = 120.dp
+    val AutoScrollMin = SharedDragTokens.AutoScrollMin.dp
 
     /** …easing in (depth squared) to this many at the edge. */
-    val AutoScrollMax = 900.dp
+    val AutoScrollMax = SharedDragTokens.AutoScrollMax.dp
 
     /** Lifted with the finger already in a band, it scrolls once the finger pushes this much further toward the edge… */
-    val EdgeStartPush = 8.dp
+    val EdgeStartPush = SharedDragTokens.EdgeStartPush.dp
 
     /** …or rests there this long. */
-    const val EdgeStartDwellMs = 180f
+    const val EdgeStartDwellMs = SharedDragTokens.EdgeStartDwellMs
 
     /** The drop slot's frame: its stroke, over the lifted plate colour at [SlotFillAlpha]. */
     val SlotStroke = 2.dp
     const val SlotFillAlpha = .55f
 
     /** A change waits for this much finger (or scroll) travel since the last one. */
-    val ChangeTravel = 12.dp
+    val ChangeTravel = SharedDragTokens.ChangeTravel.dp
 }
 
 /** [this] layout with a drag's live [arrangement]: how the controller will write it on the drop. */

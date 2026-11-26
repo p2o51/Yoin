@@ -1,11 +1,11 @@
 package com.gpo.yoin.ui.home.edit
 
 import androidx.compose.foundation.lazy.LazyListItemInfo
-import com.gpo.yoin.ui.home.HomeFeedRow
-import com.gpo.yoin.ui.home.HomeSection.Activities
-import com.gpo.yoin.ui.home.HomeSection.JumpBackIn
-import com.gpo.yoin.ui.home.HomeSection.MemoryGrid
-import com.gpo.yoin.ui.home.HomeSection.RecentlyAdded
+import com.gpo.yoin.shared.home.HomeFeedRow
+import com.gpo.yoin.shared.home.HomeSection.Activities
+import com.gpo.yoin.shared.home.HomeSection.JumpBackIn
+import com.gpo.yoin.shared.home.HomeSection.MemoryGrid
+import com.gpo.yoin.shared.home.HomeSection.RecentlyAdded
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
