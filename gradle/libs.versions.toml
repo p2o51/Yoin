@@ -24,7 +24,7 @@ lifecycleCompose = "2.9.0"
 
 # Media
 media3 = "1.11.1"
-castFramework = "22.0.0"
+castFramework = "23.0.0"
 
 # Sing (on-device vocal separation, Lyra-Sing-Lite) on LiteRT (CompiledModel API): Google Tensor TPU (AOT
 # builds) through the Tensor dispatch library, the GPU (OpenCL/OpenGL accelerator) and the CPU (XNNPACK).
