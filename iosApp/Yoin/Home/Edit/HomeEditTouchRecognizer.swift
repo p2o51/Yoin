@@ -410,6 +410,24 @@ struct HomeEditTouchView: UIViewRepresentable {
             }
         }
 
+        /// Two columns (the feed only; the pinched list is one column of strips): the pairs shown side by side.
+        var pairs: [(HomeSection, HomeSection)]? {
+            MainActor.assumeIsolated {
+                guard let edit, edit.twoColumn, !inList else { return nil }
+                let shown = Set(order)
+                return edit.shown.pairs.filter { shown.contains($0.left) && shown.contains($0.right) }.map { ($0.left, $0.right) }
+            }
+        }
+
+        func bands(forRows rows: [[HomeSection]]) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)] {
+            MainActor.assumeIsolated {
+                guard let edit else { return [] }
+                guard edit.twoColumn, !inList else { return bands(for: rows.compactMap(\.first)) }
+                let top = viewportTop
+                return edit.layoutRowBands(for: rows).map { ($0.section, $0.top - top, $0.bottom - top) }
+            }
+        }
+
         var contentLeft: CGFloat { MainActor.assumeIsolated { edit?.contentBand(inList: inList).minX ?? 0 } }
         var contentWidth: CGFloat { MainActor.assumeIsolated { edit?.contentBand(inList: inList).width ?? bounds.width } }
 

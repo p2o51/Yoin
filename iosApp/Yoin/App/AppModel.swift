@@ -90,6 +90,9 @@ final class AppModel {
     /// Home's edit mode, for ⌘[ and the shell's chrome (HomeView registers it). Observed: the floating bar and
     /// the mini player step away while Home is edited (Android hides its nav for edit mode's own chrome).
     var homeEdit: HomeEditController?
+    /// The one Home edit session: it outlives a Home the shell rebuilds (iPad's columns appearing or going at an
+    /// 840 pt window, a rotation of an 11" iPad), so an open draft follows the new width instead of closing.
+    @ObservationIgnored private(set) lazy var homeEditor = HomeEditController()
     @ObservationIgnored var nowPlayingNoted = false
     /// iPad: the window's content width, for the panel/columns budget.
     var padWidth: CGFloat = 1024

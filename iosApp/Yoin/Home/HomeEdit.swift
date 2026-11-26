@@ -39,8 +39,12 @@ final class HomeEditController {
     let drag = HomeDragController()
     /// The pinched compact list (HomeEditList).
     let list = HomeEditListMode()
+    /// Two columns' ⌟: the span and unit drags (HomeGridResize).
+    let resize = HomeGridResize()
 
     @ObservationIgnored private(set) var scope = ""
+    /// Homes on screen with this session (a rebuild shows the new one before the old one goes).
+    @ObservationIgnored var homesShown = 0
     @ObservationIgnored private let store: HomeLayoutStore
     @ObservationIgnored private let stage = SpringRunner()
     @ObservationIgnored private let swaySpring = SpringRunner()
@@ -68,13 +72,15 @@ final class HomeEditController {
 
     init(store: HomeLayoutStore = .shared) {
         self.store = store
-        drag.commit = { [weak self] order in self?.commitDrop(order) ?? false }
+        drag.commit = { [weak self] order, pairs in self?.commitDrop(order, pairs: pairs) ?? false }
         drag.kick = { [weak self] section, a in self?.kick(section, a) }
         drag.letGo = { [weak self] in
             self?.feedRecognizer?.carryEnded()
             self?.listRecognizer?.carryEnded()
         }
         list.canChange = { [weak self] in self.map { $0.isEditing && !$0.drag.isCarrying && $0.drag.liftSection == nil } ?? false }
+        resize.commitSpan = { [weak self] section, write in self?.commitSpan(section, write) }
+        resize.commitUnits = { [weak self] section, units in self?.setUnits(section, units) }
     }
 
     /// The account changed (or Home appeared): its saved layout, unless mid-edit.
@@ -86,17 +92,58 @@ final class HomeEditController {
         undoStack = []
     }
 
+    // MARK: Two columns (parity p4 B2)
+
+    /// The feed lays out in two columns (Home sets it from its container: `HomeDensity.wide`).
+    private(set) var twoColumn = false
+    /// The layout edit mode started from (the stored one): an untouched draft follows a width change from it.
+    @ObservationIgnored private var base: HomeLayout = .default
+
+    /// The feed's width crossed the two-column tier. A drag still on rolls back first (its geometry is gone); in
+    /// edit mode the draft follows (shared `homeDraftAtWidth`): untouched it is what entering at this width would
+    /// have made it, edited it keeps its order and two columns pair it from its memory.
+    func setTwoColumn(_ on: Bool) {
+        guard on != twoColumn else { return }
+        drag.cancel()
+        resize.snap()
+        twoColumn = on
+        guard isEditing else { return }
+        let next = layout.atWidth(edited: !undoStack.isEmpty, base: base, twoColumn: on)
+        if next != layout { layout = next }
+    }
+
+    /// What the feed shows: the draft while editing; otherwise the saved layout at this width (in two columns a
+    /// never-customized one is the large-screen default).
+    var shown: HomeLayout {
+        let l = layout, e = isEditing, t = twoColumn
+        if let c = shownCache, c.editing == e, c.twoColumn == t, c.layout == l { return c.shown }
+        let v = e ? l : l.forTwoColumn(t)
+        shownCache = (l, e, t, v)
+        return v
+    }
+    @ObservationIgnored private var shownCache: (layout: HomeLayout, editing: Bool, twoColumn: Bool, shown: HomeLayout)?
+
+    /// The pairs the feed shows side by side now (the drag's live ones while one runs in the feed); none in one column.
+    var pairs: [(left: HomeSection, right: HomeSection)] {
+        guard twoColumn else { return [] }
+        if drag.live != nil, !drag.inList { return drag.livePairs }
+        return shown.pairs
+    }
+
     /// The sections in the order the feed draws them right now (the drag's live order while one runs in the feed).
-    var order: [HomeSection] { (drag.inList ? nil : drag.live) ?? layout.shownSections }
+    var order: [HomeSection] { (drag.inList ? nil : drag.live) ?? shown.shownSections }
 
     /// The sections in the order the list draws them right now.
-    var listOrder: [HomeSection] { (drag.inList ? drag.live : nil) ?? layout.shownSections }
+    var listOrder: [HomeSection] { (drag.inList ? drag.live : nil) ?? shown.shownSections }
 
     // MARK: Enter / leave
 
     func enter() {
         guard !isEditing else { return }
         enteredAt = Date()
+        base = layout
+        // Two columns edit what they show: a never-customized layout starts as the large-screen default.
+        layout = layout.forTwoColumn(twoColumn)
         isEditing = true
         undoStack = []
         run(stage, from: progress, to: 1, spring: Self.stageSpring) { [weak self] in self?.progress = $0 }
@@ -109,11 +156,15 @@ final class HomeEditController {
         guard isEditing else { return }
         if drag.isCarrying { drag.exit(reason) } else { drag.dropLift(0) }
         list.close()
+        resize.snap()
         isEditing = false
         charged = nil
         feedRecognizer?.editEnded()
         listRecognizer?.editEnded()
         if reason == .done { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+        // The saved layout again (either default was written as "never customized": it shows per width).
+        let saved = store.layout(scope)
+        if saved != layout { layout = saved }
         idleTask?.cancel()
         run(swaySpring, from: sway, to: 0, spring: .yoin(Tokens.motion.expressiveDefaultSpatial)) { [weak self] in self?.sway = $0 }
         run(stage, from: progress, to: 0, spring: Self.stageSpring) { [weak self] in self?.progress = $0 }
@@ -123,6 +174,8 @@ final class HomeEditController {
     func snapExit() {
         drag.snapToRest()
         list.snapOff()
+        resize.snap()
+        if isEditing, !scope.isEmpty { layout = store.layout(scope) }
         isEditing = false
         [stage, swaySpring].forEach { $0.stop() }
         idleTask?.cancel()
@@ -146,7 +199,7 @@ final class HomeEditController {
     private(set) var rowsPreview: [HomeSection: HomeRowPreset] = [:]
 
     /// [s]'s row preset as drawn now: the drag's, else the layout's.
-    func rowsOf(_ s: HomeSection) -> HomeRowPreset { rowsPreview[s] ?? layout.rowsOf(s) }
+    func rowsOf(_ s: HomeSection) -> HomeRowPreset { rowsPreview[s] ?? shown.rowsOf(s) }
 
     /// The handle crossed a stop: the section recomposes at [rows] under the finger.
     func previewRows(_ s: HomeSection, _ rows: HomeRowPreset) {
@@ -193,15 +246,45 @@ final class HomeEditController {
         touched()
     }
 
+    /// Back to this width's default (two columns: the large-screen one), written by the persist rule (either
+    /// default with nothing retained clears the account back to "never customized").
     func reset() {
         guard !drag.isCarrying else { return }
-        let next = layout.reset()
+        let next = layout.reset(twoColumn: twoColumn)
         guard !next.sameSections(as: layout) else { return }
         push()
         withAnimation(Yoin.spatial) { layout = next }
-        store.clear(scope)
+        store.save(next, scope: scope)
         touched()
     }
+
+    /// Reset has nothing to do: the draft is this width's default.
+    var isAtDefault: Bool { layout.isDefault(twoColumn: twoColumn) }
+
+    // MARK: Two-column edits (the span handle, the unit handle, VoiceOver)
+
+    /// [s] (full width) the left half of a pair with the row after it.
+    func setHalf(_ s: HomeSection) { commit(layout.withHalf(s)) }
+    /// [s] (one of a pair) full width; its partner takes its own row after it.
+    func setFull(_ s: HomeSection) { commit(layout.withFull(s)) }
+    /// [s] (full width) the right half beside the full section before it.
+    func placeBesidePrevious(_ s: HomeSection) { commit(layout.withBesidePrevious(s)) }
+    /// [s]'s row (and its partner) at [units] grid units.
+    func setUnits(_ s: HomeSection, _ units: Int) { commit(layout.withUnits(s, units)) }
+
+    /// A span drag or key's write: half (pulling the row after it up beside it) or full.
+    func commitSpan(_ s: HomeSection, _ write: HomeSpanCommit) {
+        switch write {
+        case .tohalf: setHalf(s)
+        case .tofull: setFull(s)
+        default: break
+        }
+    }
+
+    /// VoiceOver's "Place beside previous" applies to [s] now.
+    func canPlaceBesidePrevious(_ s: HomeSection) -> Bool { twoColumn && layout.withBesidePrevious(s) != layout }
+    /// [s] is half a pair in the draft.
+    func isHalf(_ s: HomeSection) -> Bool { twoColumn && shown.partner(of: s) != nil }
 
     func undo() {
         guard !drag.isCarrying, let prev = undoStack.popLast() else { return }
@@ -210,9 +293,11 @@ final class HomeEditController {
         touched()
     }
 
+    // One edit's step (shared `homeEditStep`): nothing changed is no step; two columns also make the memory
+    // what they show, so a pair formed or split here is remembered for the next time the feed is wide.
     private func commit(_ next: HomeLayout, animated: Bool = true) {
         guard !drag.isCarrying, !next.sameSections(as: layout) else { return }
-        apply(next, animated: animated)
+        apply(twoColumn ? next.rememberingShownPairs() : next, animated: animated)
     }
 
     private func apply(_ next: HomeLayout, animated: Bool) {
@@ -222,12 +307,16 @@ final class HomeEditController {
         touched()
     }
 
-    /// A drag's drop: the order it left (every block the feed shows), written once with a confirming tap.
-    private func commitDrop(_ order: [HomeSection]) -> Bool {
-        let next = layout.withEnabledOrder(order, unseen: layout.enabledSections.filter { !order.contains($0) })
+    /// A drag's drop: the order it left (every block the feed shows) and, in two columns, exactly the pairs it
+    /// left side by side (shared `withArrangement`), written once with a confirming tap.
+    private func commitDrop(_ order: [HomeSection], pairs: [(HomeSection, HomeSection)]) -> Bool {
+        let unseen = layout.enabledSections.filter { !order.contains($0) }
+        let next = twoColumn && !drag.inList
+            ? layout.withArrangement(order, pairs: pairs, unseen: unseen)
+            : layout.withEnabledOrder(order, unseen: unseen)
         guard !next.sameSections(as: layout) else { return false }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        apply(next, animated: false)
+        apply(twoColumn ? next.rememberingShownPairs() : next, animated: false)
         return true
     }
 
@@ -381,11 +470,28 @@ final class HomeEditController {
         }
     }
 
+    /// Two columns: the rows [rows] lay out in the feed's space, each exactly its grid height (its units in the
+    /// draft: a pair its left half's count held in both ranges), one feed spacing apart from the rows' top at rest.
+    func layoutRowBands(for rows: [[HomeSection]]) -> [(section: HomeSection, top: CGFloat, bottom: CGFloat)] {
+        let laid = rows.compactMap(\.first).compactMap { frames[$0] }
+        if !drag.isCarrying && drag.settling == nil || restTop[false] == nil, let top = laid.map(\.minY).min() {
+            restTop[false] = top
+        }
+        var y = restTop[false] ?? 0
+        let l = shown
+        return rows.compactMap { row in
+            guard let first = row.first else { return nil }
+            let h = HomeGrid.height(units: l.units(ofRow: row))
+            defer { y += h + HomeGrid.feedSpacing }
+            return (first, y, y + h)
+        }
+    }
+
     /// The content's left edge and width across, in the feed's (or the list's) space.
     func contentBand(inList: Bool) -> CGRect {
-        let laid = inList ? listFrames : frames
-        guard let any = laid.values.first else { return .zero }
-        return CGRect(x: any.minX, y: 0, width: any.width, height: 0)
+        let laid = (inList ? listFrames : frames).filter { (inList ? listOrder : order).contains($0.key) }.values
+        guard let minX = laid.map(\.minX).min(), let maxX = laid.map(\.maxX).max() else { return .zero }
+        return CGRect(x: minX, y: 0, width: maxX - minX, height: 0)
     }
 
     // MARK: The gesture machine's actions
@@ -405,7 +511,7 @@ final class HomeEditController {
             case is HomeEditGestureActionDragStartHaptic:
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             case let l as HomeEditGestureActionLift:
-                guard rowsPreview.isEmpty, let section = HomeSection(rawValue: l.section.id) else { break }
+                guard rowsPreview.isEmpty, !resize.isActive, let section = HomeSection(rawValue: l.section.id) else { break }
                 kickState(section).still()
                 drag.liftBlock(section)
             case let d as HomeEditGestureActionDropLift:
@@ -505,6 +611,8 @@ struct HomeEditBlock<Content: View>: View {
     var lyricCount: Bool = false
     /// How many blocks the feed shows (VoiceOver's "of N").
     var count: Int = 0
+    /// Two columns: where it sits (its ⌟ drags its span and its row's units instead of the phone's rows).
+    var place: HomeGridPlace? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -521,8 +629,15 @@ struct HomeEditBlock<Content: View>: View {
             .overlay(alignment: .topTrailing) {
                 if p > 0.02 { badges(s, r) }
             }
+            .overlay(alignment: place?.span == .right ? .topTrailing : .topLeading) {
+                if let place, edit.resize.spanSection == section {
+                    HomeSpanOutline(resize: edit.resize, place: place, scheme: s)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
-                if let rows, rows.stops.count > 1, p > 0.02 {
+                if let place, p > 0.02 {
+                    HomeGridHandleView(edit: edit, place: place, scheme: s, ripple: r)
+                } else if let rows, rows.stops.count > 1, p > 0.02 {
                     HomeRowsHandleView(edit: edit, section: section, handle: rows, scheme: s, ripple: r)
                 } else if lyricCount, p > 0.02 {
                     HomeLyricCountHandleView(edit: edit, scheme: s, ripple: r)
@@ -558,6 +673,8 @@ struct HomeEditBlock<Content: View>: View {
                 .foregroundStyle(s.onSurfaceVariant)
                 .frame(width: 48, height: 48)
                 .contentShape(.rect)
+                // A pointer over it in edit mode: the move cursor (both ways in two columns, where a drag pairs too).
+                .overlay { if edit.isEditing { HomeHandlePointer(axes: edit.twoColumn ? .both : .vertical) } }
                 .modifier(EditFrameReport(space: HomeEditController.feedSpace) { edit.reportHandle(section, frame: $0, owner: $1) })
         }
         .accessibilityHidden(true)
@@ -575,13 +692,28 @@ struct HomeEditBlock<Content: View>: View {
             .allowsHitTesting(false)
             .accessibilityElement()
             .accessibilityLabel(section.title)
-            .accessibilityValue(HomeEditAccessibility.position(index + 1, of: n, rows: rowsLabel))
+            .accessibilityValue(HomeEditAccessibility.position(index + 1, of: n, rows: place.map { HomeRowsHandle.label($0.units) } ?? rowsLabel,
+                                                               span: place.map(\.span)))
             .accessibilityIdentifier("home.section.\(section.id)")
             .accessibilityActions {
                 if index > 0 { Button(String(localized: "Move up")) { edit.move(section, to: index - 1) } }
                 if index < n - 1 { Button(String(localized: "Move down")) { edit.move(section, to: index + 1) } }
+                // Two columns: pairing without a drag (beside the block before, or back to a full row).
+                if edit.canPlaceBesidePrevious(section) {
+                    Button(HomeGridAccessibility.placeBesidePrevious) { edit.placeBesidePrevious(section) }
+                }
+                if edit.isHalf(section) {
+                    Button(HomeGridAccessibility.makeFullWidth) { edit.setFull(section) }
+                }
                 Button(String(localized: "Hide")) { edit.hide(section) }
-                if let rows, rows.stops.count > 1 {
+                if let place {
+                    if place.range.contains(place.units + 1) {
+                        Button(String(localized: "More rows")) { edit.setUnits(section, place.units + 1) }
+                    }
+                    if place.range.contains(place.units - 1) {
+                        Button(String(localized: "Fewer rows")) { edit.setUnits(section, place.units - 1) }
+                    }
+                } else if let rows, rows.stops.count > 1 {
                     if rows.index < rows.stops.count - 1 {
                         Button(String(localized: "More rows")) { edit.setRows(section, rows.stops[rows.index + 1].preset) }
                     }
@@ -617,9 +749,15 @@ struct EditFrameReport: ViewModifier {
 /// VoiceOver's words for a block in edit mode.
 enum HomeEditAccessibility {
     /// "Section 2 of 9" (Android home_cd_section_index), with ", 4 rows" for a section that has rows.
-    static func position(_ j: Int, of n: Int, rows: String?) -> String {
-        if let rows { return String(localized: "Section \(j) of \(n), \(rows)") }
-        return String(localized: "Section \(j) of \(n)")
+    static func position(_ j: Int, of n: Int, rows: String?, span: HomeGridPlace.Span? = nil) -> String {
+        let base: String
+        if let rows { base = String(localized: "Section \(j) of \(n), \(rows)") } else { base = String(localized: "Section \(j) of \(n)") }
+        // Two columns: which side of its row a half is on ("Left half" / "Right half").
+        switch span {
+        case .left: return base + ", " + String(localized: "Left half")
+        case .right: return base + ", " + String(localized: "Right half")
+        default: return base
+        }
     }
 }
 
@@ -736,6 +874,7 @@ struct HomeRowsHandleView: View {
             .frame(width: 44, height: 44, alignment: .bottomTrailing)
             .padding(8)
             .contentShape(.rect)
+            .overlay { if edit.isEditing { HomeHandlePointer(axes: .vertical) } }
             .scaleEffect(0.6 + 0.4 * shown)
             .opacity(Double(shown))
             // The plate's corner (outset 8 / 6), the glyph's corner inside it.
@@ -984,12 +1123,12 @@ struct HomeEditTray: View {
                     YoinIcon("refresh", size: 18)
                     Text("Reset Home").homeType(Tokens.type.labelLarge, .semibold)
                 }
-                .foregroundStyle(edit.layout.isDefault ? s.onSurface.opacity(0.38) : s.primary)
+                .foregroundStyle(edit.isAtDefault ? s.onSurface.opacity(0.38) : s.primary)
                 .padding(.horizontal, 16)
                 .frame(height: 48)
             }
             .buttonStyle(PressScale())
-            .disabled(edit.layout.isDefault || edit.drag.isCarrying)
+            .disabled(edit.isAtDefault || edit.drag.isCarrying)
             .frame(maxWidth: .infinity)
         }
         .id(HomeEditTray.id)

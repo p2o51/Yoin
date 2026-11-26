@@ -17,6 +17,8 @@ struct HomeLyricCardsSection: View {
     /// The tip page's demo phone (Tips/TipHomeScenes.swift): made-up cards with their covers, a pager the
     /// demo turns, and nothing played or marked shown.
     var demo: LyricCardsDemo? = nil
+    /// Two columns: the cell it lays out in (unit cards on a paging shelf under the title row); nil in one column.
+    var cell: HomeCell? = nil
     private let store = LyricHighlightStore.shared
     private let processor = LyricHighlightProcessor.shared
     /// How each card's song has been heard (Android's card kind), worked out once per set of cards.
@@ -24,6 +26,42 @@ struct HomeLyricCardsSection: View {
 
     var body: some View {
         let s = scheme ?? .brand(dark: false)
+        Group {
+            if let cell, let units = cell.units { grid(cell, units: units, s) } else { column(s) }
+        }
+        .onAppear {
+            guard demo == nil else { return }
+            let now = LyricHighlightProcessor.nowMs
+            if let first = cards.first { store.markShown(first.id, at: now) }
+        }
+        .task(id: cards.map(\.id)) {
+            guard demo == nil, let account = model.profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return }
+            kinds = processor.kinds(of: cards, account: account)
+        }
+    }
+
+    /// On the grid (Android LyricUnitSection): the title row, then whole cards a page, one in a half and two in a
+    /// full row, each exactly the box's height under the title row; the intro sized to the box the same way.
+    @ViewBuilder
+    private func grid(_ cell: HomeCell, units: Int, _ s: CoverScheme) -> some View {
+        let height = HomeGrid.content(units: min(max(units, 1), 2))
+        if demo == nil, !store.introSeen && !store.optedIn {
+            VStack(alignment: .leading, spacing: 0) {
+                HomeGridTitleRow(HomeSection.lyricHighlight.title)
+                intro(s).frame(maxWidth: .infinity, maxHeight: height, alignment: .topLeading)
+            }
+        } else {
+            let perPage = cell.half ? 1 : 2
+            let width = HomeGrid.cardWidth(page: cell.width, perPage: perPage)
+            // A full row pages too, whole cards (Android pagedFull).
+            let paged = HomeCell(density: cell.density, units: cell.units, half: true, height: cell.height)
+            HomeGridShelf(title: HomeSection.lyricHighlight.title, cell: paged, cardWidth: width, cards: cards.count, minGap: 14) { _ in
+                ForEach(cards) { card($0, s, height: height).frame(width: width, height: height) }
+            }
+        }
+    }
+
+    private func column(_ s: CoverScheme) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if demo == nil, !store.introSeen && !store.optedIn { intro(s) }
             if !cards.isEmpty {
@@ -40,18 +78,9 @@ struct HomeLyricCardsSection: View {
                 .padding(.horizontal, -margin)
             }
         }
-        .onAppear {
-            guard demo == nil else { return }
-            let now = LyricHighlightProcessor.nowMs
-            if let first = cards.first { store.markShown(first.id, at: now) }
-        }
-        .task(id: cards.map(\.id)) {
-            guard demo == nil, let account = model.profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return }
-            kinds = processor.kinds(of: cards, account: account)
-        }
     }
 
-    private func card(_ c: LyricHighlightRow, _ s: CoverScheme) -> some View {
+    private func card(_ c: LyricHighlightRow, _ s: CoverScheme, height: CGFloat? = nil) -> some View {
         Button { homeTap(edit) { if let demo { demo.onPlay(c) } else { model.playFromLine(c) } } } label: {
             VStack(alignment: .leading, spacing: 14) {
                 Text(c.text ?? "")
@@ -77,7 +106,7 @@ struct HomeLyricCardsSection: View {
                 }
             }
             .padding(18)
-            .frame(maxWidth: .infinity, minHeight: 170, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: height ?? 170, maxHeight: height, alignment: .topLeading)
             .background(s.surfaceContainerLow.mix(with: BackdropColors(palette(c)).base, by: 0.14, in: .perceptual),
                         in: .rect(cornerRadius: 28))
             .contentShape(.rect(cornerRadius: 28))
