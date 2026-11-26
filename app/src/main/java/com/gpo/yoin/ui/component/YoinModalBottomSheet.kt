@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.BottomSheetDefaults
@@ -49,7 +50,9 @@ fun YoinModalBottomSheet(
     val back = rememberSheetBackBridge()
     val view = LocalView.current
     val lightNavigationBars = contentColorFor(containerColor).let { it != Color.Transparent && it.luminance() <= 0.5f }
-    val properties = remember(view, lightNavigationBars) {
+    // A light / dark switch reads the page's icons again (the Activity has set the new theme's by then).
+    val darkTheme = isSystemInDarkTheme()
+    val properties = remember(view, lightNavigationBars, darkTheme) {
         val window = view.context.findActivityOrNull()?.window
         if (window == null) {
             ModalBottomSheetProperties()
