@@ -51,7 +51,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -197,17 +196,20 @@ internal class ShareSheetHost {
     }
 }
 
-/** An open sheet's own choices: the tab (null = the one it opened on), Card / Story, the tone slot. */
+/**
+ * An open sheet's own choices: the tab (null = the one it opened on), Card / Story, and the tone the listener
+ * picked (null = none yet: each tab opens on its own default, [YoinShareCards.resolveTone]).
+ */
 @Stable
 internal class ShareSheetUi {
     var tab: ShareTab? by mutableStateOf(null)
     var format: LyricsShareFormat by mutableStateOf(LyricsShareFormat.Card)
-    var toneSlot: Int by mutableIntStateOf(0)
+    var tone: ShareTone? by mutableStateOf(null)
 
     fun reset() {
         tab = null
         format = LyricsShareFormat.Card
-        toneSlot = 0
+        tone = null
     }
 }
 
@@ -338,8 +340,9 @@ internal fun ShareSheet(
     }
     val layout = layouts[tab] ?: return
     val format = ui.format
-    // The tone is a slot (0–3), kept across tabs: the lyrics' fourth is Mist, About and Note's Paper.
-    val tone = YoinShareCards.tone(tab.role, ui.toneSlot)
+    // Every tab offers both colour families; the tab's own colour is only its default. A pick carries across tabs
+    // (Paper, which the lyrics don't have, falls back to their default there).
+    val tone = YoinShareCards.resolveTone(tab, ui.tone)
     var sharing by remember { mutableStateOf(false) }
     var saveStatus by remember { mutableStateOf(SaveStatus.Idle) }
     // One layer per shown image: during a cross-fade both draw, and neither may overwrite the other's recording.
@@ -376,10 +379,9 @@ internal fun ShareSheet(
         }
     }
     val pickTone: (ShareTone) -> Unit = { picked ->
-        val slot = tab.role.tones().indexOf(picked)
-        if (slot >= 0 && slot != ui.toneSlot) {
+        if (picked in YoinShareCards.tones(tab) && picked != tone) {
             haptics.performSegmentTick()
-            ui.toneSlot = slot
+            ui.tone = picked
             saveStatus = SaveStatus.Idle
         }
     }

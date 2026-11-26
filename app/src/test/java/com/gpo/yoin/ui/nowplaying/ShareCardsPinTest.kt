@@ -338,6 +338,15 @@ class ShareCardsPinTest {
         }
         val roleTones = golden.getValue("constants").jsonObject.obj("roleTones")
         ShareRole.entries.forEach { role -> assertEquals(roleTones.strings(role.name), role.tones().map { it.name }) }
+        val roleDefaults = golden.getValue("constants").jsonObject.obj("roleDefaultTones")
+        ShareRole.entries.forEach { role -> assertEquals(roleDefaults.string(role.name), role.defaultTone.name) }
+        // The sheet's tone: what each tab offers, opens on, and draws for a pick (ShareSheet's resolveTone).
+        section("toneOffer").forEach { v ->
+            val tab = ShareTab.valueOf(v.string("tab")!!)
+            assertEquals(v.name, v.strings("tones"), YoinShareCards.tones(tab).map { it.name })
+            assertEquals(v.name, v.string("default"), YoinShareCards.defaultTone(tab).name)
+            assertEquals(v.name, v.string("resolved"), YoinShareCards.resolveTone(tab, v.string("picked")?.let(ShareTone::valueOf)).name)
+        }
         section("tones").forEach { v ->
             val colors = ShareTone.valueOf(v.string("tone")!!).colors(scheme, ShareRole.valueOf(v.string("role")!!))
             assertEquals(v.name, resolve(v.obj("card")), colors.card)

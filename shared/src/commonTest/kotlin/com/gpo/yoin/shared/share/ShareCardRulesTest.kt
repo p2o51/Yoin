@@ -93,7 +93,9 @@ class ShareCardRulesTest {
     @Test
     fun should_drawPaperFromTheRole_when_sharingAboutOrANote() {
         assertEquals(listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Mist), ShareRole.Lyrics.tones())
-        assertEquals(listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Paper), ShareRole.Ai.tones())
+        val all = listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Mist, ShareTone.Paper)
+        assertEquals(all, ShareRole.Ai.tones())
+        assertEquals(all, ShareRole.Own.tones())
         val aboutPaper = YoinShareCards.toneColors(ShareTone.Paper, ShareRole.Ai)
         assertEquals(ShareInk(ShareInkSource.White, null), aboutPaper.card)
         assertEquals(ShareInk(ShareInkSource.Tertiary, 40), aboutPaper.content)
@@ -101,6 +103,29 @@ class ShareCardRulesTest {
         assertEquals(ShareInk(ShareInkSource.Primary, 40), YoinShareCards.toneColors(ShareTone.Paper, ShareRole.Own).content)
         assertEquals(ShareInk(ShareInkSource.TertiaryContainer, null), YoinShareCards.toneColors(ShareTone.Paper, ShareRole.Lyrics).card)
         assertEquals(ShareInk(ShareInkSource.PrimaryContainer, null), YoinShareCards.toneColors(ShareTone.Soft, ShareRole.Own).card)
+    }
+
+    @Test
+    fun should_offerEveryFamily_but_openOnTheRolesColour_when_sharingAboutOrANote() {
+        // The lyrics' four pairings are the same on every tab: About and Note can be primary, a note tertiary.
+        ShareTone.entries.filter { it != ShareTone.Paper }.forEach { tone ->
+            val lyrics = YoinShareCards.toneColors(tone, ShareRole.Lyrics)
+            assertEquals(lyrics, YoinShareCards.toneColors(tone, ShareRole.Ai))
+            assertEquals(lyrics, YoinShareCards.toneColors(tone, ShareRole.Own))
+        }
+        assertEquals(ShareInk(ShareInkSource.PrimaryContainer, null), YoinShareCards.toneColors(ShareTone.Soft, ShareRole.Ai).card)
+        assertEquals(ShareInk(ShareInkSource.TertiaryContainer, null), YoinShareCards.toneColors(ShareTone.Mist, ShareRole.Own).card)
+        // The default still follows the colour rule, and it is today's colours: About tertiary, a note primary.
+        assertEquals(ShareTone.Soft, YoinShareCards.defaultTone(ShareTab.Lyrics))
+        assertEquals(ShareTone.Mist, YoinShareCards.defaultTone(ShareTab.About))
+        assertEquals(ShareTone.Soft, YoinShareCards.defaultTone(ShareTab.Note))
+        assertEquals(ShareInk(ShareInkSource.TertiaryContainer, null), YoinShareCards.toneColors(ShareTone.Mist, ShareRole.Ai).card)
+        // A pick carries across tabs where the tab offers it; Paper doesn't reach the lyrics.
+        assertEquals(ShareTone.Mist, YoinShareCards.resolveTone(ShareTab.About, null))
+        assertEquals(ShareTone.Deep, YoinShareCards.resolveTone(ShareTab.About, ShareTone.Deep))
+        assertEquals(ShareTone.Vivid, YoinShareCards.resolveTone(ShareTab.Note, ShareTone.Vivid))
+        assertEquals(ShareTone.Paper, YoinShareCards.resolveTone(ShareTab.Note, ShareTone.Paper))
+        assertEquals(ShareTone.Soft, YoinShareCards.resolveTone(ShareTab.Lyrics, ShareTone.Paper))
     }
 
     private val labels = ShareAboutLabels("lyricist", "composer", "Arranger", "producer", "creation_time", "creation_location", "Year", "About")

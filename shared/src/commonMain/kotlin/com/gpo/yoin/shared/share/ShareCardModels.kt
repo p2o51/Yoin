@@ -3,7 +3,7 @@ package com.gpo.yoin.shared.share
 /*
  * Share as image (Android PR #335, owner 2026-11-25; prototypes design/hifi/src/components/share.js): one sheet,
  * three tabs — the lyrics, the song's About (AI / objective text, tertiary) and one of the listener's notes (their
- * own words, primary) — each with its own layouts, Card / Story, and four tones. These are the plain models the
+ * own words, primary) — each with its own layouts, Card / Story, and its tones. These are the plain models the
  * rules ([YoinShareCards]) read and answer; every platform draws the images itself.
  */
 
@@ -68,8 +68,9 @@ enum class ShareLayout(val tab: ShareTab) {
 }
 
 /**
- * Whose words an image carries: the lyrics keep their own pairings; About is AI / objective text and reads
- * tertiary; a note is the listener's own and reads primary.
+ * Whose words an image carries: the lyrics keep their own pairings; About is AI / objective text and opens
+ * tertiary; a note is the listener's own and opens primary. The colour rule only decides the default: every tab
+ * offers both colour families (owner 2026-11-26, 「放开，这个是给用户选择的」).
  */
 enum class ShareRole {
     Lyrics,
@@ -77,28 +78,41 @@ enum class ShareRole {
     Own,
     ;
 
-    /** The four tones the role offers, in swatch order (the sheet keeps the slot, 0–3, across tabs). */
+    /**
+     * The tones the role offers, in swatch order: the lyrics' four (primary container, its inverse, tertiary,
+     * tertiary container) for every role, and for About and Note Paper after them, inked in the role's colour.
+     */
     fun tones(): List<ShareTone> = when (this) {
         Lyrics -> listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Mist)
-        Ai, Own -> listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Paper)
+        Ai, Own -> listOf(ShareTone.Soft, ShareTone.Deep, ShareTone.Vivid, ShareTone.Mist, ShareTone.Paper)
     }
+
+    /**
+     * The tone an image opens on until the listener picks one: the role's colour rule — the lyrics and a note
+     * primary container (Soft), About tertiary container (Mist).
+     */
+    val defaultTone: ShareTone
+        get() = when (this) {
+            Lyrics, Own -> ShareTone.Soft
+            Ai -> ShareTone.Mist
+        }
 }
 
-/** An image's colour pairing ([YoinShareCards.toneColors]). */
+/** An image's colour pairing ([YoinShareCards.toneColors]); the same colours on every tab, Paper aside. */
 enum class ShareTone {
-    /** Container + on-container: the default. */
+    /** Primary container + its on-colour: the lyrics' and a note's default. */
     Soft,
 
     /** The soft pair inverted. */
     Deep,
 
-    /** The role colour + its on-colour (tertiary for the lyrics). */
+    /** Tertiary + its on-colour. */
     Vivid,
 
-    /** Tertiary container + its on-colour — the lyrics' fourth slot. */
+    /** Tertiary container + its on-colour: About's default. */
     Mist,
 
-    /** A white paper card with the role's colour as ink, in dark mode too — About and Note's fourth slot. */
+    /** A white paper card with the role's colour as ink, in dark mode too — About and Note only. */
     Paper,
 }
 
