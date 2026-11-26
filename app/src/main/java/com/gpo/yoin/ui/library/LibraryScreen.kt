@@ -77,6 +77,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.gpo.yoin.data.model.albumNameWithoutVersion
 import com.gpo.yoin.ui.component.RowEndBadges
+import com.gpo.yoin.ui.component.coverKindTag
+import com.gpo.yoin.ui.component.nameWithoutKindSuffix
 import com.gpo.yoin.ui.home.WidgetShapeKind
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -2436,10 +2438,11 @@ internal fun AlbumListItem(
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f).seamFade()) {
-                // The title is the name alone; the version tag and the "E" sit at the row's end (owner
-                // 2026-11-26; a 48dp thumb has no room for the backdrop band).
+                // The title is the name alone (Apple Music's " - EP" / " - Single" too); the kind, the
+                // version tag and the "E" sit at the row's end (owner 2026-11-26; a 48dp thumb has no
+                // room for the backdrop band).
                 AlbumVersionTitle(
-                    name = albumNameWithoutVersion(album.name, album.version),
+                    name = nameWithoutKindSuffix(albumNameWithoutVersion(album.name, album.version), album.releaseType),
                     version = null,
                     titleStyle = MaterialTheme.typography.titleSmall,
                 ) { text, titleModifier ->
@@ -2465,6 +2468,7 @@ internal fun AlbumListItem(
             RowEndBadges(
                 version = album.version,
                 explicit = album.isExplicit,
+                kind = coverKindTag(album.releaseType),
                 modifier = Modifier.padding(start = 8.dp),
             )
         }

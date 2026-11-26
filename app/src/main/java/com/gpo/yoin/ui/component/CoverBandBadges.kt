@@ -62,7 +62,9 @@ internal fun CoverBandBadges(
         content = {
             if (kind != null) BandChip(kind)
             if (tag != null) BandChip(tag)
-            if (explicit) ExplicitBadge(textStyle = badgeStyle)
+            // In the chips' surface colour, its E cut out to the shape's (the cover's) colour: on a
+            // palette-tinted shape the list's onSurfaceVariant square could sink into the tint.
+            if (explicit) ExplicitBadge(textStyle = badgeStyle, color = MaterialTheme.colorScheme.surface)
         },
     ) { measurables, constraints ->
         val w = constraints.maxWidth
@@ -73,7 +75,10 @@ internal fun CoverBandBadges(
         // the shape's top-start lobe.
         val minStart = (w * BandInsetFraction).roundToInt()
         val gap = BadgeGap.roundToPx()
-        val end = w - if (stickerRoom) StickerRoom.roundToPx() else 0
+        // The row stops short of the shape's top-end curve as it starts inside its top-start lobe:
+        // a badge running to the box's edge would hang half off the shape (its cut-out E then shows
+        // the page on one side and the shape on the other).
+        val end = w - maxOf(minStart, if (stickerRoom) StickerRoom.roundToPx() else 0)
         var room = (end - minStart).coerceAtLeast(0)
         val byRole = roles.zip(measurables).toMap()
         val placed = mutableMapOf<Role, androidx.compose.ui.layout.Placeable>()
@@ -135,18 +140,20 @@ private const val BandInsetFraction = 0.08f
 private val MinTagWidth = 40.dp
 
 /**
- * A list row's version tag and "E" at the row's end, vertically centred, so the title
- * stays clean and the row keeps its height. The tag is capped so it never squeezes the title.
+ * A list row's kind tag ("EP", "Single"; coverKindTag), version tag and "E" at the row's end,
+ * vertically centred, so the title stays clean and the row keeps its height. The version tag is
+ * capped so it never squeezes the title.
  */
 @Composable
-fun RowEndBadges(version: String?, explicit: Boolean, modifier: Modifier = Modifier) {
+fun RowEndBadges(version: String?, explicit: Boolean, modifier: Modifier = Modifier, kind: String? = null) {
     val tag = version?.trim()?.takeIf(String::isNotEmpty)
-    if (tag == null && !explicit) return
+    if (tag == null && kind == null && !explicit) return
     androidx.compose.foundation.layout.Row(
         modifier = modifier,
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(BadgeGap),
     ) {
+        if (kind != null) AlbumVersionTag(version = kind)
         if (tag != null) {
             AlbumVersionTag(
                 version = tag,
