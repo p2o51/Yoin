@@ -5,85 +5,64 @@ import androidx.compose.runtime.Immutable
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.data.model.LyricCreditRole
 import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.data.remote.ai.AiProvider
-import com.gpo.yoin.ui.component.currentAnchoredNoteId
+import com.gpo.yoin.shared.share.ShareAboutEntry
+import com.gpo.yoin.shared.share.ShareAboutLabels
+import com.gpo.yoin.shared.share.ShareAboutSources
+import com.gpo.yoin.shared.share.ShareCardContent
+import com.gpo.yoin.shared.share.ShareExcerpt
+import com.gpo.yoin.shared.share.ShareLyricLine
+import com.gpo.yoin.shared.share.ShareLyrics
+import com.gpo.yoin.shared.share.ShareVerticalPlan
+import com.gpo.yoin.shared.share.YoinShareCards
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.floor
-import kotlin.math.max
 
 /*
  * Share as image (owner 2026-11-25, prototypes design/hifi/src/components/share.js): one sheet, three tabs
  * — the lyrics, the song's About (AI / objective text, tertiary) and one of the listener's notes (their own
- * words, primary) — each with its own layouts. This file is the model: what each tab shares, which layouts
- * it offers, and the pure rules behind them; ShareCards.kt draws the images, ShareSheet.kt the sheet.
+ * words, primary) — each with its own layouts. This file is the model: what each tab shares and which layouts
+ * it offers. The rules themselves live in :shared ([YoinShareCards], com.gpo.yoin.shared.share) so iOS and
+ * HarmonyOS answer alike (golden vectors: shared/src/commonTest/resources/golden/share-cards.json); here they
+ * are adapted to Now Playing's types. ShareCards.kt draws the images, ShareSheet.kt the sheet.
  */
 
-/** The sheet's tabs, in order: 歌词 / 关于 / 笔记. */
-internal enum class ShareTab(@StringRes val label: Int) {
-    Lyrics(R.string.np_tab_lyrics),
-    About(R.string.np_tab_about),
-    Note(R.string.np_tab_note),
-    ;
+/** The sheet's tabs, in order: 歌词 / 关于 / 笔记 ([com.gpo.yoin.shared.share.ShareTab]). */
+internal typealias ShareTab = com.gpo.yoin.shared.share.ShareTab
 
-    val role: ShareRole
-        get() = when (this) {
-            Lyrics -> ShareRole.Lyrics
-            About -> ShareRole.Ai
-            Note -> ShareRole.Own
-        }
-}
+/** Every layout of every tab, in each tab's 版式 order; each tab's first is its default. */
+internal typealias ShareLayout = com.gpo.yoin.shared.share.ShareLayout
 
-/** Every layout of every tab, in each tab's 版式 order. A's are the defaults. */
-internal enum class ShareLayout(val tab: ShareTab, @StringRes val label: Int) {
-    /** Today's card: cover + title, the lines, the mark. */
-    LyricsClassic(ShareTab.Lyrics, R.string.np_share_layout_classic),
+/** The tab's name on the sheet: the Now Playing tabs' words. */
+@get:StringRes
+internal val ShareTab.label: Int
+    get() = when (this) {
+        ShareTab.Lyrics -> R.string.np_tab_lyrics
+        ShareTab.About -> R.string.np_tab_about
+        ShareTab.Note -> R.string.np_tab_note
+    }
 
-    /** The first line at display size, up to three more small under it. */
-    LyricsPoster(ShareTab.Lyrics, R.string.np_share_layout_poster),
+/** The layout's name under its thumbnail. */
+@get:StringRes
+internal val ShareLayout.label: Int
+    get() = when (this) {
+        ShareLayout.LyricsClassic -> R.string.np_share_layout_classic
+        ShareLayout.LyricsPoster -> R.string.np_share_layout_poster
+        ShareLayout.LyricsPlayer -> R.string.np_share_layout_player
+        ShareLayout.LyricsVertical -> R.string.np_share_layout_vertical
+        ShareLayout.AboutReceipt -> R.string.np_share_layout_receipt
+        ShareLayout.AboutQuote -> R.string.np_share_layout_quote
+        ShareLayout.AboutLiner -> R.string.np_share_layout_liner
+        ShareLayout.NoteBig -> R.string.np_share_layout_big
+        ShareLayout.NoteClipping -> R.string.np_share_layout_clipping
+        ShareLayout.NoteTimeline -> R.string.np_share_layout_timeline
+    }
 
-    /** The lines over a progress bar marking where they sit in the song. */
-    LyricsPlayer(ShareTab.Lyrics, R.string.np_share_layout_player),
-
-    /** CJK lines set top to bottom, right to left (CJK picks only). */
-    LyricsVertical(ShareTab.Lyrics, R.string.np_share_layout_vertical),
-
-    /** The credits as a receipt (dashed rules), then the paragraph. */
-    AboutReceipt(ShareTab.About, R.string.np_share_layout_receipt),
-
-    /** The paragraph as the hero, the credits as chips. */
-    AboutQuote(ShareTab.About, R.string.np_share_layout_quote),
-
-    /** Liner notes: a large title, the credits in a grid, the paragraph. */
-    AboutLiner(ShareTab.About, R.string.np_share_layout_liner),
-
-    /** The note in large type, like the lyrics card. */
-    NoteBig(ShareTab.Note, R.string.np_share_layout_big),
-
-    /** The note as a scrapbook clipping on dot paper, with a ticket stub. */
-    NoteClipping(ShareTab.Note, R.string.np_share_layout_clipping),
-
-    /** The note hanging from its moment on a wavy progress line. */
-    NoteTimeline(ShareTab.Note, R.string.np_share_layout_timeline),
-    ;
-
-    /** In Story this layout is the whole poster, edge to edge; the others sit as a card on a backdrop. */
-    val storyIsPoster: Boolean
-        get() = this == LyricsPoster || this == LyricsVertical || this == AboutLiner || this == NoteClipping
-}
-
-/** The song an image is about. [durationMs] 0 = unknown. */
-@Immutable
-internal data class ShareSong(
-    val songId: String,
-    val title: String,
-    val artist: String,
-    val coverArtUrl: String?,
-    val albumName: String = "",
-    val durationMs: Long = 0L,
-)
+/** The song an image is about. [ShareSong.durationMs] 0 = unknown. */
+internal typealias ShareSong = com.gpo.yoin.shared.share.ShareSong
 
 /** The lyric lines to share: the select-mode pick, or the current line. */
 @Immutable
@@ -92,44 +71,35 @@ internal data class LyricsSharePick(
     /** Positions in [lines] that start a new passage (the pick skipped part of the song there). */
     val passageStarts: Set<Int> = emptySet(),
     val showTranslation: Boolean = false,
-)
+) {
+    fun toShared(): ShareLyrics = ShareLyrics(
+        lines = lines.map(LyricLine::toShared),
+        passageStarts = passageStarts.sorted(),
+        showTranslation = showTranslation,
+    )
+}
+
+internal fun LyricLine.toShared(): ShareLyricLine =
+    ShareLyricLine(startMs = startMs, text = text, translation = translation)
+
+internal fun ShareLyricLine.toLyricLine(): LyricLine =
+    LyricLine(startMs = startMs, text = text, translation = translation)
 
 /**
- * One line on an About image ("作词" / "吴青峰"). [ai]: the AI wrote it (a Gemini row), not the lyrics'
- * credits or the server. [fact]: a plain fact about the release (the year), not a credit — on its own it
- * isn't worth an About image.
+ * One line on an About image ("作词" / "吴青峰"): [ShareCredit.ai] the AI wrote it, [ShareCredit.fact] a plain
+ * fact about the release (the year) — on its own not worth an About image.
  */
-@Immutable
-internal data class ShareCredit(val label: String, val value: String, val ai: Boolean = false, val fact: Boolean = false)
+internal typealias ShareCredit = com.gpo.yoin.shared.share.ShareCredit
 
 /**
  * About as shared (owner 2026-11-25): the credits and ONE paragraph, nothing else — none of the server's
- * file facts (path, bitrate, plays, date added) and none of the listener's own About entries (theirs is
- * primary, not AI).
+ * file facts and none of the listener's own About entries. [ShareAbout.aiContent]: only then does the image
+ * say "由 X 整理".
  */
-@Immutable
-internal data class AboutSharePick(
-    val credits: List<ShareCredit>,
-    /** The paragraph's heading: "关于" for the review, the question's title for an answer. */
-    val heading: String,
-    val paragraph: String?,
-) {
-    /**
-     * Whether anything on the image came from the AI (the paragraph, or a credit it wrote): only then does
-     * the image say "由 X 整理" (owner 2026-11-25 — an image of the service's credits alone is nobody's work).
-     */
-    val aiContent: Boolean get() = paragraph != null || credits.any { it.ai }
-}
+internal typealias AboutSharePick = com.gpo.yoin.shared.share.ShareAbout
 
-/** One of the listener's notes (one note per image). */
-@Immutable
-internal data class NoteSharePick(
-    val noteId: String,
-    /** The note's stored Markdown (mentions as links). */
-    val content: String,
-    val positionMs: Long?,
-    val createdAt: Long,
-)
+/** One of the listener's notes (one note per image); its content is the stored Markdown. */
+internal typealias NoteSharePick = com.gpo.yoin.shared.share.ShareNote
 
 /** Everything the sheet can share for one song, frozen when it opens. */
 @Immutable
@@ -141,206 +111,89 @@ internal data class ShareContent(
     /** The AI service chosen in Settings: About's "由 X 整理". */
     val aiProvider: AiProvider = AiProvider.Gemini,
 ) {
-    fun has(tab: ShareTab): Boolean = when (tab) {
-        ShareTab.Lyrics -> lyrics != null && lyrics.lines.isNotEmpty()
-        // Credits or AI words; the year alone is not an About.
-        ShareTab.About -> about != null && (about.paragraph != null || about.credits.any { !it.fact })
-        ShareTab.Note -> note != null && note.content.isNotBlank()
-    }
+    fun toShared(): ShareCardContent =
+        ShareCardContent(song = song, lyrics = lyrics?.toShared(), about = about, note = note)
+
+    fun has(tab: ShareTab): Boolean = YoinShareCards.has(toShared(), tab)
 
     /** The tabs this song has something for, in order. */
-    val tabs: List<ShareTab> get() = ShareTab.entries.filter(::has)
+    val tabs: List<ShareTab> get() = YoinShareCards.tabs(toShared())
 }
 
 /** The layouts [tab] offers for this content, in 版式 order (empty when the tab has nothing). */
-internal fun ShareContent.layoutsFor(tab: ShareTab): List<ShareLayout> {
-    if (!has(tab)) return emptyList()
-    return ShareLayout.entries.filter { it.tab == tab }.filter { layout ->
-        when (layout) {
-            // 竖排 only when every line is CJK: Latin set on its side reads as a mistake.
-            ShareLayout.LyricsVertical -> lyrics!!.lines.all { isCjkLyric(it.text) }
-            // The quote needs a paragraph to quote.
-            ShareLayout.AboutQuote -> about!!.paragraph != null
-            // A timeline needs the note's moment and the song's length.
-            ShareLayout.NoteTimeline -> note!!.positionMs != null && song.durationMs > 0L
-            else -> true
-        }
-    }
-}
+internal fun ShareContent.layoutsFor(tab: ShareTab): List<ShareLayout> = YoinShareCards.layouts(toShared(), tab)
 
 /** [remembered] when this content offers it, else the tab's first layout. */
-internal fun ShareContent.resolveLayout(tab: ShareTab, remembered: ShareLayout?): ShareLayout? {
-    val offered = layoutsFor(tab)
-    return remembered?.takeIf { it in offered } ?: offered.firstOrNull()
-}
+internal fun ShareContent.resolveLayout(tab: ShareTab, remembered: ShareLayout?): ShareLayout? =
+    YoinShareCards.resolveLayout(toShared(), tab, remembered)
 
 // ---------------------------------------------------------------------------
 // Lyrics rules.
 // ---------------------------------------------------------------------------
 
-/**
- * Whether [text] is CJK all through: at least one Han / kana / Hangul / Bopomofo letter and no letter of
- * any other script (digits and punctuation don't count either way).
- */
-internal fun isCjkLyric(text: String): Boolean {
-    var cjk = false
-    var i = 0
-    while (i < text.length) {
-        val cp = text.codePointAt(i)
-        i += Character.charCount(cp)
-        if (!Character.isLetter(cp)) continue
-        when (Character.UnicodeScript.of(cp)) {
-            Character.UnicodeScript.HAN,
-            Character.UnicodeScript.HIRAGANA,
-            Character.UnicodeScript.KATAKANA,
-            Character.UnicodeScript.HANGUL,
-            Character.UnicodeScript.BOPOMOFO,
-            -> cjk = true
-            else -> return false
-        }
-    }
-    return cjk
-}
+/** Whether [text] is CJK all through ([YoinShareCards.isCjk]): 竖排's gate. */
+internal fun isCjkLyric(text: String): Boolean = YoinShareCards.isCjk(text)
 
 /** The most lines a Poster shows: the first big, up to three more small (owner 2026-11-25). */
-internal const val PosterMaxLines = 4
+internal const val PosterMaxLines = YoinShareCards.posterMaxLines
 
 /** What a Poster draws: [lead] at display size, [rest] small, [translation] as one quiet line at the very bottom. */
 @Immutable
 internal data class PosterLines(val lead: LyricLine, val rest: List<LyricLine>, val translation: String?)
 
-internal fun posterLines(pick: LyricsSharePick): PosterLines? {
-    val shown = pick.lines.filter { it.text.isNotBlank() }.take(PosterMaxLines)
-    val lead = shown.firstOrNull() ?: return null
-    val translation = if (pick.showTranslation) {
-        shown.mapNotNull { it.translation?.trim()?.takeIf(String::isNotEmpty) }
-            .joinToString(PosterTranslationSeparator)
-            .takeIf { it.isNotEmpty() }
-    } else {
-        null
-    }
-    return PosterLines(lead = lead, rest = shown.drop(1), translation = translation)
+internal fun posterLines(pick: LyricsSharePick): PosterLines? = YoinShareCards.poster(pick.toShared())?.let { poster ->
+    PosterLines(
+        lead = poster.lead.toLyricLine(),
+        rest = poster.rest.map { it.toLyricLine() },
+        translation = poster.translation,
+    )
 }
-
-private const val PosterTranslationSeparator = "  /  "
 
 /** The lead line's size on a Poster: the shorter the line, the larger (owner's "big single line"). */
-internal fun posterLeadSizeSp(text: String): Float = when {
-    text.length <= 12 -> 40f
-    text.length <= 24 -> 34f
-    text.length <= 40 -> 28f
-    else -> 24f
-}
+internal fun posterLeadSizeSp(text: String): Float = YoinShareCards.posterLeadSizeSp(text)
 
 /** Where the excerpt sits on the Player's progress bar, as fractions of the song. */
-@Immutable
-internal data class PlayerExcerpt(val start: Float, val end: Float, val startMs: Long, val endMs: Long)
+internal typealias PlayerExcerpt = ShareExcerpt
 
-/**
- * The span of [pick] on a [durationMs]-long song: its first line's start to its last line's start plus a
- * line's length, drawn at least [PlayerExcerptMinFraction] of the bar so a short pick still shows (owner
- * 2026-11-25). Null when the song's length or the lines' times are unknown.
- */
-internal fun playerExcerpt(pick: LyricsSharePick, durationMs: Long): PlayerExcerpt? {
-    if (durationMs <= 0L) return null
-    val times = pick.lines.mapNotNull { it.startMs }
-    if (times.isEmpty()) return null
-    val startMs = times.min().coerceIn(0L, durationMs)
-    val endMs = (times.max() + PlayerExcerptLineMs).coerceIn(startMs, durationMs)
-    var start = startMs.toFloat() / durationMs
-    var end = endMs.toFloat() / durationMs
-    if (end - start < PlayerExcerptMinFraction) {
-        end = (start + PlayerExcerptMinFraction).coerceAtMost(1f)
-        start = (end - PlayerExcerptMinFraction).coerceAtLeast(0f)
-    }
-    return PlayerExcerpt(start, end, startMs, endMs)
-}
+/** The span of [pick] on a [durationMs]-long song, at least 6% of the bar ([YoinShareCards.playerExcerpt]). */
+internal fun playerExcerpt(pick: LyricsSharePick, durationMs: Long): PlayerExcerpt? =
+    YoinShareCards.playerExcerpt(pick.toShared(), durationMs)
 
-internal const val PlayerExcerptMinFraction = 0.06f
-private const val PlayerExcerptLineMs = 4_000L
+internal const val PlayerExcerptMinFraction = YoinShareCards.playerExcerptMinFraction
 
 /** How a 竖排 image sets its lines: each column's characters, top to bottom, and the type size. */
-@Immutable
-internal data class VerticalPlan(val columns: List<String>, val fontSizeSp: Float, val charsPerColumn: Int)
+internal typealias VerticalPlan = ShareVerticalPlan
 
-/**
- * Sets [lines] in columns [columnHeightDp] tall within [widthDp]: one line per column, a line longer than a
- * column carries on in the next. The largest size from [VerticalSizesSp] at which every line fits one column
- * and the columns fit the width; else the largest at which the columns fit; else the smallest (the image's
- * zoom takes it from there). Type is 1sp = 1dp (images lay out at font
- * scale 1).
- */
-internal fun verticalLyricsPlan(lines: List<String>, columnHeightDp: Float, widthDp: Float): VerticalPlan {
-    val clean = lines.map { it.trim() }.filter { it.isNotEmpty() }
-    fun plan(size: Float): VerticalPlan {
-        val perColumn = max(1, floor(columnHeightDp / (size * VerticalCharAdvance)).toInt())
-        val columns = clean.flatMap { line -> line.replace(" ", "　").chunked(perColumn) }
-        return VerticalPlan(columns, size, perColumn)
-    }
-    val fitting = VerticalSizesSp.map(::plan).filter { it.columns.size * it.fontSizeSp * VerticalColumnAdvance <= widthDp }
-    // A line to a column reads as a poem; a line broken over two only when nothing larger fits whole.
-    return fitting.firstOrNull { it.columns.size == clean.size }
-        ?: fitting.firstOrNull()
-        ?: plan(VerticalSizesSp.last())
-}
-
-/** Candidate sizes for 竖排, largest first. */
-internal val VerticalSizesSp = listOf(28f, 26f, 24f, 22f, 20f, 17f, 15f, 13f)
+/** [lines] in columns [columnHeightDp] tall within [widthDp] ([YoinShareCards.verticalPlan]). */
+internal fun verticalLyricsPlan(lines: List<String>, columnHeightDp: Float, widthDp: Float): VerticalPlan =
+    YoinShareCards.verticalPlan(lines, columnHeightDp, widthDp)
 
 /** One character's height in a column, × the type size. */
-internal const val VerticalCharAdvance = 1.14f
+internal const val VerticalCharAdvance = YoinShareCards.verticalCharAdvance
 
 /** One column's width with the gap after it, × the type size. */
-internal const val VerticalColumnAdvance = 1.5f
+internal const val VerticalColumnAdvance = YoinShareCards.verticalColumnAdvance
 
-/**
- * A character as vertical text sets it: CJK punctuation turns to its vertical presentation form (。， become
- * ︒︐, 「」 become ﹁﹂, dashes and ellipses stand up); everything else as it is.
- */
-internal fun verticalForm(c: Char): Char = when (c) {
-    '，' -> '︐'
-    '、' -> '︑'
-    '。' -> '︒'
-    '：' -> '︓'
-    '；' -> '︔'
-    '！' -> '︕'
-    '？' -> '︖'
-    '「' -> '﹁'
-    '」' -> '﹂'
-    '『' -> '﹃'
-    '』' -> '﹄'
-    '（', '(' -> '︵'
-    '）', ')' -> '︶'
-    '《' -> '︽'
-    '》' -> '︾'
-    '〈' -> '︿'
-    '〉' -> '﹀'
-    '…' -> '︙'
-    '—', '－', '-', 'ー' -> '︱'
-    '～', '~' -> '≀'
-    else -> c
-}
+/** A character as vertical text sets it ([YoinShareCards.verticalForm]). */
+internal fun verticalForm(c: Char): Char = YoinShareCards.verticalForm(c)
 
 /**
  * The line the playhead is in for a share opened without a pick (owner 2026-11-25: "lyrics tab with no
  * selection = current line"): the last timed line started by [positionMs], else the first line.
  */
-internal fun currentLyricsPick(lyrics: List<LyricLine>, positionMs: Long, showTranslation: Boolean): LyricsSharePick? {
-    val lines = lyrics.filter { it.text.isNotBlank() }
-    if (lines.isEmpty()) return null
-    val current = lines.lastOrNull { it.startMs != null && it.startMs <= positionMs } ?: lines.first()
-    return LyricsSharePick(lines = listOf(current), showTranslation = showTranslation)
-}
+internal fun currentLyricsPick(lyrics: List<LyricLine>, positionMs: Long, showTranslation: Boolean): LyricsSharePick? =
+    YoinShareCards.currentLine(lyrics.map(LyricLine::toShared), positionMs, showTranslation)?.let { pick ->
+        LyricsSharePick(lines = pick.lines.map { it.toLyricLine() }, showTranslation = pick.showTranslation)
+    }
 
 // ---------------------------------------------------------------------------
 // About rules.
 // ---------------------------------------------------------------------------
 
 /**
- * About's share content: the credits (the lyrics' credits first, then the server's composer, then the AI's
- * lyricist / composer / producer, creation time and place — the receipt's "who wrote it, when and where" —
- * and the year), and one paragraph: [focus] when it is the AI's answer or review, else the review. Never
- * the server's file facts, never the listener's own entries. Null when there is nothing to share.
+ * About's share content ([YoinShareCards.aboutPick]) from Now Playing's sources: the lyrics' headline credits,
+ * the server's composer and year (no other fact crosses over), the About rows, and the row long-pressed
+ * ([focus]). Null when there is nothing to share.
  */
 internal fun aboutSharePick(
     entries: List<SongAboutEntry>,
@@ -349,23 +202,29 @@ internal fun aboutSharePick(
     labels: AboutLabels,
     reviewLabel: String,
     focus: SongAboutEntry? = null,
-): AboutSharePick? {
-    // Only the composer (a credit) and the year cross over from the server; every other fact stays home.
-    val creditFacts = facts?.composer?.let { SpineSourceFacts(composer = it) }
-    val rows = aboutReceiptRows(entries, credits, creditFacts, labels).map { row ->
-        ShareCredit(row.label, row.value, ai = row.entry != null)
-    } + listOfNotNull(facts?.year?.let { ShareCredit(labels.year, it.toString(), fact = true) })
-    val aiParagraphs = aboutParagraphs(entries, reviewLabel).filter { it.entry.kind != SongAboutEntry.KIND_OWN }
-    val chosen = focus?.let { f -> aiParagraphs.firstOrNull { it.entry.kind == f.kind && it.entry.entryKey == f.entryKey } } ?: aiParagraphs.firstOrNull {
-        it.entry.kind == SongAboutEntry.KIND_CANONICAL
-    }
-    if (rows.none { !it.fact } && chosen == null) return null
-    return AboutSharePick(
-        credits = rows,
-        heading = chosen?.label ?: reviewLabel,
-        paragraph = chosen?.text,
-    )
-}
+): AboutSharePick? = YoinShareCards.aboutPick(
+    entries = entries.map { ShareAboutEntry(it.kind, it.entryKey, it.promptText, it.titleText, it.answerText) },
+    sources = ShareAboutSources(
+        lyricist = credits?.namesFor(LyricCreditRole.Lyricist),
+        composer = credits?.namesFor(LyricCreditRole.Composer),
+        arranger = credits?.namesFor(LyricCreditRole.Arranger),
+        producer = credits?.namesFor(LyricCreditRole.Producer),
+        serverComposer = facts?.composer,
+        year = facts?.year,
+    ),
+    labels = ShareAboutLabels(
+        lyricist = labels.about(SongAboutEntry.CANON_LYRICIST),
+        composer = labels.about(SongAboutEntry.CANON_COMPOSER),
+        arranger = labels.arranger,
+        producer = labels.about(SongAboutEntry.CANON_PRODUCER),
+        creationTime = labels.about(SongAboutEntry.CANON_CREATION_TIME),
+        creationLocation = labels.about(SongAboutEntry.CANON_CREATION_LOCATION),
+        year = labels.year,
+        review = reviewLabel,
+    ),
+    focusKind = focus?.kind,
+    focusKey = focus?.entryKey,
+)
 
 // ---------------------------------------------------------------------------
 // Note rules.
@@ -374,14 +233,8 @@ internal fun aboutSharePick(
 /**
  * The note an image shares: [noteId] when given, else the note the playhead is in, else the newest one.
  */
-internal fun noteSharePick(notes: List<SongNote>, noteId: String?, positionMs: Long): NoteSharePick? {
-    val live = notes.filter { it.content.isNotBlank() }
-    val note = noteId?.let { id -> live.firstOrNull { it.id == id } }
-        ?: currentAnchoredNoteId(live, positionMs)?.let { id -> live.firstOrNull { it.id == id } }
-        ?: live.maxByOrNull { it.createdAt }
-        ?: return null
-    return note.toSharePick()
-}
+internal fun noteSharePick(notes: List<SongNote>, noteId: String?, positionMs: Long): NoteSharePick? =
+    YoinShareCards.notePick(notes.map { it.toSharePick() }, noteId, positionMs)
 
 internal fun SongNote.toSharePick(): NoteSharePick =
     NoteSharePick(noteId = id, content = content, positionMs = positionMs, createdAt = createdAt)
@@ -391,10 +244,7 @@ internal fun shareNoteDate(epochMs: Long, locale: Locale = Locale.getDefault()):
     DateFormat.getDateInstance(DateFormat.LONG, locale).format(Date(epochMs))
 
 /** "1:05" for a moment in the song. */
-internal fun shareTime(ms: Long): String {
-    val total = (ms / 1000L).coerceAtLeast(0L)
-    return "%d:%02d".format(Locale.ROOT, total / 60L, total % 60L)
-}
+internal fun shareTime(ms: Long): String = YoinShareCards.time(ms)
 
 /**
  * The AI service's name as About's sign reads it ("由 Gemini 整理"). A minimal stand-in for PR #326's
