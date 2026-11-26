@@ -26,19 +26,19 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.shared.home.HomeDragTokens as SharedDragTokens
-import com.gpo.yoin.shared.home.DragSideStep
+import com.gpo.yoin.shared.home.HomeDragCore
+import com.gpo.yoin.shared.home.HomeDragFrame
+import com.gpo.yoin.shared.home.HomeDragView
 import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeLayout
 import com.gpo.yoin.ui.home.HomeSection
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** A laid-out row item, keyed by its first section, and its vertical extent in Box px. */
-@Immutable
-internal data class DragItemBand(val key: HomeSection, val top: Float, val bottom: Float)
+/** A laid-out row item, keyed by its first section, and its vertical extent in Box px ([com.gpo.yoin.shared.home.DragItemBand]). */
+internal typealias DragItemBand = com.gpo.yoin.shared.home.DragItemBand
 
 /**
  * A list of section rows a block can be dragged in: the feed, or the pinched
@@ -96,6 +96,10 @@ internal interface HomeDragHost {
  *
  * Frame cost: a move writes only [finger], read by the dragged block's layer;
  * an arrangement change (a slot change) is the only composition a drag makes.
+ *
+ * Every decision — which arrangement the finger asks for, the travel gate, the edge scroll and its start
+ * guard, the re-decide on release — is :shared's [HomeDragCore] (golden home-drag.json timelines), so iOS
+ * and HarmonyOS drag as Android does; this engine keeps the Compose state, the animations and the host.
  */
 @Stable
 internal class HomeDragEngine(
@@ -259,56 +263,33 @@ internal class HomeDragEngine(
     // Where the dragged block was last drawn (its top-left in Box px; unspecified before): its glide home starts there.
     private var lastDrawn = Offset.Unspecified
 
-    // The finger where the last decision was made, the arrangement (and side) before the last
-    // change, and the arrangement the dragged block was last placed in (the one the list laid out).
-    private var decidedAt = Offset.Unspecified
-    private var beforeStep: Pair<DragArrangement, HomeDragLane?>? = null
-    private var laidOut: DragArrangement? = null
+    // The drag's decisions: the live arrangement and side, the travel gate, the edge scroll and its guard,
+    // the finger where the last decision was made, the grab (the finger's offset in the block at the start).
+    private val core = HomeDragCore(density.density)
 
-    // The finger's offset from the dragged block's top-left at the start.
-    private var grab = Offset.Zero
-
-    // The width the block was drawn at when [grab] was taken, and the width it was last drawn at:
-    // grab.x keeps its fraction of the block as the block's width springs between half and full.
+    // The width the block was drawn at when the grab was taken, and the width it was last drawn at:
+    // the grab's x keeps its fraction of the block as the block's width springs between half and full.
     private var grabWidth = Float.NaN
     private var drawnWidth = Float.NaN
-    private var origin: DragArrangement? = null
     private var active: HomeDragHost? = null
     private var activeList by mutableStateOf(false)
-    private var side: HomeDragLane? = null
-
-    // How far the finger (or the scroll under it) went since the last change: a change waits for a
-    // little of it, so a layout that moved under a resting finger never decides the next one alone.
-    private var travel = 0f
-
-    // The edge scroll moved the rows on the last frame that scrolled: no block pairs while it runs.
-    private var edgeScrolling = false
-
-    // The start-in-edge guard: the band the finger was lifted in (±1, 0 none), where, and how long it has rested there.
-    private var edgeGuard = 0
-    private var edgeGuardY = 0f
-    private var edgeGuardMs = 0f
     private var frameJob: Job? = null
     private var settleJob: Job? = null
     private var pendingExit: HomeEditExitReason? = null
 
-    private val travelPx = with(density) { HomeDragTokens.ChangeTravel.toPx() }
-    private val edgePx = with(density) { HomeDragTokens.AutoScrollEdge.toPx() }
-    private val minSpeedPx = with(density) { HomeDragTokens.AutoScrollMin.toPx() }
-    private val maxSpeedPx = with(density) { HomeDragTokens.AutoScrollMax.toPx() }
-    private val pushPx = with(density) { HomeDragTokens.EdgeStartPush.toPx() }
-    private val bufferPx = with(density) { HomeDragRuleTokens.RowBuffer.toPx() }
+    private fun rowsOf(arrangement: DragArrangement, twoColumn: Boolean): List<HomeFeedRow> = core.rowsOf(arrangement, twoColumn)
 
-    private var rowsFor: Pair<DragArrangement, Boolean>? = null
-    private var rowsCache: List<HomeFeedRow> = emptyList()
-
-    private fun rowsOf(arrangement: DragArrangement, twoColumn: Boolean): List<HomeFeedRow> {
-        val key = arrangement to twoColumn
-        if (rowsFor != key) {
-            rowsCache = dragRows(arrangement.ids, arrangement.pairs, twoColumn)
-            rowsFor = key
-        }
-        return rowsCache
+    // What [host] lays out now, as the core reads it.
+    private fun viewOf(host: HomeDragHost): HomeDragView {
+        val area = host.scrollArea()
+        return HomeDragView(
+            visible = host.visibleRows(),
+            contentLeft = host.contentLeft(),
+            contentWidth = host.contentWidth(),
+            areaTop = area.top,
+            areaBottom = area.bottom,
+            twoColumn = host.twoColumn(),
+        )
     }
 
     /**
@@ -385,7 +366,7 @@ internal class HomeDragEngine(
         frameTick
         val topLeft = dragTopLeft(host, width)
         lastDrawn = topLeft
-        laidOut = arrangement
+        core.placed()
         return topLeft - placedAt
     }
 
@@ -406,7 +387,6 @@ internal class HomeDragEngine(
         val pairs = if (twoColumn) host.pairs().filter { (l, r) -> l in ids && r in ids } else emptyMap()
         val before = DragArrangement(ids, pairs)
         val at = layoutTopLeft(host, before, dragged) ?: return
-        val lane = dragLaneOf(dragged, rowsOf(before, twoColumn))
         val x = fingerX.takeUnless { it.isNaN() } ?: at.x
         // Picked up again mid-glide: from where it is drawn on its way.
         val shown = settleFrom?.takeIf { settling == dragged }?.let { from -> at + (from - at) * (1f - settleProgress.value) } ?: at
@@ -417,22 +397,12 @@ internal class HomeDragEngine(
         active = host
         activeList = host.isList
         finger = Offset(x, fingerY)
-        grab = finger - shown
         grabWidth = Float.NaN
         drawnWidth = Float.NaN
         lastDrawn = Offset.Unspecified
-        decidedAt = Offset.Unspecified
-        beforeStep = null
-        laidOut = null
-        side = lane.takeIf { it != HomeDragLane.Full }
-        origin = before
-        travel = 0f
-        edgeScrolling = false
         pendingExit = null
         val area = host.scrollArea()
-        edgeGuard = dragEdgeOf(fingerY, area.top, area.bottom, edgePx)
-        edgeGuardY = fingerY
-        edgeGuardMs = 0f
+        core.start(dragged, before, twoColumn, x, fingerY, shown.x, shown.y, area.top, area.bottom)
         arrangement = before
         dragging = dragged
         motion.carryActive = true
@@ -444,9 +414,8 @@ internal class HomeDragEngine(
     /** The finger moved to [y] (and [fingerX]). The next frame decides on it. */
     fun move(y: Float, uptimeMs: Long) {
         if (dragging == null) return
-        val next = Offset(if (fingerX.isNaN()) finger.x else fingerX, y)
-        travel += (next - finger).getDistance()
-        finger = next
+        core.move(fingerX, y)
+        finger = Offset(core.fingerX, core.fingerY)
     }
 
     /**
@@ -461,34 +430,17 @@ internal class HomeDragEngine(
             dropLift(0f)
             return
         }
-        if (!cancelled) decideOnRelease()
+        val host = active
+        if (!cancelled && host != null) {
+            core.release(cancelled = false, view = viewOf(host))
+            arrangement = core.arrangement
+        }
         finish(keep = !cancelled, glide = true)
     }
 
-    // The finger's last moves, since the last frame decided: a quick drag lets go within a frame or
-    // two of arriving (moves batched with the up never reach a frame at all), and the drop landed
-    // where the finger was a frame or more before (in list mode, a quick drag up onto a full strip
-    // at 90% across swapped rows instead of pairing; a slow one paired). Decided now, against the
-    // layout the list shows: the live arrangement, or the one before the last change if that
-    // change (decided on an older finger) isn't laid out yet. No travel wait: the finger let go here.
-    private fun decideOnRelease() {
-        val host = active ?: return
-        val dragged = dragging ?: return
-        val live = arrangement ?: return
-        if (finger == decidedAt) return
-        val twoColumn = host.twoColumn()
-        val prior = beforeStep
-        val (base, baseSide) = if (prior != null && laidOut != null && laidOut != live && laidOut == prior.first) prior else live to side
-        val rows = rowsOf(base, twoColumn)
-        val k = dragRowIndexOf(dragged, rows)
-        if (k < 0) return
-        val visible = host.visibleRows()
-        if (!dragLayoutFollows(visible.map { it.key }, rows, rows[k].first)) return
-        val step = decide(host, dragged, base, baseSide, rows, k, visible, twoColumn)
-        arrangement = step?.arrangement ?: base
-        side = if (step != null) step.side else baseSide
-        decidedAt = finger
-    }
+    // The finger's last moves, since the last frame decided, decide at the release (HomeDragCore.release):
+    // a quick drag lets go within a frame or two of arriving, and the drop must land where the finger was
+    // let go, against the layout the list shows.
 
     /**
      * Rotation, a new column count or a resize mid-drag (rule 5): the drag's
@@ -521,7 +473,7 @@ internal class HomeDragEngine(
         val live = arrangement
         if (dragging != null) {
             letGo = true
-            if (live != null && live != origin) commit(live)
+            if (live != null && live != core.origin) commit(live)
         }
         frameJob?.cancel()
         frameJob = null
@@ -529,9 +481,9 @@ internal class HomeDragEngine(
         settleJob = null
         dragging = null
         arrangement = null
+        core.end()
         settling = null
         settleFrom = null
-        side = null
         pendingExit = null
         snapLiftToRest()
         motion.carryActive = false
@@ -541,7 +493,7 @@ internal class HomeDragEngine(
     // [glide]: the block glides from where it was let go into its slot.
     private fun finish(keep: Boolean, glide: Boolean) {
         val dragged = dragging ?: return
-        val before = origin ?: DragArrangement(emptyList(), emptyMap())
+        val before = core.origin ?: DragArrangement(emptyList(), emptyMap())
         val live = arrangement ?: before
         // Where the block was last drawn (as its placement measured it): it glides from there into
         // whatever slot the layout gives it, the one it was dropped in or (rolled back) the one it left.
@@ -556,7 +508,7 @@ internal class HomeDragEngine(
         val changed = keep && live != before && commit(live)
         dragging = null
         arrangement = null
-        side = null
+        core.end()
         motion.carryActive = false
         landed = if (keep) live else before
         settle(dragged, from, if (changed) before.ids.filterIndexed { index, s -> live.ids.getOrNull(index) != s } else emptyList())
@@ -586,47 +538,16 @@ internal class HomeDragEngine(
     private fun frame(dt: Float) {
         frameTick++
         val host = active ?: return
-        val dragged = dragging ?: return
-        val live = arrangement ?: return
-        val twoColumn = host.twoColumn()
-        val rows = rowsOf(live, twoColumn)
-        val k = dragRowIndexOf(dragged, rows)
-        if (k < 0) return
-        val visible = host.visibleRows()
-        if (travel >= travelPx && dragLayoutFollows(visible.map { it.key }, rows, rows[k].first)) {
-            val step = decide(host, dragged, live, side, rows, k, visible, twoColumn)
-            decidedAt = finger
-            if (step != null) {
+        if (dragging == null) return
+        when (val result = core.frame(dt, viewOf(host))) {
+            is HomeDragFrame.Step -> {
                 // A frame that reorders doesn't scroll as well: the held position is this layout's.
                 host.holdScroll()
-                beforeStep = live to side
-                arrangement = step.arrangement
-                side = step.side
-                travel = 0f
+                arrangement = result.arrangement
                 feedback.segmentTick()
-                return
             }
-        }
-        val area = host.scrollArea()
-        if (edgeGuard != 0) {
-            edgeGuardMs += dt * 1000f
-            val inBand = dragEdgeOf(finger.y, area.top, area.bottom, edgePx) == edgeGuard
-            val holds = dragEdgeGuardHolds(edgeGuard, edgeGuardY, finger.y, edgeGuardMs, pushPx, HomeDragTokens.EdgeStartDwellMs)
-            if (!inBand || !holds) {
-                edgeGuard = 0
-            } else {
-                edgeScrolling = false
-                return
-            }
-        }
-        val speed = dragAutoScrollSpeed(finger.y, area.top, area.bottom, edgePx, minSpeedPx, maxSpeedPx)
-        if (speed == 0f) {
-            edgeScrolling = false
-        } else if (dt > 0f) {
-            val moved = abs(host.scrollBy(speed * dt))
-            travel += moved
-            // At the list's end nothing moves: the finger pairs there as anywhere.
-            edgeScrolling = moved > 0f
+            is HomeDragFrame.Scroll -> core.scrolled(host.scrollBy(result.px))
+            HomeDragFrame.None -> Unit
         }
     }
 
@@ -642,45 +563,13 @@ internal class HomeDragEngine(
             if (grabWidth.isNaN()) grabWidth = width
             drawnWidth = width
         }
-        val grabX = if (drawn) dragRescaleGrabX(grab.x, grabWidth, width) else grab.x
+        val grabX = if (drawn) dragRescaleGrabX(core.grabX, grabWidth, width) else core.grabX
         var left = finger.x - grabX
         if (drawn && host.twoColumn()) {
             val min = host.contentLeft()
             left = left.coerceIn(min, (min + host.contentWidth() - width).coerceAtLeast(min))
         }
-        return Offset(left, finger.y - grab.y)
-    }
-
-    private fun decide(
-        host: HomeDragHost,
-        dragged: HomeSection,
-        live: DragArrangement,
-        side: HomeDragLane?,
-        rows: List<HomeFeedRow>,
-        k: Int,
-        visible: List<DragItemBand>,
-        twoColumn: Boolean,
-    ): DragSideStep.Arrange? {
-        val bands = visible.mapNotNull { item ->
-            rows.firstOrNull { it.first == item.key }?.let { DragRowBand(it, item.top, item.bottom) }
-        }
-        if (twoColumn) {
-            val rel = dragRel(finger.x, host.contentLeft(), host.contentWidth())
-            // While the edge scroll carries rows under the finger, it pairs with none of them.
-            val step = dragSideStep(live.ids, live.pairs, dragged, side, rel, finger.y, bands, bufferPx, pairing = !edgeScrolling)
-            when (step) {
-                is DragSideStep.Arrange -> return step.takeIf { it.arrangement != live || it.side != side }
-                DragSideStep.Stay -> return null
-                DragSideStep.Vertical -> Unit
-            }
-        }
-        val slot = bands.firstOrNull { it.row == rows[k] } ?: return null
-        val prev = rows.getOrNull(k - 1)?.let { row -> bands.firstOrNull { it.row == row } }
-        val next = rows.getOrNull(k + 1)?.let { row -> bands.firstOrNull { it.row == row } }
-        val dir = dragSwapDir(finger.y - grab.y, slot, prev, next)
-        if (dir == 0) return null
-        val ids = dragSwapRow(live.ids, live.pairs, dragged, dir, twoColumn)
-        return DragSideStep.Arrange(DragArrangement(ids, live.pairs), side = null)
+        return Offset(left, finger.y - core.grabY)
     }
 
     // The dropped block glides home, then it and the blocks it [moved] are kicked.

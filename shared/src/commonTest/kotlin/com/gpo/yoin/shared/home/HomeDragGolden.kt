@@ -37,7 +37,7 @@ internal object HomeDragGolden {
     val sections: List<String> = listOf(
         "rel", "pairSide", "inOwnRow", "rowPart", "pairZone", "sideAllowed", "laneOf", "placeBeside", "insertRow",
         "swapRow", "swapDir", "sideStep", "rescaleGrabX", "laneWidth", "edge", "edgeGuard", "exitKeepsDrop",
-        "layoutFollows", "spanAxis", "spanWidth", "spanTarget", "spanCommit", "spanKey", "pinch",
+        "layoutFollows", "spanAxis", "spanWidth", "spanTarget", "spanCommit", "spanKey", "pinch", "timelines",
     )
 
     fun outputs(section: String, v: JsonObject, layouts: Map<String, JsonObject>): JsonObject = when (section) {
@@ -110,6 +110,7 @@ internal object HomeDragGolden {
             val progress = homeListPinchProgress(v.bool("fromOn"), v.float("scale"))
             obj("progress" to num(progress), "settlesOn" to bool(homeListSettlesOn(v.bool("fromOn"), progress)))
         }
+        "timelines" -> HomeDragTimelines.run(v)
         else -> error("unknown section $section")
     }
 
@@ -165,7 +166,10 @@ internal object HomeDragGolden {
         "do not edit by hand. Lengths are px unless a name says dp; bands are whole px. Floats are rounded to " +
         "1e-4; compare within 1e-4. NaN is written \"NaN\". A row is one id or [left, right]; an arrangement is " +
         "{ids, pairs}; a side step is {kind: Vertical | Stay | Arrange, arrangement?, side?}. sideStep vectors " +
-        "name a layout from \"layouts\" (the live arrangement, the dragged block, its side and the laid-out bands)."
+        "name a layout from \"layouts\" (the live arrangement, the dragged block, its side and the laid-out bands). " +
+        "timelines run HomeDragCore frame by frame on a fixed row model (see HomeDragTimelines.kt): started " +
+        "{side, grab}, one decision per frame (None | Step {arrangement, side} | Scroll {px, consumed}), then the " +
+        "result {write, arrangement, side, scrolled}."
 
     // ── codecs ───────────────────────────────────────────────────────
 
@@ -452,6 +456,6 @@ internal object HomeDragGoldenFixtures {
         "swapRow" to swapRow, "swapDir" to swapDir, "sideStep" to sideStep, "rescaleGrabX" to rescaleGrabX,
         "laneWidth" to laneWidth, "edge" to edge, "edgeGuard" to edgeGuard, "exitKeepsDrop" to exitKeepsDrop,
         "layoutFollows" to layoutFollows, "spanAxis" to spanAxis, "spanWidth" to spanWidth, "spanTarget" to spanTarget,
-        "spanCommit" to spanCommit, "spanKey" to spanKey, "pinch" to pinch,
+        "spanCommit" to spanCommit, "spanKey" to spanKey, "pinch" to pinch, "timelines" to HomeDragTimelines.inputs,
     )
 }
