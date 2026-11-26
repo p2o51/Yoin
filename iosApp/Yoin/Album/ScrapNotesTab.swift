@@ -83,6 +83,15 @@ struct ScrapNotesTab: View {
             try? await Task.sleep(for: .milliseconds(450))
             withAnimation(Yoin.spatial) { proxy.scrollTo("note:\(focusNote)", anchor: .center) }
         }
+        // Lyrics that arrive after the settle put their lines above the note and push it out of view: bring it
+        // back once they have loaded (Android #310's FocusNote fix).
+        .onChange(of: lyrics.lines.count) { _, count in
+            guard let focusNote, count > 0, editingNote == nil, draft == nil else { return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(120))
+                withAnimation(Yoin.spatial) { proxy.scrollTo("note:\(focusNote)", anchor: .center) }
+            }
+        }
         }
         .task {
             #if DEBUG
@@ -227,20 +236,16 @@ struct ScrapNotesTab: View {
     }
 
     private func finishEdit(_ note: SongNote, _ text: String) {
-        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if words.isEmpty { return delete(note) }
-        if words != note.content, NotesStore.shared.update(id: note.id, content: words) == nil {
-            // Not written: the editor keeps the words.
-            return toast.show(String(localized: "Couldn't save the note"))
+        switch ScrapNoteSave.edit(note, text, store: .shared) {
+        case .emptied: return delete(note)
+        // Not written: the editor keeps the words.
+        case .failed: return toast.show(String(localized: "Couldn't save the note"))
+        case .saved, .unchanged: withAnimation(Yoin.spatial) { editingNote = nil }
         }
-        withAnimation(Yoin.spatial) { editingNote = nil }
     }
 
     private func finishDraft(_ positionMs: Int64?, _ text: String) {
-        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !words.isEmpty, NotesStore.shared.add(provider: track.id.provider, trackId: track.id.rawId, content: words,
-                                                 positionMs: positionMs, title: track.title,
-                                                 artist: track.artist ?? album.artist) == nil {
+        if ScrapNoteSave.draft(text, track: track, album: album, positionMs: positionMs, store: .shared) == .failed {
             return toast.show(String(localized: "Couldn't save the note"))
         }
         withAnimation(Yoin.spatial) { draft = nil }
@@ -303,6 +308,35 @@ struct ScrapNotesTab: View {
     #endif
 }
 
+/// What the Notes tab's editor writes (Android NotesTab's save): the editor's stored text, mention links
+/// (`[@Title](yoin:…)`) and Markdown as they are, trimmed. Reopening the note gives the same text back to the editor,
+/// which shows its mentions as chips again.
+@MainActor
+enum ScrapNoteSave {
+    enum Result: Equatable {
+        case saved, unchanged, failed
+        /// An existing note saved empty: the caller deletes it (with Undo).
+        case emptied
+    }
+
+    /// A new note at [positionMs] on [track]; nothing is written for empty words.
+    static func draft(_ text: String, track: Track, album: Album, positionMs: Int64?, store: NotesStore) -> Result {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return .unchanged }
+        let added = store.add(provider: track.id.provider, trackId: track.id.rawId, content: words,
+                              positionMs: positionMs, title: track.title, artist: track.artist ?? album.artist)
+        return added == nil ? .failed : .saved
+    }
+
+    /// [note] changed to [text].
+    static func edit(_ note: SongNote, _ text: String, store: NotesStore) -> Result {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if words.isEmpty { return .emptied }
+        if words == note.content { return .unchanged }
+        return store.update(id: note.id, content: words) == nil ? .failed : .saved
+    }
+}
+
 /// The note's paper (Android NoteCard / NoteEditor): surfaceContainerHighest, Card 16, the rail 3 wide at
 /// x 11 inset 14 (journalRail), padding 24 / 14 / 10 / 12, 6 above and below.
 private struct ScrapNoteCard<Content: View>: View {
@@ -351,8 +385,11 @@ private struct ScrapNoteStamp: View {
     }
 }
 
-/// A note being written or changed in place (Android NoteEditor): the stamp, the words over a 2 ink rule,
-/// then Delete (an existing note) or Cancel (a new one), and Done.
+/// A note being written or changed in place (Android NoteEditor, #310): the stamp, the words in the note editor
+/// over a 2 ink rule (the @ editor of Now Playing's write bar: mentions as chips, the @ popup on the keyboard,
+/// Return picks its top row; the stored text keeps the `[@Title](yoin:…)` links), the formatting row, then Delete
+/// (an existing note) or Cancel (a new one), and Done. A tap anywhere on the card puts the caret in the words
+/// (Android noteEditorContainer).
 private struct ScrapNoteEditor: View {
     var positionMs: Int64?
     var text: String
@@ -362,29 +399,34 @@ private struct ScrapNoteEditor: View {
     var onDone: (String) -> Void
 
     @State private var words = ""
-    @FocusState private var focused: Bool
+    @State private var focused = false
+    @State private var editor = NoteEditorModel(source: AccountMentionRows())
 
     /// The button row, scrolled above the keyboard while the editor is open (one editor at a time).
     static let actionsID = "scrap-note-editor-actions"
 
     var body: some View {
         let at = positionMs.map(NotesStore.formatPosition)
+        let hint = at.map { String(localized: "A note at \($0)…") } ?? String(localized: "A note…")
         ScrapNoteCard(scheme: scheme) {
             if let at { ScrapNoteStamp(text: at, scheme: scheme) }
             VStack(alignment: .leading, spacing: 4) {
-                TextField(text: $words,
-                          prompt: Text(at.map { String(localized: "A note at \($0)…") } ?? String(localized: "A note…"))
-                              .foregroundStyle(scheme.onSurface.opacity(0.5)),
-                          axis: .vertical) { Text(at.map { String(localized: "A note at \($0)…") } ?? String(localized: "A note…")) }
-                    .font(.gsf(15))
-                    .lineSpacing(YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5))
-                    .foregroundStyle(scheme.onSurface)
-                    .tint(scheme.primary)
-                    .textInputAutocapitalization(.sentences)
-                    .focused($focused)
+                NoteMarkupEditor(model: editor, text: $words,
+                                 prompt: Text(hint).foregroundStyle(scheme.onSurface.opacity(0.5)),
+                                 size: 15, textColor: scheme.onSurface, mentionColor: scheme.primary,
+                                 tint: scheme.primary, scheme: scheme, lines: 1...10,
+                                 lineSpacing: YoinType.lineSpacing(size: 15, lineHeight: 15 * 1.5),
+                                 focused: $focused)
+                    .accessibilityLabel(Text(hint))
+                    .accessibilityIdentifier("scrapNote.editor")
                 Rectangle().fill(scheme.primary.opacity(0.6)).frame(height: 2)
             }
             .padding(.top, 2)
+            ScrollView(.horizontal, showsIndicators: false) {
+                NoteFormatRow(model: editor, scheme: scheme)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .padding(.top, 8)
             HStack(spacing: 8) {
                 if canDelete {
                     Button(action: onDelete) {
@@ -423,6 +465,9 @@ private struct ScrapNoteEditor: View {
             .id(Self.actionsID)
             .padding(.bottom, -12)
         }
+        // The whole card is the field: a tap on its paper (not on a button) brings the keyboard.
+        .contentShape(.rect)
+        .onTapGesture { focused = true }
         .onAppear {
             words = text
             focused = true
@@ -432,12 +477,15 @@ private struct ScrapNoteEditor: View {
 
 #if DEBUG
 /// Screenshot aid for the Notes tab (`-scrapNotesDemo rows|all|edit|draft|plain|plain-draft|loading` with
-/// the demo server and `-serverRoute album:<id>`): the album's first song gets three notes and, except for
+/// the demo server and `-serverRoute album:<id>`, or `-scrapNotesOnMock YES` on the mock album): the album's first song gets three notes and, except for
 /// `plain`, `plain-draft` and `loading`, timed lyrics chosen in the lyrics store; the scrapbook page opens
 /// with that song's sheet on Notes. Debug builds only.
 @MainActor
 enum ScrapNotesDemo {
     static var mode: String? { UserDefaults.standard.string(forKey: "scrapNotesDemo") }
+    /// `-scrapNotesOnMock YES`: the same on the mock album, no server (its songs have no lyrics: pair with `plain` or
+    /// `plain-draft`), for the @ editor's screenshots and UI test.
+    static var onMock: Bool { UserDefaults.standard.bool(forKey: "scrapNotesOnMock") }
     static let draftMs: Int64 = 40_000
 
     private static let lrc = """

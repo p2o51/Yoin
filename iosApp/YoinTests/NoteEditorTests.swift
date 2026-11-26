@@ -237,4 +237,48 @@ final class NoteEditorTests: XCTestCase {
             XCTAssertEqual(NoteEditorDisplay.stored(from: display), text)
         }
     }
+    // MARK: The scrapbook track sheet's Notes page (Android #310)
+
+    /// The Notes page writes with the @ editor: a mention picked there is saved as its link, comes back from disk as
+    /// the same text, reopens as a chip, and survives an edit around it.
+    func test_should_saveAndRestoreMentions_when_writingInTheTrackSheetsNotes() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("notes.json")
+        let store = NotesStore(fileURL: url)
+        let album = MockLibrary.allAlbums[0]
+        let track = album.tracks[0]
+
+        // Written: "@no" + Return picks the top row; the sheet saves the editor's stored text.
+        let m = editor("Sounds like ")
+        type("@no", into: m)
+        await settle()
+        type("\n", into: m)
+        type("here", into: m)
+        let link = "[@Nothing](yoin:track/subsonic:Nothing)"
+        XCTAssertEqual(m.text, "Sounds like \(link) here")
+        XCTAssertEqual(ScrapNoteSave.draft(m.text + "\n", track: track, album: album, positionMs: 36_000, store: store), .saved)
+
+        // Restored: read back from disk byte for byte, then shown with the mention as one chip.
+        let saved = try XCTUnwrap(NotesStore(fileURL: url).notes(provider: track.id.provider, trackId: track.id.rawId).first)
+        XCTAssertEqual(saved.content, "Sounds like \(link) here")
+        XCTAssertEqual(saved.positionMs, 36_000)
+        let reopened = NoteEditorModel(text: saved.content, source: StubSource(known: known), debounce: .zero)
+        let style = NoteEditorStyle(size: 15, textColor: .black, mentionColor: .red)
+        let (display, _) = NoteEditorDisplay.build(reopened.text, style: style)
+        XCTAssertEqual(display.string.filter { $0 == "\u{FFFC}" }.count, 1, "the mention reopens as a chip")
+        XCTAssertEqual(NoteEditorDisplay.stored(from: display), saved.content)
+
+        // Edited around the chip: the link stays whole; unchanged words write nothing; emptied asks to delete.
+        reopened.focusChanged(true)
+        type("!", into: reopened)
+        XCTAssertEqual(ScrapNoteSave.edit(saved, reopened.text, store: store), .saved)
+        let edited = try XCTUnwrap(NotesStore(fileURL: url).notes(provider: track.id.provider, trackId: track.id.rawId).first)
+        XCTAssertEqual(edited.content, "Sounds like \(link) here!")
+        XCTAssertEqual(ScrapNoteSave.edit(edited, edited.content, store: store), .unchanged)
+        XCTAssertEqual(ScrapNoteSave.edit(edited, "  \n", store: store), .emptied)
+        XCTAssertEqual(ScrapNoteSave.draft("   ", track: track, album: album, positionMs: nil, store: store), .unchanged)
+        XCTAssertEqual(store.notes(provider: track.id.provider, trackId: track.id.rawId).count, 1)
+    }
 }
