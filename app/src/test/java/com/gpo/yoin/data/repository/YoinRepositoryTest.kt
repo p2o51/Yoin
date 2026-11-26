@@ -46,8 +46,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -722,6 +724,26 @@ class YoinRepositoryTest {
         assertEquals("the video", captured.captured.entryKey)
         assertEquals("Shot in Miami.", captured.captured.answerText)
         assertEquals(5_000L, captured.captured.createdAt)
+    }
+
+    @Test
+    fun deleteNoteById_finishes_even_when_its_caller_is_gone() = runTest {
+        // Now Playing's undo window commits as the screen goes away; the
+        // caller's scope may be cancelled by then. The delete is not its job.
+        val gate = CompletableDeferred<Unit>()
+        coEvery { songNoteDao.deleteById("n1") } coAnswers { gate.await() }
+        lateinit var delete: Job
+        val caller = launch {
+            delete = repository.deleteNoteById("n1")
+            kotlinx.coroutines.awaitCancellation()
+        }
+        runCurrent()
+        caller.cancel()
+        gate.complete(Unit)
+        delete.join()
+
+        assertFalse(delete.isCancelled)
+        coVerify(exactly = 1) { songNoteDao.deleteById("n1") }
     }
 
     @Test

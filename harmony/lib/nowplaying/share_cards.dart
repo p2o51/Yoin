@@ -260,12 +260,6 @@ class _AiSign extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = NowPlayingStrings.of(context);
-    final name = switch (provider) {
-      AiProvider.gemini => strings.aiProviderGemini,
-      AiProvider.deepSeek => strings.aiProviderDeepSeek,
-      AiProvider.qwen => strings.aiProviderQwen,
-      AiProvider.custom => strings.shareAiGeneric,
-    };
     return Row(
       key: const ValueKey('share-sign'),
       mainAxisSize: MainAxisSize.min,
@@ -274,7 +268,7 @@ class _AiSign extends StatelessWidget {
         const SizedBox(width: 4),
         Flexible(
           child: Text(
-            strings.shareAiSign(name),
+            strings.shareAiSign(provider),
             textAlign: TextAlign.end,
             style: shareWeight(Theme.of(context).textTheme.labelMedium!, 400).copyWith(color: colors.secondary),
           ),

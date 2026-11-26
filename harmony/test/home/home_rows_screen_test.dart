@@ -49,7 +49,7 @@ void main() {
       ).toJson(),
     );
     if (saved != null) {
-      store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, id)] = jsonEncode(saved.toJson());
+      store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, id)] = saved.encode();
     }
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -115,10 +115,7 @@ void main() {
     expect(covers(tester), lessThan(12));
     expect(tester.takeException(), isNull);
     // Saved for the account at once.
-    final saved = HomeLayout.fromJson(
-      (jsonDecode(h.store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, h.profileId)]!) as Map)
-          .cast<String, Object?>(),
-    );
+    final saved = decodeHomeLayout(h.store.values[HomeLayoutNotifier.keyFor(MediaId.providerSubsonic, h.profileId)]!);
     expect(saved.rowsOf(HomeSection.jumpBackIn), rows);
     // Undo springs it back.
     c.read(homeEditProvider.notifier).barLeftSlot(); // the bar's Undo
@@ -206,7 +203,9 @@ void main() {
   });
 
   testWidgets('should_resizeTheTemplatedShelfAndUnitBento_when_wide', (tester) async {
-    final h = await pumpHome(tester, size: const Size(1280, 2400), grid: 28);
+    // A portrait tablet (Medium, N = 4: the unit bento and the templated shelf); landscape is two columns, whose
+    // ⌟ is the grid's (home_two_column_test.dart).
+    final h = await pumpHome(tester, size: const Size(800, 2400), grid: 28);
     final c = h.container;
     c.read(homeEditProvider.notifier).enter();
     await frames(tester, 30);

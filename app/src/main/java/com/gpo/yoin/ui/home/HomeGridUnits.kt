@@ -26,7 +26,9 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
+import com.gpo.yoin.shared.home.HomeGridTokens as SharedGrid
+import com.gpo.yoin.shared.home.intersectUnits as sharedIntersectUnits
+import com.gpo.yoin.shared.home.meetsUnits as sharedMeetsUnits
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -40,162 +42,86 @@ import kotlinx.coroutines.launch
 // content inside that box for now (clipped at the bottom); their own
 // unit-based layouts come next.
 
-/** Numbers of the two-column grid. */
+/** Numbers of the two-column grid ([com.gpo.yoin.shared.home.HomeGridTokens], as Dp). */
 internal object HomeGridTokens {
     /** One unit. 150 fits a 106dp cover and two lines; 120 is the denser option (open question 1). */
-    val Unit = 150.dp
+    val Unit = SharedGrid.Unit.dp
 
     /** Between two units of one section. */
-    val Gap = 14.dp
+    val Gap = SharedGrid.Gap.dp
 
     /** The title row every section has in two columns. */
-    val TitleRow = 40.dp
+    val TitleRow = SharedGrid.TitleRow.dp
 
     /** A unit drag can pull this far past the smallest or largest count (a rubber band past it). */
-    val Overdrag = 24.dp
+    val Overdrag = SharedGrid.Overdrag.dp
 
     /** What a cover card's two caption lines (and the gap above them) take out of a unit: cover = U − 44. */
-    val CaptionBand = 44.dp
+    val CaptionBand = SharedGrid.CaptionBand.dp
 
     /** The narrowest gap between two cover cards in a row; a page's spare width widens it. */
-    val ColumnGap = 12.dp
+    val ColumnGap = SharedGrid.ColumnGap.dp
 
     /** Between two of Recently Added's track rows; the rows themselves fill the rest of the box. */
-    val TrackRowGap = 6.dp
+    val TrackRowGap = SharedGrid.TrackRowGap.dp
 }
 
+// The grid's arithmetic is :shared's (com.gpo.yoin.shared.home, golden home-grid.json); these keep the app's names.
+
 /** A cover shelf's cover side at [unit] dp: U − 44 (106 at 150). */
-internal fun homeGridCoverDp(unit: Float = HomeGridTokens.Unit.value): Float =
-    (unit - HomeGridTokens.CaptionBand.value).coerceAtLeast(1f)
+internal fun homeGridCoverDp(unit: Float = HomeGridTokens.Unit.value): Float = com.gpo.yoin.shared.home.homeGridCoverDp(unit)
 
 /** Cover columns a [widthDp] page seats: ⌊(W + gap) / (cover + gap)⌋, at least 1. */
 internal fun homeGridColumns(
     widthDp: Float,
     coverDp: Float = homeGridCoverDp(),
     gapDp: Float = HomeGridTokens.ColumnGap.value,
-): Int = kotlin.math.max(1, kotlin.math.floor((widthDp + gapDp) / (coverDp + gapDp)).toInt())
+): Int = com.gpo.yoin.shared.home.homeGridColumns(widthDp, coverDp, gapDp)
 
 /** The content height under the title row at [units] units, dp: n·U + (n − 1)·G. */
-internal fun homeGridContentDp(units: Int): Float = homeGridHeightDp(units) - HomeGridTokens.TitleRow.value
+internal fun homeGridContentDp(units: Int): Float = com.gpo.yoin.shared.home.homeGridContentDp(units)
 
 /** Recently Added's track rows at [units] units: three a unit. */
-internal fun homeGridTrackRows(units: Int): Int = 3 * units.coerceAtLeast(1)
+internal fun homeGridTrackRows(units: Int): Int = com.gpo.yoin.shared.home.homeGridTrackRows(units)
 
 /** Recently Added's narrowest track column on the grid. */
-internal const val HomeGridTrackColumnMinDp = 280f
+internal const val HomeGridTrackColumnMinDp = SharedGrid.TrackColumnMin
 
 /** Recently Added's track columns on the grid: ⌊W / 280⌋, at least 1 (a half 2, a full row 3–4). */
-internal fun homeGridTrackColumns(widthDp: Float): Int =
-    kotlin.math.max(1, kotlin.math.floor(widthDp / HomeGridTrackColumnMinDp).toInt())
+internal fun homeGridTrackColumns(widthDp: Float): Int = com.gpo.yoin.shared.home.homeGridTrackColumns(widthDp)
 
 /** One track row's height at [units] units, dp: the rows and their gaps fill the content box exactly. */
-internal fun homeGridTrackRowDp(units: Int, gapDp: Float = HomeGridTokens.TrackRowGap.value): Float {
-    val rows = homeGridTrackRows(units)
-    return (homeGridContentDp(units) - (rows - 1) * gapDp) / rows
-}
+internal fun homeGridTrackRowDp(units: Int, gapDp: Float = HomeGridTokens.TrackRowGap.value): Float =
+    com.gpo.yoin.shared.home.homeGridTrackRowDp(units, gapDp)
 
 /** A section's height in two columns at [units] units: T + n·U + (n − 1)·G, in dp. */
-internal fun homeGridHeightDp(units: Int): Float {
-    val n = units.coerceAtLeast(1)
-    return HomeGridTokens.TitleRow.value + n * HomeGridTokens.Unit.value + (n - 1) * HomeGridTokens.Gap.value
-}
+internal fun homeGridHeightDp(units: Int): Float = com.gpo.yoin.shared.home.homeGridHeightDp(units)
 
 internal fun Density.homeGridHeightPx(units: Int): Float = homeGridHeightDp(units).dp.toPx()
 
-/** The unit counts [this] section can take in two columns. */
-internal val HomeSection.unitRange: IntRange
-    get() = when (this) {
-        HomeSection.Activities -> 1..3
-        HomeSection.JumpBackIn -> 1..4
-        HomeSection.LyricHighlight -> 1..2
-        HomeSection.RecentlyAdded -> 1..2
-        HomeSection.MemoryGrid -> 1..3
-        HomeSection.RecentlyPlayed,
-        HomeSection.YourPlaylists,
-        HomeSection.MadeForYou,
-        HomeSection.Rediscover,
-        HomeSection.OtherProfiles,
-        -> 1..2
-    }
-
-/** The section keeps its unit count apart from its row preset, which means something else on a phone. */
-internal val HomeSection.unitsOwnKey: Boolean
-    get() = this == HomeSection.LyricHighlight
-
-/** The count a section with nothing stored takes: 2 for the two big default rows' sections, 1 for the rest. */
-internal val HomeSection.defaultUnits: Int
-    get() = when (this) {
-        HomeSection.Activities,
-        HomeSection.JumpBackIn,
-        HomeSection.LyricHighlight,
-        HomeSection.RecentlyAdded,
-        -> 2
-        else -> 1
-    }
-
-/** A stored row preset as units: S 1, M 2, L 3, XL 4. */
-internal val HomeRowPreset.units: Int
-    get() = when (this) {
-        HomeRowPreset.S -> 1
-        HomeRowPreset.M -> 2
-        HomeRowPreset.L -> 3
-        HomeRowPreset.XL -> 4
-    }
-
 /** [units] as the preset that stores it (counts past 4 store as XL). */
-internal fun homeUnitsPreset(units: Int): HomeRowPreset = when {
-    units <= 1 -> HomeRowPreset.S
-    units == 2 -> HomeRowPreset.M
-    units == 3 -> HomeRowPreset.L
-    else -> HomeRowPreset.XL
-}
+internal fun homeUnitsPreset(units: Int): HomeRowPreset = com.gpo.yoin.shared.home.homeUnitsPreset(units)
 
 /** Two ranges' overlap; the first range's lower end alone when they don't meet. */
-internal fun IntRange.intersectUnits(other: IntRange): IntRange {
-    val lo = maxOf(first, other.first)
-    val hi = minOf(last, other.last)
-    return if (lo <= hi) lo..hi else lo..lo
-}
+internal fun IntRange.intersectUnits(other: IntRange): IntRange = sharedIntersectUnits(other)
 
-/**
- * [state]'s own unit count in two columns: its chosen row preset as units, or
- * its default when it never chose one ([HomeSectionState.rowsSet]), held in its range.
- */
-internal fun homeSectionUnits(state: HomeSectionState): Int {
-    val stored = when {
-        state.section.unitsOwnKey -> state.units ?: state.section.defaultUnits
-        state.rowsSet -> state.rows.units
-        else -> state.section.defaultUnits
-    }
-    return stored.coerceIn(state.section.unitRange)
-}
+/** [state]'s own unit count in two columns ([com.gpo.yoin.shared.home.homeSectionUnits]). */
+internal fun homeSectionUnits(state: HomeSectionState): Int = com.gpo.yoin.shared.home.homeSectionUnits(state)
 
-/**
- * The count a row of [left] (and [right], when paired) shows: a pair takes
- * the left one's count, held in the overlap of both ranges.
- */
-internal fun homeRowUnits(left: HomeSectionState, right: HomeSectionState?): Int {
-    val own = homeSectionUnits(left)
-    if (right == null) return own
-    return own.coerceIn(left.section.unitRange.intersectUnits(right.section.unitRange))
-}
+/** The count a row of [left] (and [right], when paired) shows ([com.gpo.yoin.shared.home.homeRowUnits]). */
+internal fun homeRowUnits(left: HomeSectionState, right: HomeSectionState?): Int = com.gpo.yoin.shared.home.homeRowUnits(left, right)
 
 /** Two ranges share a count: a pair of sections with them can be one row height. */
-internal fun IntRange.meetsUnits(other: IntRange): Boolean = maxOf(first, other.first) <= minOf(last, other.last)
+internal fun IntRange.meetsUnits(other: IntRange): Boolean = sharedMeetsUnits(other)
 
-/**
- * [left] and [right] can be the two halves of a row (owner 2026-11-23: 「左右两边高度一致」): a pair
- * shares one unit count, at most the smaller of the two maxima, so their ranges must meet.
- */
-internal fun homeCanPair(left: HomeSection, right: HomeSection): Boolean = left.unitRange.meetsUnits(right.unitRange)
+/** [left] and [right] can be the two halves of a row ([com.gpo.yoin.shared.home.homeCanPair]). */
+internal fun homeCanPair(left: HomeSection, right: HomeSection): Boolean = com.gpo.yoin.shared.home.homeCanPair(left, right)
 
 /** The range a row's handle can drag over: the section's own, or the overlap with its partner. */
-internal fun homeRowUnitRange(left: HomeSection, right: HomeSection?): IntRange =
-    if (right == null) left.unitRange else left.unitRange.intersectUnits(right.unitRange)
+internal fun homeRowUnitRange(left: HomeSection, right: HomeSection?): IntRange = com.gpo.yoin.shared.home.homeRowUnitRange(left, right)
 
 /** The count whose height is nearest [heightPx] within [range]. */
-internal fun Density.homeUnitsNearest(heightPx: Float, range: IntRange): Int =
-    range.minByOrNull { abs(homeGridHeightPx(it) - heightPx) } ?: range.first
+internal fun Density.homeUnitsNearest(heightPx: Float, range: IntRange): Int = com.gpo.yoin.shared.home.homeUnitsNearest(heightPx, range, density)
 
 // ── The box a section lives in ──────────────────────────────────────────────
 
@@ -436,77 +362,25 @@ internal fun homeShelfColumnCount(cards: Int): Int {
 
 // ── Packing cards into unit rows ──────────────────────────────────────────
 
-/** A card placed on the grid: [index] into the caller's list, [row], first [column], [span] columns. */
-internal data class HomeGridCell(val index: Int, val row: Int, val column: Int, val span: Int)
+/** A card placed on the grid ([com.gpo.yoin.shared.home.HomeGridCell]). */
+internal typealias HomeGridCell = com.gpo.yoin.shared.home.HomeGridCell
 
-/**
- * Cards of [spans] columns each, row-major into [rows] rows of [columns]: a
- * card that doesn't fit what is left of a row starts the next; a span wider
- * than the row is one column. Cards past the last row are left out; no row
- * starts with a gap. Pure.
- */
-internal fun homeGridPack(spans: List<Int>, columns: Int, rows: Int): List<HomeGridCell> {
-    val cols = columns.coerceAtLeast(1)
-    val out = ArrayList<HomeGridCell>()
-    var row = 0
-    var column = 0
-    for ((index, raw) in spans.withIndex()) {
-        val span = raw.coerceIn(1, cols)
-        if (column + span > cols) {
-            row++
-            column = 0
-        }
-        if (row >= rows) break
-        out += HomeGridCell(index, row, column, span)
-        column += span
-    }
-    return out
-}
+/** Cards of [spans] columns each, row-major into [rows] rows of [columns] ([com.gpo.yoin.shared.home.homeGridPack]). Pure. */
+internal fun homeGridPack(spans: List<Int>, columns: Int, rows: Int): List<HomeGridCell> = com.gpo.yoin.shared.home.homeGridPack(spans, columns, rows)
 
-/**
- * Activities on the grid: one row of cards a unit. The lead entry (the hero,
- * when there is one) spans two columns; after it the rows alternate a wide
- * card (two columns) and small ones (one), so a row reads as a bento, not a
- * strip of equal tiles. Every card is one unit tall; the phone's one-line
- * strips don't fill a unit and become small cards here. [columns] from
- * [homeGridActivityColumns]. Pure.
- */
-internal fun homeGridActivitySpans(count: Int, columns: Int): List<Int> {
-    if (columns <= 1) return List(count) { 1 }
-    val out = ArrayList<Int>(count)
-    var column = 0
-    var inRow = 0
-    repeat(count) {
-        val span = if (inRow % 2 == 0 && columns - column >= 2) 2 else 1
-        out += span
-        column += span
-        inRow++
-        if (column >= columns) {
-            column = 0
-            inRow = 0
-        }
-    }
-    return out
-}
+/** Activities' spans on the grid ([com.gpo.yoin.shared.home.homeGridActivitySpans]). Pure. */
+internal fun homeGridActivitySpans(count: Int, columns: Int): List<Int> = com.gpo.yoin.shared.home.homeGridActivitySpans(count, columns)
 
 /** The narrowest one-column Activities card on the grid, dp. */
-internal const val HomeGridActivityColumnMinDp = 160f
+internal const val HomeGridActivityColumnMinDp = SharedGrid.ActivityColumnMin
 
 /** Activities' columns on the grid: ⌊(W + gap) / (160 + gap)⌋, at least 2. */
 internal fun homeGridActivityColumns(widthDp: Float, gapDp: Float = HomeGridTokens.ColumnGap.value): Int =
-    kotlin.math.max(2, kotlin.math.floor((widthDp + gapDp) / (HomeGridActivityColumnMinDp + gapDp)).toInt())
+    com.gpo.yoin.shared.home.homeGridActivityColumns(widthDp, gapDp)
 
-/**
- * A row's [columns] cells across [widthPx], [gapPx] apart, snapped to whole
- * px: (left, width) of a cell starting at [column] spanning [span]. Pure.
- */
-internal fun homeGridCellX(column: Int, span: Int, columns: Int, widthPx: Int, gapPx: Int): Pair<Int, Int> {
-    val cols = columns.coerceAtLeast(1)
-    val cell = (widthPx - gapPx * (cols - 1)).toFloat() / cols
-    val left = kotlin.math.round(column * (cell + gapPx)).toInt()
-    val right = kotlin.math.round((column + span) * (cell + gapPx) - gapPx).toInt()
-    return left to (right - left).coerceAtLeast(0)
-}
+/** A row's cells snapped to whole px ([com.gpo.yoin.shared.home.homeGridCellX]). Pure. */
+internal fun homeGridCellX(column: Int, span: Int, columns: Int, widthPx: Int, gapPx: Int): Pair<Int, Int> =
+    com.gpo.yoin.shared.home.homeGridCellX(column, span, columns, widthPx, gapPx)
 
 /**
  * [cells] laid out on the grid: every cell exactly [rowHeight] tall (a unit), rows [rowGap] apart,
@@ -642,11 +516,8 @@ private class HomeGridSeat {
     var columns = 0
 }
 
-/**
- * The grid moves from [last] (a width or column count it was seated at; 0 for none yet) to [now]: its
- * cells re-seat in place, at once, instead of springing from the old layout's places. Pure.
- */
-internal fun homeGridReseats(last: Int, now: Int): Boolean = last != 0 && last != now
+/** The grid moves from [last] to [now]: its cells re-seat in place ([com.gpo.yoin.shared.home.homeGridReseats]). Pure. */
+internal fun homeGridReseats(last: Int, now: Int): Boolean = com.gpo.yoin.shared.home.homeGridReseats(last, now)
 
 /** A key's cell and the content lambda it was last drawn with. */
 private class HomeGridDrawn(val cell: HomeGridCell, val content: @Composable (HomeGridCell) -> Unit)

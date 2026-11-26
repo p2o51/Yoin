@@ -163,6 +163,18 @@ enum AppleMusicMapping {
     }
 
     /// "2019-05-24" / "2019" → 2019; 0 when unknown.
+    /// A library album's date (Android AppleMusicSource, 2026-11-24): its own, unless it has none or only the year;
+    /// then its catalog album's more precise date of the same year (a different year is another version: the
+    /// library's own stays). A catalog album passes its own date through.
+    static func libraryReleaseDate(_ own: String?, catalog: String?) -> String? {
+        let mine = ReleaseDateISO.parse(own)
+        guard let theirs = ReleaseDateISO.parse(catalog) else { return own }
+        guard let mine else { return catalog }
+        let yearOnly = mine.count == 4
+        guard yearOnly, theirs.count > mine.count, theirs.hasPrefix(mine) else { return own }
+        return catalog
+    }
+
     static func year(_ releaseDate: String?) -> Int {
         guard let releaseDate, releaseDate.count >= 4 else { return 0 }
         return Int(releaseDate.prefix(4)) ?? 0
@@ -336,7 +348,8 @@ enum AppleMusicMapping {
             artistId: AppleMusicJSON.related(r, "artists")?.first.flatMap(relatedRawId),
             artwork: artworkURL(AppleMusicJSON.string(a["artwork"] as? AppleMusicJSON.Object, "url")
                 ?? AppleMusicJSON.string(catalogAttributes?["artwork"] as? AppleMusicJSON.Object, "url")),
-            releaseDate: AppleMusicJSON.string(a, "releaseDate") ?? AppleMusicJSON.string(catalogAttributes, "releaseDate"),
+            releaseDate: libraryReleaseDate(AppleMusicJSON.string(a, "releaseDate"),
+                                            catalog: AppleMusicJSON.string(catalogAttributes, "releaseDate")),
             dateAdded: AppleMusicJSON.string(a, "dateAdded"),
             trackCount: AppleMusicJSON.int(a, "trackCount"),
             isSingle: AppleMusicJSON.bool(a, "isSingle") || AppleMusicJSON.bool(catalogAttributes, "isSingle"),

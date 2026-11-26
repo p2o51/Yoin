@@ -977,12 +977,12 @@ struct PlaylistRow: View {
         if owner == nil && n == nil {
             Text("Playlist").yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurfaceVariant)
         } else {
-            HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+            HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
                 if let owner {
                     Text(owner).lineLimit(1).yoinRole(Tokens.type.bodySmall).foregroundStyle(scheme.onSurface)
                 }
                 if let n {
-                    HStack(spacing: Tokens.metaLine.INNER_GAP.cg) {
+                    HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.INNER_GAP.cg) {
                         Text("\(n)").monospacedDigit().yoinRole(Tokens.type.bodySmall, weight: .medium)
                             .foregroundStyle(scheme.onSurface)
                         Text(n == 1 ? "track" : "tracks").yoinRole(Tokens.type.bodySmall)
@@ -1932,7 +1932,7 @@ struct LibraryMetaLine: View {
     var scheme: CoverScheme
 
     var body: some View {
-        HStack(spacing: Tokens.metaLine.GROUP_GAP.cg) {
+        HStack(alignment: .firstTextBaseline, spacing: Tokens.metaLine.GROUP_GAP.cg) {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 Text(part.0)
                     .lineLimit(1)

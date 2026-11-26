@@ -1,0 +1,24 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSPhotoLibraryAddUsageDescription": {
+      "comment": "Save to Photos from the share sheet (lyrics / About / note images). Copy: Rebecca, 2026-11-26.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yoin saves your lyric, About, and note images to your photo library."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将你生成的歌词、关于和笔记图片保存到照片。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

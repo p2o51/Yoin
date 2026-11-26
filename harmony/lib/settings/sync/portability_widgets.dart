@@ -680,21 +680,20 @@ class MetaFlow extends StatelessWidget {
     final base = (style ?? theme.textTheme.bodySmall!).copyWith(color: theme.colorScheme.onSurfaceVariant);
     final ink = base.color!;
     final muted = base.copyWith(color: ink.withValues(alpha: ink.a * MetaLineTokens.mutedAlpha));
+    // One line box for every item, Google Sans Flex's, whichever font draws the words (a Chinese unit
+    // takes the CJK fallback's metrics): the items in a run then share one baseline (Android MetaFlow
+    // aligns them by baseline, PR #310), and a stat's value and unit sit on theirs.
+    final strut = StrutStyle.fromTextStyle(base, forceStrutHeight: true);
+    Widget text(String s, TextStyle style) => Text(s, style: style, strutStyle: strut);
     Widget group(MetaGroup g) => switch (g) {
-      MetaPlain(:final text) => Text(text, style: base),
-      MetaMuted(:final text) => Text(text, style: muted),
-      MetaKind(:final text, :final color) => Text(
-        text,
-        style: base.copyWith(color: color ?? theme.colorScheme.primary),
-      ),
+      MetaPlain(text: final s) => text(s, base),
+      MetaMuted(text: final s) => text(s, muted),
+      MetaKind(text: final s, :final color) => text(s, base.copyWith(color: color ?? theme.colorScheme.primary)),
       MetaStat(:final value, :final unit) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            value,
-            style: base.copyWith(fontWeight: FontWeight.w500, fontFeatures: const [FontFeature.tabularFigures()]),
-          ),
-          if (unit.isNotEmpty) ...[const SizedBox(width: MetaLineTokens.innerGap), Text(unit, style: muted)],
+          text(value, base.copyWith(fontWeight: FontWeight.w500, fontFeatures: const [FontFeature.tabularFigures()])),
+          if (unit.isNotEmpty) ...[const SizedBox(width: MetaLineTokens.innerGap), text(unit, muted)],
         ],
       ),
     };

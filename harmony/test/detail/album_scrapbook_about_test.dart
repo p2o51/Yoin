@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yoin/notes/editor/note_editor_controller.dart';
 import 'package:yoin/notes/note_markup_text.dart';
 import 'package:yoin/app/providers.dart';
 import 'package:yoin/data/about/song_about_store.dart';
@@ -367,9 +368,11 @@ void main() {
     testWidgets('should_keepStoredTextExactly_when_noteEditedAndLeftAsItWas', (tester) async {
       final (_, store, _) = await openPage2(tester, noteText: androidNote);
       await openNoteEditor(tester);
-      // The editor is plain text: it holds the stored markup as written.
+      // The note editor (Android #310): the mention is one chip, and the stored text reads back as written.
       final field = tester.widget<TextField>(find.byType(TextField).last);
-      expect(field.controller!.text, androidNote);
+      expect((field.controller! as NoteEditorController).storedText, androidNote);
+      expect(field.controller!.text, isNot(contains('yoin:')));
+      expect(find.text('@Blue'), findsOneWidget);
       await tester.tap(find.text('Done'));
       await _settle(tester);
       final note = (await store.notesForTracks({_t(2)})).single;

@@ -17,6 +17,7 @@ import '../home/widgets/spring_height.dart';
 import '../shell/bar_suppression.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
+import '../ui/component/ai_service_scope.dart';
 import '../ui/component/spring_cross_fade.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'about_logic.dart';
@@ -157,7 +158,7 @@ class _ThinkingDotsState extends State<ThinkingDots> with SingleTickerProviderSt
   Widget build(BuildContext context) {
     final reduced = MediaQuery.disableAnimationsOf(context);
     return Semantics(
-      label: NowPlayingStrings.of(context).cdGeminiThinking,
+      label: NowPlayingStrings.of(context).aiWriting(AiServiceScope.of(context)),
       child: AnimatedBuilder(
         animation: _clock,
         builder: (context, _) {
@@ -746,7 +747,7 @@ class _AboutStatus extends StatelessWidget {
       AboutKeyMissing() => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Flexible(child: Text(strings.songInfoNoKey, style: muted)),
+          Flexible(child: Text(strings.aiNoKey(AiServiceScope.of(context)), style: muted)),
           TextButton(onPressed: onOpenSettings, child: Text(strings.songInfoSettings)),
         ],
       ),
@@ -859,7 +860,10 @@ class AboutPane extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             sourceReceipt(),
-            Text(strings.aboutKeyMissing, style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant)),
+            Text(
+              strings.aiNoKey(AiServiceScope.of(context)),
+              style: theme.textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+            ),
             TextButton(onPressed: onOpenSettings, child: Text(strings.aboutOpenSettings)),
           ],
         ),
@@ -1025,7 +1029,7 @@ class _ReadyAboutState extends State<_ReadyAbout> with TickerProviderStateMixin 
 
 /// The long-pressed row's sheet (AboutEntrySheet): its heading and the start
 /// of its text, then Manage in Scrapbook (when the song has an album page),
-/// Regenerate with Gemini (not for the listener's own entry) and Share as
+/// Regenerate with the AI service in use (not for the listener's own entry) and Share as
 /// image (inside Now Playing; not for the listener's own entry either —
 /// About's image carries only the AI's words), which opens the share sheet on
 /// 关于 with this row's paragraph.
@@ -1039,7 +1043,8 @@ Future<void> showAboutEntrySheet(
   final share = NowPlayingShareScope.maybeOf(context);
   final rows = <(String, IconData, VoidCallback)>[
     if (actions.canManage()) (strings.aboutManage, YoinSymbols.note, () => actions.onManage(entry)),
-    if (!entry.isOwn) (strings.aboutRegenerate, YoinSymbols.sparkle, () => actions.onRegenerate(entry)),
+    if (!entry.isOwn)
+      (strings.aiRegenerateWith(AiServiceScope.of(context)), YoinSymbols.sparkle, () => actions.onRegenerate(entry)),
     if (!entry.isOwn && share != null)
       (strings.shareSheetTitle, YoinSymbols.share, () => share(ShareRequest(ShareTab.about, aboutFocus: entry))),
   ];

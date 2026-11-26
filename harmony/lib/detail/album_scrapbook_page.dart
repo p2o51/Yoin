@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
+import '../data/ai/ai_service_name.dart';
 import '../data/albumabout/album_credits.dart';
 import '../data/albumabout/yoin_album_about.dart';
 import '../data/memory/memory_store.dart';
@@ -482,7 +483,7 @@ class _AlbumScrapbookPageState extends ConsumerState<AlbumScrapbookPage> with Ti
       case ScrapRegenerated(:final restore):
         say(strings.scrapRegenerated, actionLabel: strings.scrapUndo, long: true, onAction: () => editor.edit(restore));
       case ScrapFailed(:final failure):
-        say(scrapFailureText(strings, failure));
+        say(scrapFailureText(strings, failure, ref.read(activeAiProviderProvider)));
       case ScrapAlbumAboutFailed(:final failure):
         say(albumAboutFailureText(strings, failure, ref.read(aiSettingsProvider).value?.provider ?? AiProvider.gemini));
     }

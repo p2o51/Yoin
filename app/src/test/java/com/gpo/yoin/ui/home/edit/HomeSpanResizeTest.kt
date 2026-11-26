@@ -1,6 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
-import com.gpo.yoin.ui.home.HomeFeedRow
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.homeRowCellWidths
 import com.gpo.yoin.ui.home.homeSpanInfoOf

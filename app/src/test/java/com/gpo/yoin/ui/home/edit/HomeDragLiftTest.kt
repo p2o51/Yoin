@@ -9,8 +9,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Density
 import com.gpo.yoin.testutil.virtualUptimeMs
 import com.gpo.yoin.ui.home.HomeSection
-import com.gpo.yoin.ui.home.HomeSection.Activities
-import com.gpo.yoin.ui.home.HomeSection.JumpBackIn
+import com.gpo.yoin.shared.home.HomeSection.Activities
+import com.gpo.yoin.shared.home.HomeSection.JumpBackIn
 import kotlin.math.abs
 import kotlin.math.max
 import kotlinx.coroutines.CoroutineScope

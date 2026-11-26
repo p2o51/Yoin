@@ -35,6 +35,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.experience.FeedFrameClass
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -76,81 +77,25 @@ internal fun YoinWindowInfo.forHomeColumn(contentWidth: Dp): YoinWindowInfo {
 }
 
 // The narrowest content a Wide frame has (840 − 2 × 32).
-private val TwoColumnMinContent = 776.dp
+private val TwoColumnMinContent = com.gpo.yoin.shared.home.HomeTwoColumnTokens.MinContent.dp
 
-/**
- * Where [section] sits in [rows] for a span drag ([HomeSpanInfo]); null when
- * it isn't laid out. [fullPx] is the content width. A full row can turn half
- * only with the next enabled section displayed right after it ([enabledOrder]).
- */
+/** Where [section] sits in [rows] for a span drag ([com.gpo.yoin.shared.home.homeSpanInfoOf]). */
 internal fun homeSpanInfoOf(
     section: HomeSection,
     rows: List<HomeFeedRow>,
     enabledOrder: List<HomeSection>,
     fullPx: Float,
     gapPx: Float,
-): HomeSpanInfo? {
-    val index = rows.indexOfFirst { row ->
-        when (row) {
-            is HomeFeedRow.Full -> row.section == section
-            is HomeFeedRow.Halves -> row.left == section || row.right == section
-        }
-    }
-    if (index < 0 || fullPx <= 0f) return null
-    val halfPx = (fullPx - gapPx) / 2f
-    return when (val row = rows[index]) {
-        is HomeFeedRow.Full -> {
-            val next = enabledOrder.getOrNull(enabledOrder.indexOf(section) + 1)
-            HomeSpanInfo(
-                span = HomeSpan.Full,
-                currentPx = fullPx,
-                halfPx = halfPx,
-                fullPx = fullPx,
-                hasNext = next != null && rows.getOrNull(index + 1)?.first == next,
-            )
-        }
-        is HomeFeedRow.Halves -> HomeSpanInfo(
-            span = if (row.left == section) HomeSpan.LeftHalf else HomeSpan.RightHalf,
-            currentPx = halfPx,
-            halfPx = halfPx,
-            fullPx = fullPx,
-            hasNext = true,
-        )
-    }
-}
+): HomeSpanInfo? = com.gpo.yoin.shared.home.homeSpanInfoOf(section, rows, enabledOrder, fullPx, gapPx)
 
-/**
- * Widths (px) of a row's cells: a full row its section; a pair two halves
- * [gapPx] apart. Under a span drag ([dragged], [dragPx]) the dragged cell is
- * [dragPx] wide and its partner takes what is left (never under half a half,
- * the dragged cell drawn over it). Pure.
- */
+/** Widths (px) of a row's cells ([com.gpo.yoin.shared.home.homeRowCellWidths]). Pure. */
 internal fun homeRowCellWidths(
     row: HomeFeedRow,
     widthPx: Int,
     gapPx: Int,
     dragged: HomeSection?,
     dragPx: Int,
-): List<Int> {
-    val half = (widthPx - gapPx) / 2
-    return when (row) {
-        is HomeFeedRow.Full -> listOf(if (dragged == row.section) dragPx.coerceIn(1, widthPx) else widthPx)
-        is HomeFeedRow.Halves -> {
-            val minPartner = half / 2
-            when (dragged) {
-                row.left -> {
-                    val l = dragPx.coerceIn(1, widthPx)
-                    listOf(l, (widthPx - gapPx - l).coerceAtLeast(minPartner))
-                }
-                row.right -> {
-                    val r = dragPx.coerceIn(1, widthPx)
-                    listOf((widthPx - gapPx - r).coerceAtLeast(minPartner), r)
-                }
-                else -> listOf(half, widthPx - gapPx - half)
-            }
-        }
-    }
-}
+): List<Int> = com.gpo.yoin.shared.home.homeRowCellWidths(row, widthPx, gapPx, dragged, dragPx)
 
 /**
  * One feed row: a full section, or two halves [gap] apart, top-aligned. Each

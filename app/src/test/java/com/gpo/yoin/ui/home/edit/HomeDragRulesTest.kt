@@ -1,13 +1,14 @@
 package com.gpo.yoin.ui.home.edit
 
-import com.gpo.yoin.ui.home.HomeFeedRow
+import com.gpo.yoin.shared.home.DragSideStep
+import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeSection
-import com.gpo.yoin.ui.home.HomeSection.Activities
-import com.gpo.yoin.ui.home.HomeSection.JumpBackIn
-import com.gpo.yoin.ui.home.HomeSection.MadeForYou
-import com.gpo.yoin.ui.home.HomeSection.MemoryGrid
-import com.gpo.yoin.ui.home.HomeSection.RecentlyAdded
-import com.gpo.yoin.ui.home.HomeSection.RecentlyPlayed
+import com.gpo.yoin.shared.home.HomeSection.Activities
+import com.gpo.yoin.shared.home.HomeSection.JumpBackIn
+import com.gpo.yoin.shared.home.HomeSection.MadeForYou
+import com.gpo.yoin.shared.home.HomeSection.MemoryGrid
+import com.gpo.yoin.shared.home.HomeSection.RecentlyAdded
+import com.gpo.yoin.shared.home.HomeSection.RecentlyPlayed
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

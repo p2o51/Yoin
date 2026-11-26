@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,13 +42,13 @@ final class KeyValueLandingLayoutGateway implements LandingLayoutGateway {
   Future<HomeLayout?> read(String provider, String profileId) async {
     final raw = await _ref.read(keyValueStoreProvider).read(HomeLayoutNotifier.keyFor(provider, profileId));
     if (raw == null) return null;
-    return HomeLayout.fromJson((jsonDecode(raw) as Map).cast<String, Object?>());
+    return decodeHomeLayout(raw);
   }
 
   @override
   Future<void> write(String provider, String profileId, HomeLayout layout) => _ref
       .read(keyValueStoreProvider)
-      .write(HomeLayoutNotifier.keyFor(provider, profileId), jsonEncode(layout.toJson()));
+      .write(HomeLayoutNotifier.keyFor(provider, profileId), layout.encode());
 
   @override
   Future<void> clear(String provider, String profileId) =>
@@ -58,16 +57,17 @@ final class KeyValueLandingLayoutGateway implements LandingLayoutGateway {
 
 final landingLayoutGatewayProvider = Provider<LandingLayoutGateway>((ref) => KeyValueLandingLayoutGateway(ref));
 
-/// Whether [layout] is the catalogue's default (nothing to write).
-bool isDefaultHomeLayout(HomeLayout layout) => listEquals(layout.sections, HomeLayout.defaultLayout.sections);
+/// Whether persisting [layout] clears the row instead of writing it (the persist rule, [homePersistAction]):
+/// a default with no ids this build doesn't know.
+bool isDefaultHomeLayout(HomeLayout layout) => homePersistAction(layout) is HomePersistClear;
 
 /// The sections the Home step lists: the known ones this build can draw, in
 /// layout order, less 「歌词一句」: Android lists it only where Gemini Nano is
 /// available (LandingScreen hidden), and HarmonyOS never has Nano — hidden
 /// from the list, kept in the layout (it still shows on Home).
-List<HomeSectionPref> landingShownSections(HomeLayout layout) => [
+List<HomeSectionState> landingShownSections(HomeLayout layout) => [
   for (final pref in layout.sections)
-    if ((pref.section?.availableInV1 ?? false) && pref.section != HomeSection.lyricHighlight) pref,
+    if (pref.section.availableInV1 && pref.section != HomeSection.lyricHighlight) pref,
 ];
 
 /// The landing's state machine (Android LandingViewModel): which step, what
@@ -133,7 +133,7 @@ class LandingViewModel extends Notifier<LandingUiState> {
       stored = null;
     }
     if (!ref.mounted || stored == null || _layoutEdited) return;
-    state = state.copyWith(layout: HomeLayout.reconcile(stored.sections, extras: stored.extras));
+    state = state.copyWith(layout: stored);
   }
 
   void next() {
@@ -175,7 +175,8 @@ class LandingViewModel extends Notifier<LandingUiState> {
     if (from < 0 || to < 0 || from >= list.length || to >= list.length || from == to) return;
     list.insert(to, list.removeAt(from));
     _layoutEdited = true;
-    state = state.copyWith(layout: HomeLayout(list, extras: state.layout.extras));
+    // The landing reorders the sections itself: the pairs follow the two-column memory at the new order.
+    state = state.copyWith(layout: state.layout.copyWith(sections: list).withRememberedPairs());
   }
 
   /// Moves a row of the Home step: [from] and [to] index [landingShownSections].

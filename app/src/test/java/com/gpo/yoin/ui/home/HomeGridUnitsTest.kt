@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.home
 
 import androidx.compose.animation.core.snap
 import androidx.compose.ui.unit.Density
+import com.gpo.yoin.shared.home.HomeFeedRow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import com.gpo.yoin.ui.home.edit.runEditClockTest
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
