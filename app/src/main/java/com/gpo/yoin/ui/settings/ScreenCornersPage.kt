@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import com.gpo.yoin.ui.component.SystemBarIconsOverride
 import com.gpo.yoin.ui.component.handPointer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
@@ -30,7 +31,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -45,15 +45,12 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import com.gpo.yoin.R
-import com.gpo.yoin.ui.detail.findActivityOrNull
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -89,24 +86,12 @@ internal fun ScreenCornersPage(onBackClick: () -> Unit, modifier: Modifier = Mod
 }
 
 /**
- * The page is light in both themes, so the window's bar icons go dark while it shows and back to what
- * they were when it leaves (else dark theme leaves white icons on the light page).
+ * The page is light in both themes, so the window's bar icons go dark while it shows and back to the
+ * theme's when it leaves (else dark theme leaves white icons on the light page).
  */
 @Composable
 private fun ScreenCornersSystemBarsEffect() {
-    val view = LocalView.current
-    val window = view.context.findActivityOrNull()?.window ?: return
-    DisposableEffect(window, view) {
-        val controller = WindowCompat.getInsetsController(window, view)
-        val status = controller.isAppearanceLightStatusBars
-        val navigation = controller.isAppearanceLightNavigationBars
-        controller.isAppearanceLightStatusBars = true
-        controller.isAppearanceLightNavigationBars = true
-        onDispose {
-            controller.isAppearanceLightStatusBars = status
-            controller.isAppearanceLightNavigationBars = navigation
-        }
-    }
+    SystemBarIconsOverride(lightStatusBars = true, lightNavigationBars = true)
 }
 
 /** [ScreenCornersPage] without its state: the Tips demo plays it with a value of its own. */
