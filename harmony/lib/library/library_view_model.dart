@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/activity/activity.dart';
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
 import '../data/source/music_source.dart';
 import '../detail/detail_cache.dart';
 import '../platform/i18n/name_transliterator.dart';
@@ -72,6 +73,7 @@ final class LibraryContent extends LibraryUiState {
     this.allSettled = false,
     this.notice,
     this.byYouSelected = false,
+    this.albumKindFilter = ReleaseKindFilter.all,
   });
 
   final LibraryTab selected;
@@ -94,6 +96,31 @@ final class LibraryContent extends LibraryUiState {
 
   /// The user turned Playlists' By You on (kept through chips and refreshes).
   final bool byYouSelected;
+
+  /// Albums' kind filter as the user picked it (Android LibraryScreen AlbumsTabContent, PR #343: "EP 和专辑能不能
+  /// 试着分开？"); it narrows only while offered ([albumKindFilters]).
+  final ReleaseKindFilter albumKindFilter;
+
+  /// The kind filters Albums offers: none unless the shelf holds at least two kinds its services named.
+  List<ReleaseKindFilter> get albumKindFilters => ReleaseKindFilter.offeredFor([
+    for (final a in albums ?? const <Album>[]) a.releaseType,
+  ]);
+
+  /// The filter in force: the picked one while offered, else All.
+  ReleaseKindFilter get activeAlbumKindFilter =>
+      albumKindFilters.contains(albumKindFilter) ? albumKindFilter : ReleaseKindFilter.all;
+
+  /// What the Albums view lists: under a kind filter only that kind, with no letter sections of its own
+  /// (the bare scroller, as Android).
+  SortedView? get shownAlbums {
+    final view = sorted.albums;
+    final filter = activeAlbumKindFilter;
+    if (view == null || filter == ReleaseKindFilter.all) return view;
+    return SortedView([
+      for (final item in view.items)
+        if (item is LibraryAlbumItem && filter.accepts(item.album.releaseType)) item,
+    ], const []);
+  }
 
   /// Playlists' By You: offered while the loaded playlists are mixed.
   PlaylistsByYou get playlistsByYou =>
@@ -120,6 +147,7 @@ final class LibraryContent extends LibraryUiState {
     bool? allSettled,
     LibraryNotice? notice,
     bool? byYouSelected,
+    ReleaseKindFilter? albumKindFilter,
   }) => LibraryContent(
     selected: selected ?? this.selected,
     availableTabs: availableTabs ?? this.availableTabs,
@@ -135,6 +163,7 @@ final class LibraryContent extends LibraryUiState {
     allSettled: allSettled ?? this.allSettled,
     notice: notice ?? this.notice,
     byYouSelected: byYouSelected ?? this.byYouSelected,
+    albumKindFilter: albumKindFilter ?? this.albumKindFilter,
   );
 }
 
@@ -384,6 +413,14 @@ class LibraryViewModel extends Notifier<LibraryUiState> {
     if (content == null) return;
     if (selected && !content.playlistsByYou.available) return;
     state = content.copyWith(byYouSelected: selected);
+  }
+
+  /// Albums' kind filter (Android AlbumsTabContent's ReleaseKindFilter); one not offered is ignored.
+  void selectAlbumKindFilter(ReleaseKindFilter filter) {
+    final content = _content;
+    if (content == null) return;
+    if (filter != ReleaseKindFilter.all && !content.albumKindFilters.contains(filter)) return;
+    state = content.copyWith(albumKindFilter: filter);
   }
 
   /// Turns [tab] on (or, for the tab already on, back to All); a fetch that

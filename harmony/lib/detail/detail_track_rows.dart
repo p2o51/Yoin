@@ -5,9 +5,11 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
 import '../theme/motion.dart';
 import '../theme/tokens.dart';
 import '../ui/component/equalizer_glyph.dart';
+import '../ui/component/explicit_badge.dart';
 import '../ui/component/media_artwork.dart';
 import '../ui/component/meta_line.dart';
 import '../ui/component/seam/seam.dart';
@@ -173,14 +175,28 @@ class AlbumTrackRow extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SpringColorBuilder(
-                            color: play.current ? page.accent : colors.onSurface,
-                            builder: (color) => Text(
-                              track.title ?? '',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: text.titleMedium?.copyWith(color: color),
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Flexible(
+                                child: SpringColorBuilder(
+                                  color: play.current ? page.accent : colors.onSurface,
+                                  builder: (color) => Text(
+                                    track.title ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: text.titleMedium?.copyWith(color: color),
+                                  ),
+                                ),
+                              ),
+                              // The service marks the song explicit: the "E" after its title.
+                              if (track.isExplicit)
+                                Padding(
+                                  padding: const EdgeInsetsDirectional.only(start: ReleaseMarks.gapDp),
+                                  child: ExplicitBadge(textStyle: text.titleMedium),
+                                ),
+                            ],
                           ),
                           if (featArtist != null) ...[
                             const SizedBox(height: 2),
@@ -399,14 +415,27 @@ class PlaylistTrackRow extends ConsumerWidget {
                               ),
                             ),
                             Expanded(
-                              child: SpringColorBuilder(
-                                color: play.current ? page.accent : colors.onSurface,
-                                builder: (color) => Text(
-                                  track.title ?? '',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: text.titleMedium?.copyWith(color: color),
-                                ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Flexible(
+                                    child: SpringColorBuilder(
+                                      color: play.current ? page.accent : colors.onSurface,
+                                      builder: (color) => Text(
+                                        track.title ?? '',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: text.titleMedium?.copyWith(color: color),
+                                      ),
+                                    ),
+                                  ),
+                                  if (track.isExplicit)
+                                    Padding(
+                                      padding: const EdgeInsetsDirectional.only(start: ReleaseMarks.gapDp),
+                                      child: ExplicitBadge(textStyle: text.titleMedium),
+                                    ),
+                                ],
                               ),
                             ),
                           ],

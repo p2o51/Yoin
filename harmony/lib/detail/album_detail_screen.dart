@@ -4,6 +4,7 @@ import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../app/providers.dart';
 import '../data/model/model.dart';
+import '../data/release/release_marks.dart';
 import '../data/offline/offline_model.dart';
 import '../data/source/music_source.dart';
 import '../library/add_to_playlist_flow.dart';
@@ -29,6 +30,7 @@ import 'detail_strings.dart';
 import 'detail_track_menu.dart';
 import 'detail_track_rows.dart';
 import 'flowing_titles.dart';
+import 'release_kind_labels.dart';
 import 'pull_up_reveal.dart';
 import 'reshape_scaffold.dart';
 import 'scrapbook_focus.dart';
@@ -81,13 +83,26 @@ class _AlbumDetailScreenState extends ConsumerState<AlbumDetailScreen> {
         child: _AlbumChrome(
           state: state,
           child: ReshapeDetailScaffold(
-            title: album == null ? '' : albumTitleWithoutVersion(album.name, album.version),
+            // The name alone: the version is its own tag, Apple Music's " - EP" / " - Single" the kind below.
+            title: album == null
+                ? ''
+                : ReleaseMarks.nameWithoutKindSuffix(
+                    albumTitleWithoutVersion(album.name, album.version),
+                    album.releaseType,
+                  ),
             titleTrailing: album?.version == null
                 ? null
                 : AlbumVersionTag(album!.version!, style: Theme.of(context).textTheme.labelMedium),
+            titleExplicit: album?.isExplicit ?? false,
             meta: [
               if (album?.artist?.trim().isNotEmpty ?? false) MetaPlain(album!.artist!),
-              if (album != null) MetaKind(strings.albumKind),
+              // The real kind (EP / Single / Compilation) as the service says; Album when unknown.
+              if (album != null)
+                MetaKind(
+                  album.releaseType == null
+                      ? strings.albumKind
+                      : releaseKindLabel(strings, ReleaseMarks.headerKind(album.releaseType)),
+                ),
               // The date at the service's precision in place of the year ("22.6.12", "22.6", "2022").
               if (album != null)
                 if (albumHeaderDate(album.parsedReleaseDate, album.year) case final date?) MetaPlain(date),

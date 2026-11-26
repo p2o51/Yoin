@@ -11,6 +11,7 @@ library;
 import 'dart:convert';
 
 import '../model/model.dart';
+import '../release/release_marks.dart';
 import 'subsonic_api.dart';
 
 // ------------------------------------------------------------------ JSON reads
@@ -104,6 +105,8 @@ Track? trackFromJson(SubsonicJson j) {
     composer: _text(j['displayComposer'])?.trim(),
     comment: _text(j['comment'])?.trim(),
     path: _text(j['path']),
+    // OpenSubsonic `explicitStatus` ("explicit" / "clean"; "" or absent is unknown).
+    contentRating: ContentRating.fromOpenSubsonic(_text(j['explicitStatus'])),
   );
 }
 
@@ -205,6 +208,7 @@ Album? albumFromJson(SubsonicJson j) {
       ...{for (final l in _objs(j['recordLabels'])) ?_text(l['name'])?.trim()},
     ],
     originalReleaseDate: isoItemDate(j['originalReleaseDate']),
+    contentRating: ContentRating.fromOpenSubsonic(_text(j['explicitStatus'])),
   );
 }
 
@@ -230,20 +234,8 @@ List<String> _objsOrStrings(Object? v) => switch (v) {
   _ => const [],
 };
 
-/// OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins.
-ReleaseType? releaseTypeFrom(List<String> releaseTypes) {
-  for (final type in releaseTypes) {
-    final match = switch (type.trim().toLowerCase()) {
-      'album' => ReleaseType.album,
-      'ep' => ReleaseType.ep,
-      'single' => ReleaseType.single,
-      'compilation' => ReleaseType.compilation,
-      _ => null,
-    };
-    if (match != null) return match;
-  }
-  return null;
-}
+/// OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins (:shared's rule).
+ReleaseType? releaseTypeFrom(List<String> releaseTypes) => ReleaseMarks.subsonicReleaseType(releaseTypes);
 
 // -------------------------------------------------------------------- artists
 

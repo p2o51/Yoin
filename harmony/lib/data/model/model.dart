@@ -4,10 +4,12 @@ library;
 
 import 'package:flutter/foundation.dart';
 
+import '../release/release_marks.dart';
 import 'media_id.dart';
 import 'release_date.dart';
 import 'replay_gain.dart';
 
+export '../release/release_marks.dart' show ContentRating;
 export 'media_id.dart';
 export 'release_date.dart';
 export 'replay_gain.dart';
@@ -165,6 +167,7 @@ final class Track {
     this.composer,
     this.comment,
     this.path,
+    this.contentRating,
   });
 
   final MediaId id;
@@ -223,6 +226,13 @@ final class Track {
   /// The file's path on the server (Subsonic `path`).
   final String? path;
 
+  /// Explicit / clean as the service marks the song (Apple Music `contentRating`, OpenSubsonic
+  /// `explicitStatus`); null when it doesn't say (Android Track.contentRating).
+  final ContentRating? contentRating;
+
+  /// The song wears the "E" after its title (only explicit is ever shown).
+  bool get isExplicit => contentRating == ContentRating.explicit;
+
   /// Every credited artist with the page each one opens: [artists] where the
   /// service named several, else the one [artist] with [artistId] (Android
   /// Track.artistCredits). An artist the service gives no id has a null id.
@@ -270,6 +280,7 @@ final class Track {
         composer: composer,
         comment: comment,
         path: path,
+        contentRating: contentRating,
       );
 }
 
@@ -295,6 +306,7 @@ final class Album {
     this.releaseDate,
     this.recordLabels = const [],
     this.originalReleaseDate,
+    this.contentRating,
   });
 
   final MediaId id;
@@ -333,6 +345,13 @@ final class Album {
   /// The first release's date when the service gives it apart from this release's (OpenSubsonic
   /// `originalReleaseDate`), ISO like [releaseDate]: a reissue's 首版 on the credits line.
   final String? originalReleaseDate;
+
+  /// Explicit / clean as the service marks the release (Apple Music `contentRating`, OpenSubsonic
+  /// `explicitStatus`); null when it doesn't say (Android Album.contentRating).
+  final ContentRating? contentRating;
+
+  /// The release wears the "E" (only explicit is ever shown).
+  bool get isExplicit => contentRating == ContentRating.explicit;
 }
 
 final class Artist {

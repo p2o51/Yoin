@@ -36,6 +36,8 @@ abstract final class TrackCodec {
         'composer': ?t.composer,
         'comment': ?t.comment,
         'path': ?t.path,
+        // Explicit / clean by its stored name (Now Playing's "E"); absent in items from before it: unknown.
+        'cr': ?t.contentRating?.storageName,
         if (t.artists.isNotEmpty)
           'artists': [
             for (final a in t.artists) {'n': a.name, 'id': ?a.id?.toString()},
@@ -76,6 +78,7 @@ abstract final class TrackCodec {
         composer: m['composer'] as String?,
         comment: m['comment'] as String?,
         path: m['path'] as String?,
+        contentRating: ContentRating.fromStorage(m['cr'] as String?),
       );
     } on Object {
       return null;

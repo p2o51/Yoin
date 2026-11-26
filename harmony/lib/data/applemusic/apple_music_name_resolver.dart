@@ -922,6 +922,7 @@ Track renamedTrack(Track t, {String? title, String? artist, String? album}) => T
   composer: t.composer,
   comment: t.comment,
   path: t.path,
+  contentRating: t.contentRating,
 );
 
 /// [a] under other names (and, with [tracks], another tracklist); everything else kept.
@@ -944,6 +945,7 @@ Album renamedAlbum(Album a, {required String name, String? artist, List<Track>? 
   releaseDate: a.releaseDate,
   recordLabels: a.recordLabels,
   originalReleaseDate: a.originalReleaseDate,
+  contentRating: a.contentRating,
 );
 
 /// [a] under another name; everything else kept.

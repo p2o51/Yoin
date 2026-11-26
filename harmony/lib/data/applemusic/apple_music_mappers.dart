@@ -13,6 +13,7 @@
 library;
 
 import '../model/model.dart';
+import '../release/release_marks.dart';
 import '../source/music_source.dart' show MadeForYouPlaylist;
 import 'apple_music_api.dart';
 
@@ -150,6 +151,9 @@ AppleMusicSong? songFrom(AppleMusicJson resource) {
     genre: genres is List ? genres.whereType<String>().where((g) => g.trim().isNotEmpty).firstOrNull : null,
     // The catalogue's composer credit (About's composer when the lyrics name none).
     composer: (text(attributes, 'composerName') ?? text(catalogAttributes, 'composerName'))?.trim(),
+    // Explicit / clean; a library song without its own takes its catalog song's (Android AppleMusicSong).
+    contentRating: ContentRating.fromAppleMusic(text(attributes, 'contentRating')) ??
+        ContentRating.fromAppleMusic(text(catalogAttributes, 'contentRating')),
     // Library membership is deliberately not a favourite (Android).
   );
   return (
@@ -188,6 +192,7 @@ Album? albumFrom(AppleMusicJson resource) {
   if (ownId == null) return null;
   final a = attributesOf(resource);
   final catalog = related(resource, 'catalog').where((r) => text(r, 'type') == 'albums').firstOrNull;
+  final catalogAttributes = catalog == null ? null : attributesOf(catalog);
   final genres = a['genreNames'];
   return Album(
     id: (catalog == null ? null : mediaIdOf(catalog)) ?? ownId,
@@ -202,11 +207,10 @@ Album? albumFrom(AppleMusicJson resource) {
     },
     genre: genres is List ? genres.whereType<String>().firstOrNull : null,
     addedAt: text(a, 'dateAdded'),
-    releaseType: switch ((a['isSingle'], a['isCompilation'])) {
-      (true, _) => ReleaseType.single,
-      (_, true) => ReleaseType.compilation,
-      _ => null,
-    },
+    releaseType: appleReleaseType(a, catalogAttributes),
+    // A library album without its own rating takes its catalog album's, like the genre (Android).
+    contentRating: ContentRating.fromAppleMusic(text(a, 'contentRating')) ??
+        ContentRating.fromAppleMusic(text(catalogAttributes, 'contentRating')),
     // "2014-05-20" / "2014" as Apple gives it: the ISO date the credits line reads.
     releaseDate: switch (text(a, 'releaseDate')?.trim()) {
       final d? when RegExp(r'^\d{4}(-\d{2}(-\d{2})?)?$').hasMatch(d) => d,
@@ -214,8 +218,23 @@ Album? albumFrom(AppleMusicJson resource) {
     },
     // The scrapbook's credits line names the label before asking any AI (Android AppleMusicSource).
     recordLabels: [
-      ?(text(a, 'recordLabel') ?? text(catalog == null ? null : attributesOf(catalog), 'recordLabel'))?.trim(),
+      ?(text(a, 'recordLabel') ?? text(catalogAttributes, 'recordLabel'))?.trim(),
     ],
+  );
+}
+
+/// An album's kind from its attributes ([own]) and its catalog album's ([catalog]; a library album carries
+/// none of the flags): each flag the resource's own when it has the key, else the catalog's, the name
+/// likewise; the rule is :shared's ([ReleaseMarks.appleMusicReleaseType]: an EP only by " - EP").
+ReleaseType? appleReleaseType(AppleMusicJson own, AppleMusicJson? catalog) {
+  bool? flag(String key) => switch (own.containsKey(key) ? own[key] : catalog?[key]) {
+    final bool b => b,
+    _ => null,
+  };
+  return ReleaseMarks.appleMusicReleaseType(
+    text(own, 'name') ?? text(catalog, 'name'),
+    isCompilation: flag('isCompilation'),
+    isSingle: flag('isSingle'),
   );
 }
 
@@ -239,6 +258,7 @@ Album albumWithTracks(Album album, List<Track> tracks) => Album(
   releaseDate: album.releaseDate,
   recordLabels: album.recordLabels,
   originalReleaseDate: album.originalReleaseDate,
+  contentRating: album.contentRating,
 );
 
 /// An artist. A library artist keeps its library id but has no artwork: its

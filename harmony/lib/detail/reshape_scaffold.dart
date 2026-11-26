@@ -164,6 +164,7 @@ class ReshapeDetailScaffold extends StatefulWidget {
     required this.title,
     required this.meta,
     this.titleTrailing,
+    this.titleExplicit = false,
     this.content,
     this.stateView,
     this.headerEndPadding = DetailHeaderMetrics.paddingEndAlbum,
@@ -172,6 +173,10 @@ class ReshapeDetailScaffold extends StatefulWidget {
   final String title;
   final List<MetaGroup> meta;
   final Widget? titleTrailing;
+
+  /// The release is marked explicit: the "E" after the title (and its tag), in the meta line's ink so it
+  /// turns white with the header over the spectrum bar.
+  final bool titleExplicit;
   final ReshapeContent? content;
   final Widget? stateView;
   final double headerEndPadding;
@@ -442,6 +447,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                   reduce: reduce,
                   title: widget.title,
                   titleTrailing: widget.titleTrailing,
+                  titleExplicit: widget.titleExplicit,
                   meta: widget.meta,
                   endPadding: widget.headerEndPadding,
                 ),
@@ -704,6 +710,7 @@ class _ReshapeDetailScaffoldState extends State<ReshapeDetailScaffold> with Tick
                   reduce: reduce,
                   title: widget.title,
                   titleTrailing: widget.titleTrailing,
+                  titleExplicit: widget.titleExplicit,
                   meta: widget.meta,
                   endPadding: widget.headerEndPadding,
                   stampSide: detailStampSide(layout),
@@ -1105,6 +1112,7 @@ class DetailBarHeader extends StatelessWidget {
     required this.reduce,
     required this.title,
     required this.titleTrailing,
+    this.titleExplicit = false,
     required this.meta,
     required this.endPadding,
     this.stampSide = DetailTokens.albumStamp,
@@ -1120,6 +1128,7 @@ class DetailBarHeader extends StatelessWidget {
   final bool reduce;
   final String title;
   final Widget? titleTrailing;
+  final bool titleExplicit;
   final List<MetaGroup> meta;
   final double endPadding;
 
@@ -1171,7 +1180,13 @@ class DetailBarHeader extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          DetailTitle(title, trailing: titleTrailing, color: titleColor),
+                          DetailTitle(
+                            title,
+                            trailing: titleTrailing,
+                            color: titleColor,
+                            explicit: titleExplicit,
+                            badgeColor: metaColor,
+                          ),
                           if (meta.isNotEmpty)
                             MetaLine(
                               groups: [

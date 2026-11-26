@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:yoin_symbols/yoin_symbols.dart';
 
 import '../shell/app_messages.dart';
+import '../theme/tokens.dart';
 import '../ui/component/error_diagnostics.dart';
+import '../ui/component/explicit_badge.dart';
 import '../ui/component/yoin_loading_indicator.dart';
 import 'detail_palette.dart';
 import 'detail_strings.dart';
@@ -86,15 +88,22 @@ class DetailPageBackground extends StatelessWidget {
   }
 }
 
-/// The page title in the page accent (headlineSmall, one line).
+/// The page title in the page accent (headlineSmall, one line), then [trailing] (the version tag) and,
+/// when [explicit], the "E" (after the tag: the mark is the whole release's, Apple Music's order).
 class DetailTitle extends StatelessWidget {
-  const DetailTitle(this.text, {super.key, this.trailing, this.color});
+  const DetailTitle(this.text, {super.key, this.trailing, this.color, this.explicit = false, this.badgeColor});
 
   final String text;
   final Widget? trailing;
 
   /// Overrides the accent (the docked header's onAccent hand-over).
   final Color? color;
+
+  /// The release is marked explicit (AlbumTopHeader's albumExplicit).
+  final bool explicit;
+
+  /// The E's colour (onSurfaceVariant; the header's meta ink over the spectrum bar).
+  final Color? badgeColor;
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +119,12 @@ class DetailTitle extends StatelessWidget {
               style: style?.copyWith(color: color ?? page.accent),
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+          if (trailing != null) ...[const SizedBox(width: DetailTokens.titleTrailingGap), trailing!],
+          // Always drawn here (the title ellipsizes first), so the badge itself says "Explicit".
+          if (explicit) ...[
+            const SizedBox(width: DetailTokens.titleTrailingGap),
+            ExplicitBadge(textStyle: style, color: badgeColor),
+          ],
         ],
       ),
     );

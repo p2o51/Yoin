@@ -534,7 +534,8 @@ owner：专辑和歌曲没有 Explicit 标，Apple Music 上同一张专辑的 E
 - **缓存**：详情缓存（专辑 / 艺人 / 歌单 JSON）带上了标；格式升到 2，之前写的 Apple Music / Spotify 专辑和艺人行当作未命中重新读一次。Subsonic 的行照用：它可能是离线下载的专辑页，没网也得打开；`explicitStatus` 等这一行下次后台刷新（stale-while-revalidate）时补上。Spotify 资料库镜像和 Jump Back In 候选池加了 `contentRating` 列（DB v38，旧行为未知，下次同步自然补上）；主页快照、NP 的 `MediaItem` extras 也带着。
 - **共享规则（2026-11-27）**：三态、各服务的读法、发行类型、去掉「 - EP」「 - Single」、类型筛选、E 的大小 / 间距 / 放不放得下、封面上沿带的排法，这些纯规则搬进了 `:shared`（`com.gpo.yoin.shared.release`，门面 `YoinReleaseMarks`，黄金向量 `shared/src/commonTest/resources/golden/release-marks.json`），Android 行为不变（`ReleaseMarksPinTest` 在搬之前和之后都过）；画法各平台自己写。
 - **iOS / iPadOS（2026-11-27，方案 B）**：iOS 没有背景形状，E 一律跟在标题后面（Apple Music 那样）：Library 网格和列表行、主页卡片、艺人页作品、歌曲行、专辑页页头（含色谱上的白色副本）、Now Playing 的各种标题形态和底部迷你播放条；大小、间距、窄了不画都用共享规则（NP 是 x 高度、最多 18pt）。会滚动的标题只在 E 让出来的宽度里滚，E 固定不动；两行标题时 E 跟在最后一个字后面。Now Playing 的「EP / 单曲」和版本标签（如 Dolby Atmos）放到艺人那一行，和艺人名作为一个整体跑马灯滚动（owner 2026-11-26）。Library「专辑」页排序行下面有同款类型筛选，艺人页作品筛选也换成共享的 `ReleaseKindFilter`（不知道类型的只在「全部」里）。页头写真实类型。读屏「Explicit」/「含不雅内容」。详情缓存：歌曲和专辑带上标和「类型是否已知」；之前写下的专辑 / 艺人页照样先画（离线专辑不受影响），然后立刻重新读一次，而不是当作新鲜的再用一周。实现 `iosApp/Yoin/Theme/ExplicitBadge.swift`、`iosApp/Yoin/Model/ReleaseMarks.swift`。
-- **其他平台**：macOS 同 iOS；HarmonyOS 见 [platforms.md](platforms.md)。
+- **HarmonyOS（2026-11-27）**：和 Android 有同样的 Material 形状，所以照 Android 的 Library 设计：专辑和歌单格子在背景形状上、形状取封面色（网格滚动时不读、最多两个取色同时算、缓存 1024），上沿带放「EP」/「单曲」、版本标签和 E（共享的排法），标题只剩名字；主页架子、Jump Back In、搜索专辑瓦片同样有带；列表行放在行尾；「专辑」页排序行下有类型筛选，艺人页也用同一个共享筛选。歌曲行、专辑页页头（页头写真实类型）、Now Playing（大标题 x 高度最多 18dp，迷你条大写字高）E 跟在标题后。规则是 `:shared` 的 Dart 移植（`harmony/lib/data/release/`，跑同一份黄金向量）。没有 Spotify。还没做：主页 bento 大卡、停靠条的「标题 - 艺人」、队列。
+- **macOS**：同 iOS。
 
 ### 💿 专辑详情（2026-10-05：评分徽记 + 第 2 页拼贴手册）
 

@@ -442,6 +442,7 @@ Track _inAlbum(Track t, MediaId albumId, MediaId? artistId) => Track(
   year: t.year,
   genre: t.genre,
   composer: t.composer,
+  contentRating: t.contentRating,
 );
 
 final class _AppleMusicLibrary
@@ -620,6 +621,7 @@ final class _AppleMusicLibrary
         releaseType: mapped.releaseType,
         releaseDate: mapped.releaseDate,
         recordLabels: mapped.recordLabels,
+        contentRating: mapped.contentRating,
       ),
       tracks,
     );

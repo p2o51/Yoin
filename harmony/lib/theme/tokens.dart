@@ -575,6 +575,9 @@ abstract final class NowPlayingAboutTokens {
 }
 
 abstract final class DetailTokens {
+  /// The page title → its version tag, and the tag (or title) → the Explicit "E" (AlbumTopHeader, 8dp).
+  static const double titleTrailingGap = 8;
+
   /// The hero cover: min(width × fraction, max), this far below the header.
   static const double albumCoverWidthFraction = 0.74;
   static const double albumCoverMax = 300;
@@ -798,6 +801,18 @@ abstract final class MetaLineTokens {
 abstract final class AlbumVersionTagTokens {
   /// Name → tag (TagGap).
   static const double gap = 6;
+}
+
+/// The tags on a cover's backdrop band (component/CoverBandBadges.kt BandChip, Android PR #343): the page's
+/// surface, not the title's tonal tag, so they read on any cover's tint. The band's own geometry (gaps,
+/// insets, sticker room) is :shared's (lib/data/release/release_marks.dart).
+abstract final class CoverBandTokens {
+  static const double chipRadius = 6;
+  static const double chipPaddingH = 5;
+  static const double chipPaddingV = 1;
+
+  /// A list row's version tag at its end never grows past this (RowEndBadges).
+  static const double rowVersionMax = 88;
 }
 
 /// Home's phone feed (HomeEditorialContent.kt, HomeRowPresets.kt, HomeWidgetGrid.kt, RediscoverSection.kt; iOS HomeView).
@@ -1245,6 +1260,10 @@ abstract final class LibraryTokens {
   /// than this, and the sort row it counts above the first row.
   static const int sparseMinColumns = 3;
   static const double sparseSortRow = 48;
+
+  /// Albums' kind filter row (All / Albums / Singles & EPs / Compilations, PR #343) under the sort row:
+  /// the room it keeps below itself before the first row of covers.
+  static const double kindFilterBottom = 12;
 
   /// floatingBottomGroupContentPadding: room the list keeps over the bottom bar.
   static const double bottomGroupPadding = 108;

@@ -5,6 +5,32 @@ library;
 
 import '../model/model.dart';
 
+/// The detail rows' formats (Android DetailCacheFormat). Album and artist rows say which format wrote
+/// them ('fv'; a track's 'f' is its audio format); a row from before the key was written is format 1.
+abstract final class DetailCacheFormat {
+  /// Every row from before PR #343.
+  static const legacy = 1;
+
+  /// Tracks and albums keep the service's explicit / clean mark ('cr'). Older Apple Music album and
+  /// artist rows are misses (read again from the service rather than served without the "E" for the
+  /// cache's month). A Subsonic row stays: it may back an album downloaded for offline play, whose page
+  /// must open with no server, and OpenSubsonic's `explicitStatus` fills in on its next background refresh.
+  static const rated = 2;
+
+  static const current = rated;
+
+  /// Whether a row in [format] still serves [provider]'s page.
+  static bool serves(int format, String provider) => format >= rated || !_ratedProviders.contains(provider);
+
+  static const _ratedProviders = {MediaId.providerAppleMusic, MediaId.providerSpotify};
+
+  /// The format an album / artist row was written in.
+  static int of(Map<Object?, Object?> json) => switch (json['fv']) {
+    final int f => f,
+    _ => legacy,
+  };
+}
+
 abstract final class DetailCacheJson {
   // ---------------------------------------------------------------- album
 
@@ -27,6 +53,8 @@ abstract final class DetailCacheJson {
     'rd': ?a.releaseDate,
     if (a.recordLabels.isNotEmpty) 'lb': a.recordLabels,
     'ord': ?a.originalReleaseDate,
+    'cr': ?a.contentRating?.storageName,
+    'fv': DetailCacheFormat.current,
   };
 
   static Album? albumFrom(Object? json) {
@@ -57,7 +85,17 @@ abstract final class DetailCacheJson {
             if (l is String) l,
       ],
       originalReleaseDate: json['ord'] as String?,
+      contentRating: _rating(json['cr']),
     );
+  }
+
+  /// [albumFrom] for the detail cache's own album row: a miss (null) when the row predates what its
+  /// provider's page needs ([DetailCacheFormat.serves]).
+  static Album? cachedAlbumFrom(Object? json) {
+    if (json is! Map) return null;
+    final id = MediaId.tryParse(json['id'] as String?);
+    if (id == null || !DetailCacheFormat.serves(DetailCacheFormat.of(json), id.provider)) return null;
+    return albumFrom(json);
   }
 
   // ---------------------------------------------------------------- artist
@@ -69,6 +107,7 @@ abstract final class DetailCacheJson {
     'c': ?a.coverArt?.storageKey,
     if (a.isStarred) 's': true,
     if (a.albums.isNotEmpty) 'al': [for (final al in a.albums) album(al)],
+    'fv': DetailCacheFormat.current,
   };
 
   static ArtistDetail? artistFrom(Object? json) {
@@ -84,6 +123,15 @@ abstract final class DetailCacheJson {
       isStarred: json['s'] == true,
       albums: _list(json['al'], albumFrom),
     );
+  }
+
+  /// [artistFrom] for the detail cache's own artist row: a miss (null) when the row predates its
+  /// releases' explicit marks on a provider that has them ([DetailCacheFormat.serves]).
+  static ArtistDetail? cachedArtistFrom(Object? json) {
+    if (json is! Map) return null;
+    final id = MediaId.tryParse(json['id'] as String?);
+    if (id == null || !DetailCacheFormat.serves(DetailCacheFormat.of(json), id.provider)) return null;
+    return artistFrom(json);
   }
 
   // ---------------------------------------------------------------- playlist
@@ -145,6 +193,7 @@ abstract final class DetailCacheJson {
     'cmp': ?t.composer,
     'cmt': ?t.comment,
     'p': ?t.path,
+    'cr': ?t.contentRating?.storageName,
   };
 
   static Track? trackFrom(Object? json) {
@@ -176,6 +225,7 @@ abstract final class DetailCacheJson {
       composer: json['cmp'] as String?,
       comment: json['cmt'] as String?,
       path: json['p'] as String?,
+      contentRating: _rating(json['cr']),
     );
   }
 
@@ -203,6 +253,9 @@ abstract final class DetailCacheJson {
   }
 
   static int? _int(Object? v) => v is num ? v.toInt() : null;
+
+  /// A stored [ContentRating]; unknown for anything else (a row from before it, a name this build doesn't know).
+  static ContentRating? _rating(Object? v) => v is String ? ContentRating.fromStorage(v) : null;
 
   static List<T> _list<T>(Object? json, T? Function(Object?) decode) => [
     if (json is List)

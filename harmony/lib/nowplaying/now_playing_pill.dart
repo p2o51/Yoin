@@ -20,6 +20,7 @@ import 'nowplaying_strings.dart';
 import 'overlay_controller.dart';
 import 'playhead_clock.dart';
 import 'player_snapshot.dart';
+import 'now_playing_explicit_line.dart';
 
 /// Pill geometry (NowPlayingPill.kt L587-659; PillTokens not in tokens.dart yet).
 abstract final class PillMetrics {
@@ -229,11 +230,20 @@ class _NowPlayingPillState extends ConsumerState<NowPlayingPill> with TickerProv
                                       FlightSlot(
                                         element: FlightElement.title,
                                         pill: true,
-                                        child: Marquee(
-                                          key: ValueKey('pill-title-${shown?.id}'),
+                                        // The E after the title (Android PR #343: the collapsed bar too), at the
+                                        // cap height; the marquee scrolls in the room it leaves.
+                                        child: NowPlayingExplicitLine(
                                           text: title,
-                                          enabled: shown?.title != null,
-                                          style: text.labelLarge!.copyWith(color: content),
+                                          style: text.labelLarge!,
+                                          explicit: shown?.isExplicit ?? false,
+                                          hero: false,
+                                          badgeColor: content,
+                                          child: Marquee(
+                                            key: ValueKey('pill-title-${shown?.id}'),
+                                            text: title,
+                                            enabled: shown?.title != null,
+                                            style: text.labelLarge!.copyWith(color: content),
+                                          ),
                                         ),
                                       ),
                                       if (artist.isNotEmpty)
