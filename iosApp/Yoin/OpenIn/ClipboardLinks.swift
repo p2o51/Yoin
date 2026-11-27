@@ -68,12 +68,23 @@ struct SystemPasteboardProbe: PasteboardProbe {
     var changeCount: Int { UIPasteboard.general.changeCount }
     var mayHoldLink: Bool { UIPasteboard.general.hasURLs || UIPasteboard.general.hasStrings }
 
-    func probablyWebURL() async -> Bool {
-        let pattern: PartialKeyPath<UIPasteboard.DetectedValues> = \.probableWebURL
-        return await withCheckedContinuation { done in
-            UIPasteboard.general.detectPatterns(for: [pattern]) { result in
-                done.resume(returning: (try? result.get())?.contains(pattern) ?? false)
+    func probablyWebURL() async -> Bool { await Self.detectProbableWebURL() }
+
+    nonisolated private static func detectProbableWebURL() async -> Bool {
+        await answer { reply in
+            UIPasteboard.general.detectPatterns(for: [\UIPasteboard.DetectedValues.probableWebURL]) { result in
+                reply((try? result.get())?.contains(\UIPasteboard.DetectedValues.probableWebURL) ?? false)
             }
+        }
+    }
+
+    /// Waits for a callback UIKit makes on a queue of its own (`detectPatterns` answers on
+    /// `com.apple.UIKit.pasteboard.completion-queue`). Nonisolated, so the closures written here are too: a
+    /// main-actor closure handed to UIKit there trapped in Swift 6's isolation check, killing the app on launch
+    /// or on return to the front whenever a new clip was on the pasteboard (0.6.4 (38/39)).
+    nonisolated static func answer(_ ask: @escaping @Sendable (@escaping @Sendable (Bool) -> Void) -> Void) async -> Bool {
+        await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            ask { found in done.resume(returning: found) }
         }
     }
 }
