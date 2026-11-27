@@ -97,7 +97,9 @@ class NowPlayingP0LayoutTest {
     @Test
     fun should_hideTheRatingNumberAtRest_when_theBarIsShort() {
         assertFalse(ratingLabelFits(150.dp, vertical = true))
-        assertTrue(ratingLabelFits(160.dp, vertical = true))
+        // 915×412 landscape's ~160dp bar: at 8.4 only ~26dp stays unfilled, under the ~31dp label.
+        assertFalse(ratingLabelFits(160.dp, vertical = true))
+        assertTrue(ratingLabelFits(196.dp, vertical = true))
         assertFalse(ratingLabelFits(70.dp, vertical = false))
         assertTrue(ratingLabelFits(120.dp, vertical = false))
     }
