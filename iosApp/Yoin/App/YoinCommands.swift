@@ -68,7 +68,7 @@ struct YoinCommands: Commands {
                 .keyboardShortcut("k", modifiers: .command)
             Button("Back") { model.backFromKeyboard() }
                 .keyboardShortcut("[", modifiers: .command)
-            Button("Dismiss") { model.backFromKeyboard() }
+            Button("Dismiss") { model.escapeFromKeyboard() }
                 .keyboardShortcut(.escape, modifiers: [])
             Button("Settings") { model.openSettings() }
                 .keyboardShortcut(",", modifiers: .command)
@@ -78,13 +78,54 @@ struct YoinCommands: Commands {
                 .keyboardShortcut("1", modifiers: .command)
             Button("Library") { model.select(.library) }
                 .keyboardShortcut("2", modifiers: .command)
-            Button("All Memories") { model.path.append(.allMemories) }
+            Button("All Memories") { model.openAllMemoriesFromKeyboard() }
                 .keyboardShortcut("3", modifiers: .command)
         }
     }
 }
 
+/// What Esc does (iPad keyboard, the iPad app on a Mac). A field with the keyboard is left alone while the
+/// input method is composing (Esc there cancels the candidates: Chinese, Japanese), and is only left (the
+/// keyboard put away) when it isn't; the page closes on the next Esc. Before, Esc in Search's field with
+/// pinyin candidates up closed Search.
+enum KeyboardEscape: Equatable {
+    case none, endEditing, back
+
+    static func action(textInput: Bool, composing: Bool) -> KeyboardEscape {
+        if composing { return .none }
+        return textInput ? .endEditing : .back
+    }
+
+    /// The path ⌘3 leads to: All Memories once, never a second copy on top of itself. A page under it in
+    /// the column stays; one opened on top of it closes back to it; two-pane Settings (it covers the
+    /// window) closes first.
+    static func allMemoriesPath(_ path: [Route]) -> [Route] {
+        var base = path
+        if let settings = base.firstIndex(of: .settings) { base = Array(base[..<settings]) }
+        if let at = base.firstIndex(of: .allMemories) { return Array(base[...at]) }
+        return base + [.allMemories]
+    }
+}
+
 extension AppModel {
+    /// Esc (KeyboardEscape).
+    func escapeFromKeyboard() {
+        switch KeyboardEscape.action(textInput: TextInputFocus.currentResponderIsTextInput(),
+                                     composing: TextInputFocus.currentResponderIsComposing()) {
+        case .none: break
+        case .endEditing: Self.dismissKeyboard()
+        case .back: backFromKeyboard()
+        }
+    }
+
+    /// ⌘3: All Memories, idempotent (it used to push another copy on every press).
+    func openAllMemoriesFromKeyboard() {
+        let next = KeyboardEscape.allMemoriesPath(path)
+        guard next != path else { return }
+        if searchActive { withAnimation(Yoin.spatial) { searchActive = false } }
+        path = next
+    }
+
     /// ⌘⇧P: Now Playing opens (the iPad panel when there is room) or closes.
     func toggleNowPlayingFromKeyboard() {
         if npExpanded { setNowPlaying(expanded: false); return }

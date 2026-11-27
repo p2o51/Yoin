@@ -253,6 +253,25 @@ final class OpenInTests: XCTestCase {
         XCTAssertEqual(settings.lastSeenChangeCount, 8, "with the setting off the clip isn't even looked at")
     }
 
+    /// The probe's bridge to UIKit, answered the way UIKit answers `detectPatterns`: on a queue of its own
+    /// (`com.apple.UIKit.pasteboard.completion-queue`), awaited from the main actor as the shell awaits it.
+    /// The closure handed over must not be main-actor isolated: it was, and Swift 6's isolation check trapped
+    /// there (TestFlight 0.6.4 (38/39): the app died on launch or on return to the front whenever a new clip
+    /// was on the pasteboard and an account was signed in). The real pasteboard isn't used: its answer
+    /// never comes back in the test host.
+    func testProbeBridgeTakesTheAnswerOnUIKitsQueueWithoutTrapping() async {
+        let queue = DispatchQueue(label: "com.apple.UIKit.pasteboard.completion-queue.stand-in")
+        let yes = await SystemPasteboardProbe.answer { reply in
+            queue.asyncAfter(deadline: .now() + 0.05) {
+                dispatchPrecondition(condition: .notOnQueue(.main))
+                reply(true)
+            }
+        }
+        XCTAssertTrue(yes)
+        let no = await SystemPasteboardProbe.answer { reply in queue.async { reply(false) } }
+        XCTAssertFalse(no)
+    }
+
     // MARK: Ranking (shared TrackMatcher)
 
     private func entry(_ id: String, _ title: String, _ artist: String, _ seconds: Int) -> PlaylistEntry {

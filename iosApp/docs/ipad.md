@@ -23,7 +23,7 @@ NP 侧栏关着时，右下角是迷你播放器的玻璃胶囊。
 
 ## 守住的 Android 原则
 
-1. **按容器的宽高换档，不按设备型号。** 进不进 `PadShell` 看系统的 `horizontalSizeClass`（regular 用 `PadShell`，compact 用 `PhoneShell`，所以 iPad 上很窄的窗口就是手机界面）；进了 `PadShell` 以后，列、侧栏、Full 的档位都读窗口的实际宽高，照搬 Android 的 840 / 480 和 744 / 320 这几条线。
+1. **按容器的宽高换档，不按设备型号。** 进不进 `PadShell` 看系统的 `horizontalSizeClass`（regular 用 `PadShell`，compact 用 `PhoneShell`，所以 iPad 上很窄的窗口就是手机界面）；进了 `PadShell` 以后，列、侧栏、Full 的档位都读窗口的实际宽高，照搬 Android 的 840 / 480 和 744 这几条线（侧栏旁的单列是 360，不是 Android 的 320，见下面 Panel）。
 2. **一套 Now Playing 状态链：Closed → Panel → Full。** 从侧栏进 Full，关掉 Full 回到侧栏（不论是 ⌄、下拉还是返回）；从迷你播放器进 Full，关掉回到迷你播放器。
 3. **详情是同一窗口里的列，不是第二个窗口。**
 4. **换档不落在弹簧中途；数量跟宽度走，卡片内部不缩放。**
@@ -52,14 +52,14 @@ NP 侧栏关着时，右下角是迷你播放器的玻璃胶囊。
 
 ## 详情列
 
-- 窗口宽 ≥ 840 时，专辑、歌手、歌单、Settings 都在右列打开；更深的页面在列自己的 `NavigationStack` 里推入，shell 列不动。窗口窄于 840 时只有一个栈，所有页面推到 shell 上面。
+- 窗口宽 ≥ 840 时，专辑、歌手、歌单、Settings 都在右列打开；更深的页面在列自己的 `NavigationStack` 里推入，shell 列不动。窗口窄于 840 时只有一个栈，所有页面推到 shell 上面。窗口跨过 840（11" 旋转、分屏、台前调度）时，右列里的专辑跟着走：变窄时推到单栈最前面（列里在它上面推的页留在上面），变宽时回到列的根；在单栈里退掉它，列也就忘了它（`AppModel.padPath`）。两栏 Settings 盖住整个窗口时，左下导航胶囊和右下迷你播放器向下退出窗口，关掉 Settings 再回来。
 - 列宽照搬 `resolvePaneBudget`：shell 份额 0.45，窗口 ≥ 1080 时 shell ≥ 600，两列都 ≥ 360。中间是自己画的把手（`DragGesture` 1:1 跟手、钳制、不吸附，松手停在原地；窗口宽度一变就回到预算值）。不用 `NavigationSplitView`。
 - 开列时 shell 在点击那一帧让出列宽，列带着页面从右边滑进来；关列时列先滑出去，shell 在落定时收回宽度。都是 spatial 弹簧。
 - 详情列和推入的详情页各有一个 Play 分裂按钮，在列的左下角；列太窄放不下 Play 和迷你播放器同一行时，Play 抬到上面一行。
 
 ## Now Playing
 
-- **Panel：** 自己画的侧栏（不是系统 `.inspector`，因为它在窄窗口会自己变成底部弹层）。宽 = clamp(窗口宽 × 0.5, 360, 420)。只有当窗口减去侧栏还剩 ≥ 320（开着详情列时 ≥ 744）才开侧栏，否则点迷你播放器直接进 Full（`AppModel.padPanelFits`）。侧栏开着时如果又开了详情列、两列放不下，侧栏退开。进出按自己的宽度平移，不淡入淡出。
+- **Panel：** 自己画的侧栏（不是系统 `.inspector`，因为它在窄窗口会自己变成底部弹层）。通到窗口的上、下、右边（不再是离边 8、圆角 28 的卡片），背景是和 Full 一样的磨砂玻璃加前后专辑的颜色，和列之间只有一条细线（2026-11-27 iPad 审查：原来的卡片和平涂渐变「像贴上去的」）。宽 = clamp(窗口宽 × 0.5, 360, 420)。只有当窗口减去侧栏还剩 ≥ 360（开着详情列时 ≥ 744）才开侧栏，否则点迷你播放器直接进 Full（`AppModel.padPanelFits`，`PadPanelFitTests`）。360 是分栏两列自己的下限；Android 用 320，但 13" 分屏 1/2（683）旁边只剩 315 时，Home 的卡片文字一字一行（2026-11-27 iPad 审查），所以 iPad mini 竖屏（剩 372）有侧栏、13" 分屏 1/2 直接 Full。侧栏开着时如果又开了详情列、两列放不下，侧栏退开；窗口变窄（转竖屏、分屏、台前调度拖小）让侧栏放不下时，侧栏变成 Full（Android 的 frame 同样把 Panel 换成 Full），关掉 Full 在放得下时回到侧栏，不会出现三列挤在一起。进出按自己的宽度平移，不淡入淡出。
 - **Full：** 从右下角的迷你播放器长出来、关闭时折回去（`NowPlayingMorph`，和手机同一个进度：⌄、拖动、返回都驱动它）；从侧栏进时从侧栏的位置长出来。窗口宽 ≥ 840 且高 ≥ 480 时是双栏播放器（`NowPlayingPadFrame.wide`，Android DualPane），其他 iPad 窗口是放大的手机单栏（`.enlarged`）。
 - **双栏专注的点阵（I32，51 2026-11-13 定：只做 iPad 双栏，iPhone 保持无点阵）：** 点封面进专注时，评分列、页签和歌词工具碎成细点退场（`FocusRetreat` → `DotDissolve`；顶栏只淡出，因为里面的 AirPlay 选择器是 UIKit 视图，shader 画不了）；同时从封面那一侧向窗口四边炸出一圈整齐的点带（`NowPlayingEdgeBand.swift`，shader `yoinEdgeBand`，Android EdgeDotBand），约 0.2 s 最宽、1 s 内收细、2 s 起退、8 s 消失；专注里换歌再炸一次并从左扫过，每换一行歌词从歌词处推出一道涟漪，暂停时波变慢、带变细。Reduce Motion：只淡出，没有点带。
 
@@ -68,6 +68,7 @@ NP 侧栏关着时，右下角是迷你播放器的玻璃胶囊。
 - **键盘：** `Yoin/App/YoinCommands.swift`，和 YoinMac 的 Controls 菜单同一套快捷键，按住 ⌘ 能看到。
   - Controls：播放 / 暂停（空格）、下一首（⌘→）、上一首（⌘←）、随机（⌥⌘S）、重复（子菜单）、喜欢（⌘D）、Now Playing（⇧⌘P，有空间时开侧栏）、Search（⌘K）、返回（⌘[）、Settings（⌘,）。
   - Go：Home（⌘1）、Library（⌘2）、All Memories（⌘3）。
+  - Esc：输入法正在选字时不动（让它取消候选）；输入框有键盘时只收起键盘；否则同 ⌘[（`KeyboardEscape`，`PadKeyboardTests`）。⌘3 只打开一次全部 Memories：已经在路径里就回到它，两栏设置和搜索先关掉。
 - **指针：** 卡片在指针下抬起（`PressScale` 的 `.hoverEffect(.lift)`）；歌曲行、展开歌词行、底栏胶囊、分栏把手用 M3 悬停状态层（8 %，effects 弹簧），进度条未播部分加深 8 %；把手的指针是竖线加左右箭头（`Theme/PointerHover.swift`）。右键（或 Control 点按）打开和长按同一张歌曲面板（`Theme/SecondaryClick.swift`）；歌曲、专辑、歌单能拖到队列或歌单上（`Library/YoinDrag.swift`）。
 - **单窗口：** `UIApplicationSupportsMultipleScenes` 关着（`project.yml`），iPad 和 Mac 上都只有一个窗口，「新建窗口」（⌘N）也去掉了（`YoinCommands` 的 `CommandGroup(replacing: .newItem)`）。原因：所有场景共用一个 `AppModel.shared`，第二个窗口只是第一个的镜像（页面路径、侧栏、Full 的状态全部共享），不是 Android 的「一个窗口一棵树」。要重新开多窗口，得先让每个场景有自己的导航状态。
 - **窗口拖动缩放：** 列宽、侧栏是否放得下、Full 的档位都按实时宽高重新算；把手拖过的宽度在窗口宽度变化时作废。
