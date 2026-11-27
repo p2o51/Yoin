@@ -248,6 +248,8 @@ private struct PadColumns: View {
                 // Home's top under the status bar (StatusEdgeBand; Library's header and a pushed page carry
                 // their own).
                 .overlay(alignment: .top) { if model.path.isEmpty { StatusEdgeBand() } }
+                // D1: the soft band at the foot, under the Play split and the dock.
+                .overlay { PadDockBand() }
                 // A pushed detail page gets the Play split, over the dock's row (the dock spans the window).
                 .overlay(alignment: .bottomLeading) {
                     if active && !model.path.isEmpty {
@@ -363,6 +365,7 @@ private struct PadColumns: View {
             shellContent
                 .safeAreaPadding(.bottom, PadDockMetrics.extraShellClearance)
                 .overlay(alignment: .top) { StatusEdgeBand() }
+                .overlay { PadDockBand() }
                 .frame(width: shell)
             handle(w: w, rest: restShell)
                 .offset(x: slide)
@@ -460,6 +463,7 @@ private struct PadColumns: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .navigationDestination(for: Route.self) { destination($0).safeAreaPadding(.bottom, clear) }
             }
+            .overlay { PadDockBand() }
             // The column's own Play split (the phone's detail bar
             // lives in its ShellBar, which iPad doesn't have).
             .overlay(alignment: .bottomLeading) {
@@ -473,6 +477,7 @@ private struct PadColumns: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     .navigationDestination(for: Route.self) { destination($0).safeAreaPadding(.bottom, clear) }
             }
+            .overlay { PadDockBand() }
             .overlay(alignment: .bottomLeading) {
                 if active { playSplit(PadDetailPlay(root: nil), bottom: playBottom) }
             }

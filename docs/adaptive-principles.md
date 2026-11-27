@@ -73,11 +73,11 @@
 ### 4. Now Playing 只有一条状态链，所有尺寸共用
 - `Closed → Panel → Full`。Panel = 从右侧推出的手机宽侧栏（宽 = clamp(窗宽 × 0.5, 360, 420)），
   宿主内容让位继续可用；Full = 整窗播放器：Compact 是手机、Medium 是放大的手机、Wide 是双栏。
-- Panel 可用 = 高 ≥ 480 且 窗宽 − 侧栏 ≥ 320（Medium 和 Wide 一视同仁）。不可用就跳过 Panel
+- Panel 可用 = 高 ≥ 480 且 窗宽 − 侧栏 ≥ 360（Medium 和 Wide 一视同仁；2026-11-27 起 Android 也从 320 改成 360，和 iPad 一致）。不可用就跳过 Panel
   直接 Full。右上角的全屏/收回键只在"存在 Panel 可退回"时出现。
 - 返回链：Full → Panel → Closed（手机的 Expanded 舞台另算一级）。横竖屏切换保留用户的
   Panel/Full 选择；从 Compact 长大（展开折叠屏）落在 Full。
-- 侧栏旁要留的最小宽度由宿主给：普通是一个手机列 320；**开着详情列时是两列 + 槽 = 744**
+- 侧栏旁要留的最小宽度由宿主给：普通是一列 360（分栏两列各自的下限）；**开着详情列时是两列 + 槽 = 744**
   （`TwoColumnsMinWidth`）。放得下就 Panel、两列整体让位；放不下（< 1164 的 Wide 窗）
   NP 直接 Full。
 - 页面永远可见：在 NP 里点"前往专辑"——侧栏放得下就从 Full 退回 Panel 再开列；放不下就

@@ -48,6 +48,17 @@ enum AccountCardLogic {
     /// Centred, 16 off each side, never wider than 420.
     static func cardWidth(available: CGFloat) -> CGFloat { max(0, min(available - 32, maxWidth)) }
 
+    /// iPad in a regular-width window (iPad round 2, owner 2026-11-27): the card is a popover under the avatar,
+    /// not a card in the middle of the screen. Its width, and the gap under the avatar.
+    static let popoverWidth: CGFloat = 380
+    static let popoverGap: CGFloat = 8
+    /// Where the popover card goes in a [size] layer for the avatar at [avatar]: under it, its trailing edge a
+    /// little past the avatar's (the avatar sits at the header's trailing end), kept 16 inside the layer.
+    static func popoverOrigin(avatar: CGRect, width: CGFloat, in size: CGSize) -> CGPoint {
+        let x = min(max(avatar.maxX + 8 - width, 16), max(16, size.width - width - 16))
+        return CGPoint(x: x, y: avatar.maxY + popoverGap)
+    }
+
     /// The account the card leads with (in use, else the first) and the others, in Settings' order.
     static func split(_ profiles: [Profile], active: String?) -> (active: Profile?, others: [Profile]) {
         let lead = profiles.first { $0.id == active } ?? profiles.first
@@ -275,6 +286,7 @@ extension AppModel {
 struct AccountSwitcherLayer: View {
     @Environment(AppModel.self) private var model
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var cardRect: CGRect = .zero
     private let space = "accountCard"
 
@@ -298,15 +310,24 @@ struct AccountSwitcherLayer: View {
                         .contentShape(Rectangle())
                         .onTapGesture { if s.takesInput { s.close() } }
                         .accessibilityHidden(true)
-                    AccountCardContent(app: app, switcher: s, maxHeight: max(0, geo.size.height - 48))
-                        .frame(width: AccountCardLogic.cardWidth(available: geo.size.width))
+                    // iPad, regular width: a popover under the avatar (the page doesn't step back); else centred.
+                    let pops = AnchoredPopover.enabled(isPad: model.isPad, horizontal: horizontalSizeClass)
+                    let width = pops ? AccountCardLogic.popoverWidth : AccountCardLogic.cardWidth(available: geo.size.width)
+                    let origin = AccountCardLogic.popoverOrigin(avatar: from, width: width, in: geo.size)
+                    AccountCardContent(app: app, switcher: s,
+                                       maxHeight: pops ? max(0, geo.size.height - origin.y - 24) : max(0, geo.size.height - 48))
+                        .frame(width: width)
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(space)) } action: {
                             cardRect = $0
                             if !$0.isEmpty { DispatchQueue.main.async { s.cardLaidOut() } }
                         }
                         .modifier(AccountCardMorph(
                             p: s.progress, from: from, to: cardRect, reduced: s.reduced,
-                            seed: active.map { $0.service.tone(dark: colorScheme == .dark).accent } ?? app.primary))
+                            seed: active.map { $0.service.tone(dark: colorScheme == .dark).accent } ?? app.primary,
+                            recedes: !pops))
+                        .padding(.leading, pops ? origin.x : 0)
+                        .padding(.top, pops ? origin.y : 0)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: pops ? .topLeading : .center)
                     flight(s, from: from)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -394,6 +415,8 @@ private struct AccountCardMorph: ViewModifier, @preconcurrency Animatable {
     var reduced: Bool
     /// The avatar's own colour, which the surface starts in: the avatar grows into the card.
     var seed: Color
+    /// The world behind steps back on this card's p, as it does under a sheet (not under the iPad's popover).
+    var recedes = true
     /// The world behind steps back on this card's p, as it does under a sheet.
     @State private var riseSource = RiseSource()
 
@@ -423,7 +446,7 @@ private struct AccountCardMorph: ViewModifier, @preconcurrency Animatable {
             }
             .clipShape(InsetRoundedShape(rect: local, corner: corner))
             .onChange(of: measured ? p : 0, initial: true) { _, v in
-                SheetRise.shared.report(riseSource.id, min(max(v, 0), 1))
+                SheetRise.shared.report(riseSource.id, recedes ? min(max(v, 0), 1) : nil)
             }
             .onDisappear { SheetRise.shared.report(riseSource.id, nil) }
     }

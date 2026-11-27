@@ -8118,7 +8118,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "回忆格子"
+            "value": "Memories 格子"
           }
         }
       }
@@ -8128,7 +8128,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "笔回忆"
+            "value": "笔 Memories"
           }
         }
       }
@@ -15804,7 +15804,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的回忆"
+            "value": "你的 Memory"
           }
         }
       }
@@ -16669,6 +16669,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "中午好"
+          }
+        }
+      }
+    },
+    "Skip Forward 5 Seconds": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快进 5 秒"
+          }
+        }
+      }
+    },
+    "Skip Backward 5 Seconds": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快退 5 秒"
+          }
+        }
+      }
+    },
+    "Focus Cover": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专注封面"
+          }
+        }
+      }
+    },
+    "Dismiss": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "Repeat All": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列表循环"
+          }
+        }
+      }
+    },
+    "Repeat One": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单曲循环"
+          }
+        }
+      }
+    },
+    "Repeat Off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭循环"
           }
         }
       }

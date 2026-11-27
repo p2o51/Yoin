@@ -481,7 +481,7 @@ final class HomeEditController {
         let l = shown
         return rows.compactMap { row in
             guard let first = row.first else { return nil }
-            let h = HomeGrid.height(units: l.units(ofRow: row))
+            let h = HomeGrid.height(units: HomeGrid.shownUnits(l.units(ofRow: row), row: row, lyricIntro: HomeGrid.lyricIntroPending))
             defer { y += h + HomeGrid.feedSpacing }
             return (first, y, y + h)
         }

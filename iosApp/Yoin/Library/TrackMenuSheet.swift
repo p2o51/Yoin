@@ -264,6 +264,7 @@ struct TrackMenuSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.inPopover) private var inPopover
     @AppStorage("keepScreenOn") private var keepScreenOn = false
     /// The content's measured height; until the first layout, `estimatedHeight`.
     /// (A fixed 420 guess presented the sheet at one height and then re-sized
@@ -508,6 +509,9 @@ struct TrackMenuSheet: View {
         .scrollBounceBehavior(.basedOnSize)
         // No soft scroll edge: it laid a grey band along the sheet's bottom.
         .scrollEdgeEffectHidden(true, for: .bottom)
+        // A popover (iPad, regular width) is the content's own size: the sheet's width, its detent's height.
+        .frame(width: inPopover ? AnchoredPopover.songMenuWidth : nil,
+               height: inPopover ? min((height ?? estimatedHeight) + 8, 640) : nil)
         .presentationDetents([.height(min((height ?? estimatedHeight) + 8, 640))])
         .presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: tapped)
@@ -879,11 +883,36 @@ private struct PlaylistActionsHost: ViewModifier {
     @Environment(AppModel.self) private var model
     @State private var name = ""
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// iPad in a regular-width window, opened by a touch or a click: the song sheet pops over from that point.
+    private func pops(_ t: PlaylistActions.MenuTarget?) -> Bool {
+        t?.anchor != nil && AnchoredPopover.enabled(isPad: model.isPad, horizontal: horizontalSizeClass)
+    }
+
     func body(content: Content) -> some View {
         @Bindable var actions = PlaylistActions.shared
         content
-            .sheet(item: $actions.menu, onDismiss: { PlaylistActions.shared.flushPendingAdd() }) { t in
+            .sheet(item: Binding(get: { pops(actions.menu) ? nil : actions.menu }, set: { actions.menu = $0 }),
+                   onDismiss: { PlaylistActions.shared.flushPendingAdd() }) { t in
                 TrackMenuSheet(track: t.entry, context: t.context).environment(model).reportsSheetRise().ySolidSheet()
+            }
+            .overlay {
+                // The popover's anchor: the window, so the touch's window point is its own.
+                Color.clear
+                    .allowsHitTesting(false)
+                    .ignoresSafeArea()
+                    .popover(item: Binding(get: { pops(actions.menu) ? actions.menu : nil }, set: { actions.menu = $0 }),
+                             attachmentAnchor: .rect(.rect(actions.menu?.anchor ?? .zero)),
+                             // Wherever it fits round the point (a row high up, the mini player at the foot).
+                             arrowEdge: Optional<Edge>.none) { t in
+                        TrackMenuSheet(track: t.entry, context: t.context)
+                            .environment(model)
+                            .environment(\.inPopover, true)
+                            .ySolidSheet()
+                            .presentationCompactAdaptation(.sheet)
+                            .onDisappear { PlaylistActions.shared.flushPendingAdd() }
+                    }
             }
             .sheet(item: $actions.adding) { t in
                 AddToPlaylistSheet(entries: t.entries).environment(model).reportsSheetRise().ySolidSheet()

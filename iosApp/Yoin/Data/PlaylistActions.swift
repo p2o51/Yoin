@@ -28,6 +28,9 @@ final class PlaylistActions {
         let id = UUID()
         var entry: PlaylistEntry
         var context: TrackMenuContext
+        /// Where it was opened, in window points (the touch or click that opened it): on an iPad in a
+        /// regular-width window the sheet pops over from there (AnchoredPopover). nil: a sheet.
+        var anchor: CGRect? = nil
     }
 
     /// The songs the Add to playlist sheet is for.
@@ -78,7 +81,7 @@ final class PlaylistActions {
     // MARK: Opening
 
     func openMenu(_ entry: PlaylistEntry, context: TrackMenuContext) {
-        menu = MenuTarget(entry: entry, context: context)
+        menu = MenuTarget(entry: entry, context: context, anchor: LastTouch.recent.map(AnchoredPopover.anchor(at:)))
     }
 
     /// Add to playlist straight away (the ▾ menu; nothing else is up).

@@ -102,6 +102,24 @@ struct NowPlayingView: View, Equatable {
     @State private var frozenGeometry: PageGeometry?
     @State private var keyboardHeight: CGFloat = 0
     @State private var spotifyDevicesOpen = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// iPad round 2: where Queue and Devices pop over from (nil: their sheets). Two columns: the top bar's icons;
+    /// the resting single column (the enlarged player, the side panel): the pills.
+    private var popoverHost: NowPlayingPopoverHost? {
+        guard demo == nil, AnchoredPopover.enabled(isPad: model.isPad, horizontal: horizontalSizeClass) else { return nil }
+        return wide ? .topBar : stage == .compact ? .pills : nil
+    }
+    private var queuePopover: some View {
+        QueueSheet()
+            .frame(width: AnchoredPopover.queueSize.width, height: AnchoredPopover.queueSize.height)
+            .ySolidSheet(scheme.surfaceContainerLow)
+    }
+    @ViewBuilder private var devicesPopover: some View {
+        if let spotify = model.store.spotify {
+            SpotifyDevicesSheet(spotify: spotify, scope: model.store.spotifyAccount?.scope, scheme: scheme)
+                .frame(width: AnchoredPopover.devicesSize.width, height: AnchoredPopover.devicesSize.height)
+        }
+    }
     private var spotifySong: Bool { engineTrack?.provider == SpotifyMapping.provider && model.store.spotify != nil }
     /// The expanded Lyrics page (Android NowPlayingScreen's lyricsAutoScroll /
     /// lyricsRecenterTick and LyricsSelectionState): following the playhead,
@@ -449,15 +467,15 @@ struct NowPlayingView: View, Equatable {
         // Gemini preset: dim the page under the Queue sheet so its controls
         // don't bleed through the sheet glass (0 in the other presets).
         .overlay {
-            Color.black.opacity(model.queueSheetOpen ? lab.extra("sheetPresenterDim") : 0)
+            Color.black.opacity(model.queueSheetOpen && popoverHost == nil ? lab.extra("sheetPresenterDim") : 0)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .animation(Yoin.effects, value: model.queueSheetOpen)
         }
-        .sheet(isPresented: $spotifyDevicesOpen) {
+        .sheet(isPresented: Binding(get: { spotifyDevicesOpen && popoverHost == nil }, set: { spotifyDevicesOpen = $0 })) {
             if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scope: model.store.spotifyAccount?.scope, scheme: scheme).reportsSheetRise() }
         }
-        .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
+        .sheet(isPresented: Binding(get: { model.queueSheetOpen && popoverHost == nil }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet().reportsSheetRise().ySolidSheet(scheme.surfaceContainerLow)
         }
         // Every sheet NP presents reports its rise, so the page recedes under
@@ -1667,6 +1685,9 @@ struct NowPlayingView: View, Equatable {
                 onTap: { i in lyricLineTapped(i, times: times, synced: loaded.synced) },
                 // Two-column focus prints the lyrics through the halftone (Android WidePlayingContent).
                 halftone: wide && stage == .focus,
+                // Two columns (option A): larger lines at a reading measure.
+                lineSize: wide ? DualPaneBudget.lyricSize : 24,
+                translationSize: wide ? DualPaneBudget.lyricTranslationSize : 16,
                 reseatOnResize: wide,
                 onActiveLine: wide ? { _ in if stage == .focus { bandLineTick &+= 1 } } : nil
             )
@@ -2167,6 +2188,11 @@ struct NowPlayingView: View, Equatable {
                     expandedLyrics(t, loaded)
                         // New lyrics (a search / edit applied) open as a new list.
                         .id(ObjectIdentifier(loaded.lyrics))
+                        .frame(height: height, alignment: .top)
+                } else if wide, engineTrack == nil {
+                    // The demo song (signed out, screenshots): its lines at the two columns' size.
+                    WideDemoLyrics(lines: p.lyrics, active: p.activeLyric, primary: scheme.primary,
+                                   ink: scheme.onSurfaceVariant)
                         .frame(height: height, alignment: .top)
                 } else {
                     lyrics(p, clear: height, under: 0, anchor: height * Tokens.np.LYRICS_ANCHOR_FRACTION.cg,
@@ -3014,6 +3040,8 @@ struct NowPlayingView: View, Equatable {
                 pill("queue", String(localized: "Queue"), shape: AnyShape(Capsule()), dropsToQueue: demo == nil) {
                     if demo == nil { model.queueSheetOpen = true }
                 }
+                .anchoredPopover(isPresented: model.queueSheetOpen && popoverHost == .pills, enabled: demo == nil,
+                                 arrowEdge: .bottom, onDismiss: { model.queueSheetOpen = false }) { queuePopover }
                 // Yoin as the remote of another Spotify device: the pill names it.
                 pill("devices", demo?.deviceName
                         ?? (spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices")),
@@ -3038,6 +3066,8 @@ struct NowPlayingView: View, Equatable {
                         }
                     }
                     .glowAnchor(.devices, glow)
+                    .anchoredPopover(isPresented: spotifyDevicesOpen && popoverHost == .pills, enabled: demo == nil,
+                                     arrowEdge: .bottom, onDismiss: { spotifyDevicesOpen = false }) { devicesPopover }
                 pill("note", String(localized: "Write"), shape: AnyShape(Capsule())) { startWriting() }
                     .glowAnchor(.write, glow)
                     .demoTarget("write")
@@ -3897,14 +3927,13 @@ extension NowPlayingView {
         )
     }
 
-    /// iPad Full in a Wide window: a full-width top bar, then LEFT the cover
-    /// with the rating column at its right, the transport under them and the
-    /// title set at the bottom (laid out at Android's 312 stack width), RIGHT
-    /// the always-expanded page (Lyrics / About / Note) with its tools at the
-    /// foot. Focus (a tap on the cover): the rating retreats, the cover grows
-    /// (DualPaneBudget's focus pose), the top bar, tabs and tools step away
-    /// (the bar stays when it carries the title); after FocusIdleMs without a
-    /// touch the transport's buttons and times step away too.
+    /// iPad Full in a Wide window (option A, owner 2026-11-27; DualPaneBudget): a full-width top bar with the
+    /// page's tabs over the right column, then the content, at most 1220 wide and centred. LEFT the cover with
+    /// the rating column at its right, the title and the transport right under them, the block centred in the
+    /// height; RIGHT the always-expanded page (Lyrics / About / Note), its lyrics larger at a reading measure,
+    /// with only its own tools at the foot. Focus (a tap on the cover): the rating retreats, the cover grows
+    /// (DualPaneBudget's focus pose), the top bar, tabs and tools step away (the bar stays when it carries the
+    /// title); after FocusIdleMs without a touch the transport's buttons and times step away too.
     func wideContent(size: CGSize, top: CGFloat, bottomInset: CGFloat) -> some View {
         let p = playback
         let F = DualPaneBudget.self
@@ -3917,19 +3946,26 @@ extension NowPlayingView {
         let barAway = inFocus && !titleInBar
         let atEase = inFocus && focusIdle
         let page = NowPlayingDetailPage(rawValue: shownTab) ?? .lyrics
-        let rowHeight = size.height - budget.frameTop - budget.frameBottom - F.topBarHeight - budget.barGap
+        let rowHeight = budget.rowHeight
         let accessory = wideAccessoryHeight(page: page, inFocus: inFocus)
-        let tabsH = Tokens.np.TAB_ROW_NOMINAL.cg
-        let pagerH = max(0, rowHeight - tabsH - Self.wideInnerGap * 2 - accessory)
+        let pagerH = max(0, rowHeight - Self.wideInnerGap - accessory)
+        // The right column's leading edge in the page (the tabs in the top bar line up with its text).
+        let rightX = F.framePadding + budget.contentInset + pose.leftColumn + F.columnGap
         return VStack(alignment: .leading, spacing: 0) {
-            wideTopBar(p, titleInBar: titleInBar)
+            wideTopBar(p, titleInBar: titleInBar, fromWidth: max(0, rightX - F.framePadding - 56))
                 .frame(height: F.topBarHeight)
                 // The bar fades (as on Android): its AirPlay picker is a UIKit view, which a shader can't draw.
                 .modifier(FocusRetreat(away: barAway, lift: !reduceMotion, dots: false))
+                // The page's tabs: in the bar, over the right column's text (option A).
+                .overlay(alignment: .leading) {
+                    tabs
+                        .padding(.leading, rightX - F.framePadding + Self.widePageInset)
+                        .modifier(FocusRetreat(away: inFocus, lift: !reduceMotion))
+                }
                 .npFade(open, contentFade)
             Spacer().frame(height: budget.barGap)
             HStack(alignment: .top, spacing: 0) {
-                // LEFT — passive: cover + rating column, transport, title at the bottom.
+                // LEFT — passive: cover + rating column, the title and the transport under them, centred.
                 VStack(alignment: .leading, spacing: 0) {
                     coverRow(pose.cover, retreat: inFocus, dock: nil,
                              tappable: focusOffered || stage == .focus, dissolve: !reduceMotion) {
@@ -3942,7 +3978,14 @@ extension NowPlayingView {
                         return CGPoint(x: f.minX + pose.cover / 2, y: f.minY + pose.cover / 2)
                     } action: { bandCover = $0 }
                     .zIndex(1)
-                    Spacer().frame(height: pose.coverToTransport)
+                    // The title right under the cover (option A: no more sinking to the window's foot).
+                    if !titleInBar {
+                        Spacer().frame(height: pose.coverToTitle)
+                        wideTitle(p, twoLines: budget.titleForm == .twoLines)
+                            .frame(width: pose.slot, alignment: .topLeading)
+                            .npFade(open, contentFade)
+                    }
+                    Spacer().frame(height: pose.titleToTransport)
                     transport(p, atEase: atEase)
                         .frame(width: pose.slot)
                         // At ease, the first tap on the hidden buttons only
@@ -3955,26 +3998,19 @@ extension NowPlayingView {
                             }
                         }
                         .npFade(open, contentFade)
-                    // The title sinks to the bottom, level with the lyric tools.
-                    Spacer(minLength: 0)
-                    if !titleInBar {
-                        Spacer().frame(height: budget.rest.transportToTitle)
-                        wideTitle(p, twoLines: budget.titleForm == .twoLines)
-                            .frame(width: pose.slot, height: budget.rest.title, alignment: .bottomLeading)
-                            .npFade(open, contentFade)
-                    }
                 }
-                .frame(width: pose.slot + F.columnGap, height: rowHeight, alignment: .topLeading)
-                // RIGHT — the expanded page: text tabs, the pager, the tools.
+                // The block (its own height: a one-line title closes up) centred in the left column and the row.
+                .frame(width: pose.slot, alignment: .topLeading)
+                .frame(width: pose.leftColumn, height: rowHeight)
+                Spacer().frame(width: F.columnGap)
+                // RIGHT — the expanded page (its tabs are in the bar): the pager, the tools.
                 VStack(alignment: .leading, spacing: 0) {
-                    tabs
-                        .padding(.leading, Self.widePageInset)
-                        .frame(height: tabsH, alignment: .top)
-                        .modifier(FocusRetreat(away: inFocus, lift: !reduceMotion))
-                    Spacer().frame(height: Self.wideInnerGap)
                     detailPager { pg in
                         expandedPage(p, page: pg, height: pagerH)
+                            // A reading measure: long lines on a 13" screen were hard to follow.
+                            .frame(maxWidth: F.lyricMeasure, alignment: .leading)
                             .padding(.horizontal, Self.widePageInset)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(height: pagerH, alignment: .top)
                     .onGeometryChange(for: CGPoint.self) { proxy in
@@ -4011,10 +4047,11 @@ extension NowPlayingView {
                             }
                         }
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(width: pose.rightColumn, alignment: .topLeading)
                 .frame(height: rowHeight, alignment: .top)
                 .npFade(open, contentFade)
             }
+            .padding(.horizontal, budget.contentInset)
         }
         .padding(.horizontal, F.framePadding)
         .padding(.top, budget.frameTop)
@@ -4031,8 +4068,17 @@ extension NowPlayingView {
                                 titleLine: Tokens.type.headlineMedium.lineHeight.cg, navBottom: bottomInset)
         // The page sits between the system insets; Android's content height
         // runs from under the status bar to the window's foot.
-        return F.resolve(rowWidth: size.width - F.framePadding * 2,
-                         contentHeight: size.height + bottomInset, metrics: metrics)
+        let budget = F.resolve(rowWidth: size.width - F.framePadding * 2,
+                               contentHeight: size.height + bottomInset, metrics: metrics)
+        guard budget.rest.slot < F.labelsInlineMinWidth else { return budget }
+        // A narrow block drops the time labels under the wave: measured again with them.
+        let narrow = F.metrics(controlSize: Tokens.np.CONTROL_SIZE.cg, rowGap: Tokens.np.CONTROL_ROW_GAP.cg,
+                               labelLine: Tokens.type.labelLarge.lineHeight.cg,
+                               artistLine: Tokens.type.titleMedium.lineHeight.cg,
+                               titleLine: Tokens.type.headlineMedium.lineHeight.cg, navBottom: bottomInset,
+                               slot: budget.rest.slot)
+        return F.resolve(rowWidth: size.width - F.framePadding * 2, contentHeight: size.height + bottomInset,
+                         metrics: narrow)
     }
 
     /// The right column's x and width in the page (rest or focus pose).
@@ -4040,8 +4086,8 @@ extension NowPlayingView {
         let F = DualPaneBudget.self
         let budget = wideBudget(size: size, bottomInset: bottomInset)
         let pose = stage == .focus ? (budget.focus ?? budget.rest) : budget.rest
-        let x = F.framePadding + pose.slot + F.columnGap
-        return (x, max(0, size.width - F.framePadding - x))
+        let x = F.framePadding + budget.contentInset + pose.leftColumn + F.columnGap
+        return (x, pose.rightColumn)
     }
 
     /// The lyric page's inset (Android: the pager pads its pages by 24 and
@@ -4068,7 +4114,8 @@ extension NowPlayingView {
     /// (with "Title - Artist" under it when the title folded into the bar),
     /// and at the row's end the queue / devices / write icons next to the
     /// panel toggle.
-    private func wideTopBar(_ p: PlaybackSnapshot, titleInBar: Bool) -> some View {
+    /// [fromWidth]: what "Playing from" may take, so it never runs under the tabs over the right column.
+    private func wideTopBar(_ p: PlaybackSnapshot, titleInBar: Bool, fromWidth: CGFloat) -> some View {
         HStack(spacing: 4) {
             Button { wideBack() } label: {
                 YoinIcon("chevron_down", size: Tokens.np.CHEVRON_GLYPH.cg)
@@ -4109,6 +4156,7 @@ extension NowPlayingView {
                         .padding(.leading, 4)
                 }
             }
+            .frame(maxWidth: fromWidth, alignment: .leading)
             Spacer(minLength: 8)
             wideActionIcons
             if model.padPanelFits {
@@ -4123,6 +4171,8 @@ extension NowPlayingView {
         HStack(spacing: 4) {
             wideIcon("queue", label: String(localized: "Queue")) { model.queueSheetOpen = true }
                 .yoinDropTarget(in: Circle(), ink: scheme.onSurfaceVariant) { YoinDrag.queue($0, model: model) }
+                .anchoredPopover(isPresented: model.queueSheetOpen && popoverHost == .topBar, enabled: true,
+                                 onDismiss: { model.queueSheetOpen = false }) { queuePopover }
             wideIcon("devices", label: spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices")
                                                    : String(localized: "Devices")) {
                 if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
@@ -4136,6 +4186,8 @@ extension NowPlayingView {
                         .contentShape(.circle)
                 }
             }
+            .anchoredPopover(isPresented: spotifyDevicesOpen && popoverHost == .topBar, enabled: true,
+                             onDismiss: { spotifyDevicesOpen = false }) { devicesPopover }
             wideIcon("note", label: String(localized: "Write")) { startWriting() }
         }
     }

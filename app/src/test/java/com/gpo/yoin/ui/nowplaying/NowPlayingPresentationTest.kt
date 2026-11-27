@@ -31,8 +31,12 @@ class NowPlayingPresentationTest {
 
     @Test
     fun should_goStraightToTheEnlargedPhone_when_noRoomBesideThePanel() {
-        // 640 − 360 = 280 < 320 (a split-screen half).
+        // 640 − 360 = 280 < 360 (a split-screen half).
         assertFalse(canOpenNowPlayingPanel(LayoutMode.Medium, true, windowWidth = 640.dp))
+        // 700 − 360 = 340: a phone column of 320 would fit, the shell's 360 doesn't (iPad's line, 2026-11-27).
+        assertFalse(canOpenNowPlayingPanel(LayoutMode.Medium, true, windowWidth = 700.dp))
+        // 720 − 360 = 360: just enough.
+        assertTrue(canOpenNowPlayingPanel(LayoutMode.Medium, true, windowWidth = 720.dp))
         assertEquals(
             NowPlayingPresentation.Enlarged,
             resolveNowPlayingPresentation(LayoutMode.Medium, true, windowWidth = 640.dp, fullscreen = false),
@@ -70,7 +74,7 @@ class NowPlayingPresentationTest {
     @Test
     fun should_keepTwoColumns_when_wideButNoRoomForAPanel() {
         // Width alone can never deny a Wide window its panel (840 − 420 = 420
-        // ≥ 320); only height can. A landscape handset is Wide by width but
+        // ≥ 360); only height can. A landscape handset is Wide by width but
         // short: LandscapeNP, no panel, no two columns.
         assertFalse(canOpenNowPlayingPanel(LayoutMode.Wide, false, windowWidth = 844.dp))
         assertEquals(

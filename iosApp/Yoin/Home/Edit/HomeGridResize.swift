@@ -39,14 +39,15 @@ struct HomeGridPlace: Equatable {
 
     /// [section]'s place in [rows] (the feed's rows now), [enabledOrder] the sections iOS draws.
     static func of(_ section: HomeSection, rows: [[HomeSection]], enabledOrder: [HomeSection], fullWidth: CGFloat,
-                   layout: HomeLayout) -> HomeGridPlace? {
+                   layout: HomeLayout, lyricIntro: Bool = false) -> HomeGridPlace? {
         guard let row = rows.first(where: { $0.contains(section) }),
               let info = YoinHomeLayout.shared.spanInfo(id: section.id, rows: rows.map { $0.map(\.id) },
                                                         enabledOrder: enabledOrder.map(\.id), fullPx: Float(fullWidth),
                                                         gapPx: Float(HomeGrid.rowGap)) else { return nil }
         let span: Span = info.span == .full ? .full : info.span == .lefthalf ? .left : .right
-        return HomeGridPlace(section: section, row: row, span: span, hasNext: info.hasNext, units: layout.units(ofRow: row),
-                             range: HomeGrid.rowUnitRange(row[0], row.count > 1 ? row[1] : nil),
+        return HomeGridPlace(section: section, row: row, span: span, hasNext: info.hasNext,
+                             units: HomeGrid.shownUnits(layout.units(ofRow: row), row: row, lyricIntro: lyricIntro),
+                             range: HomeGrid.rowUnitRange(row[0], row.count > 1 ? row[1] : nil, lyricIntro: lyricIntro),
                              fullWidth: fullWidth, halfWidth: CGFloat(info.halfPx))
     }
 }
