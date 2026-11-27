@@ -16,7 +16,7 @@ struct PadShell: View {
 
     var body: some View {
         GeometryReader { geo in
-            let panelWidth = min(max(geo.size.width * 0.5, 360), 420)
+            let panelWidth = AppModel.padPanelWidth(geo.size.width)
             HStack(spacing: 0) {
                 // One tab of a TabView with its bar hidden: the tab hosts the places on its own (a
                 // NavigationStack under the shell's recede layers, with no TabView between, never pushed).
@@ -51,7 +51,7 @@ struct PadShell: View {
                     NowPlayingView(npNamespace: npNS, panel: true)
                         .frame(width: panelWidth)
                         .clipShape(.rect(cornerRadius: 28))
-                        .padding([.vertical, .trailing], 8)
+                        .padding([.vertical, .trailing], AppModel.padPanelInset)
                         // Where Full grows out of when the panel goes Full (and folds back into).
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global).insetBy(dx: 0, dy: 0) } action: { r in
                             model.np.panelFrame = r.inset(by: UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 8))
@@ -92,6 +92,12 @@ struct PadShell: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
+        // The window narrowed under the open panel (a rotation, Split View, a Stage Manager drag): where it no
+        // longer fits beside what is open, Now Playing goes Full, as Android's frame turns Panel into Full for
+        // that window; closing Full brings the panel back once it fits again. Never three squeezed columns.
+        .onChange(of: model.padWidth) { _, _ in
+            if model.npPanel, !model.npExpanded, !model.padPanelFits { model.npPanelToFull() }
+        }
         // A column opening beside the panel where the two columns no longer fit: the page stays visible and
         // the panel steps away (Android: "the page is always visible").
         .onChange(of: model.padColumnOpen) { _, open in

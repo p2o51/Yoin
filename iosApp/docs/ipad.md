@@ -23,7 +23,7 @@ NP 侧栏关着时，右下角是迷你播放器的玻璃胶囊。
 
 ## 守住的 Android 原则
 
-1. **按容器的宽高换档，不按设备型号。** 进不进 `PadShell` 看系统的 `horizontalSizeClass`（regular 用 `PadShell`，compact 用 `PhoneShell`，所以 iPad 上很窄的窗口就是手机界面）；进了 `PadShell` 以后，列、侧栏、Full 的档位都读窗口的实际宽高，照搬 Android 的 840 / 480 和 744 / 320 这几条线。
+1. **按容器的宽高换档，不按设备型号。** 进不进 `PadShell` 看系统的 `horizontalSizeClass`（regular 用 `PadShell`，compact 用 `PhoneShell`，所以 iPad 上很窄的窗口就是手机界面）；进了 `PadShell` 以后，列、侧栏、Full 的档位都读窗口的实际宽高，照搬 Android 的 840 / 480 和 744 这几条线（侧栏旁的单列是 360，不是 Android 的 320，见下面 Panel）。
 2. **一套 Now Playing 状态链：Closed → Panel → Full。** 从侧栏进 Full，关掉 Full 回到侧栏（不论是 ⌄、下拉还是返回）；从迷你播放器进 Full，关掉回到迷你播放器。
 3. **详情是同一窗口里的列，不是第二个窗口。**
 4. **换档不落在弹簧中途；数量跟宽度走，卡片内部不缩放。**
@@ -59,7 +59,7 @@ NP 侧栏关着时，右下角是迷你播放器的玻璃胶囊。
 
 ## Now Playing
 
-- **Panel：** 自己画的侧栏（不是系统 `.inspector`，因为它在窄窗口会自己变成底部弹层）。宽 = clamp(窗口宽 × 0.5, 360, 420)。只有当窗口减去侧栏还剩 ≥ 320（开着详情列时 ≥ 744）才开侧栏，否则点迷你播放器直接进 Full（`AppModel.padPanelFits`）。侧栏开着时如果又开了详情列、两列放不下，侧栏退开。进出按自己的宽度平移，不淡入淡出。
+- **Panel：** 自己画的侧栏（不是系统 `.inspector`，因为它在窄窗口会自己变成底部弹层）。宽 = clamp(窗口宽 × 0.5, 360, 420)。只有当窗口减去侧栏和它离边的 8 还剩 ≥ 360（开着详情列时 ≥ 744）才开侧栏，否则点迷你播放器直接进 Full（`AppModel.padPanelFits`，`PadPanelFitTests`）。360 是分栏两列自己的下限；Android 用 320，但 13" 分屏 1/2（683）旁边只剩 315 时，Home 的卡片文字一字一行（2026-11-27 iPad 审查），所以 iPad mini 竖屏（剩 364）有侧栏、13" 分屏 1/2 直接 Full。侧栏开着时如果又开了详情列、两列放不下，侧栏退开；窗口变窄（转竖屏、分屏、台前调度拖小）让侧栏放不下时，侧栏变成 Full（Android 的 frame 同样把 Panel 换成 Full），关掉 Full 在放得下时回到侧栏，不会出现三列挤在一起。进出按自己的宽度平移，不淡入淡出。
 - **Full：** 从右下角的迷你播放器长出来、关闭时折回去（`NowPlayingMorph`，和手机同一个进度：⌄、拖动、返回都驱动它）；从侧栏进时从侧栏的位置长出来。窗口宽 ≥ 840 且高 ≥ 480 时是双栏播放器（`NowPlayingPadFrame.wide`，Android DualPane），其他 iPad 窗口是放大的手机单栏（`.enlarged`）。
 - **双栏专注的点阵（I32，51 2026-11-13 定：只做 iPad 双栏，iPhone 保持无点阵）：** 点封面进专注时，评分列、页签和歌词工具碎成细点退场（`FocusRetreat` → `DotDissolve`；顶栏只淡出，因为里面的 AirPlay 选择器是 UIKit 视图，shader 画不了）；同时从封面那一侧向窗口四边炸出一圈整齐的点带（`NowPlayingEdgeBand.swift`，shader `yoinEdgeBand`，Android EdgeDotBand），约 0.2 s 最宽、1 s 内收细、2 s 起退、8 s 消失；专注里换歌再炸一次并从左扫过，每换一行歌词从歌词处推出一道涟漪，暂停时波变慢、带变细。Reduce Motion：只淡出，没有点带。
 
