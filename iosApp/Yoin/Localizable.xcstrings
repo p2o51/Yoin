@@ -16615,6 +16615,63 @@
           }
         }
       }
+    },
+    "Home greeting": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首页问候"
+          }
+        }
+      }
+    },
+    "Generate greetings based on recent activity": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据最近状态生成问候语"
+          }
+        }
+      }
+    },
+    "Suggested questions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推荐追问"
+          }
+        }
+      }
+    },
+    "Follow-up questions from About": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「关于」里根据正文给出追问"
+          }
+        }
+      }
+    },
+    "home.greeting.noon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good afternoon"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中午好"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

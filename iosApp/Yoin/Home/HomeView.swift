@@ -161,6 +161,9 @@ struct HomeView: View {
         }
         // One look each time the app opens or comes back; none outlives leaving or a switch.
         .task { spotifyElsewhere.look(model) }
+        #if DEBUG
+        .task { await OnDeviceAIDemo.runGreetingIfRequested(model) }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { spotifyElsewhere.look(model) } else if phase == .background { spotifyElsewhere.reset() }
             // Off to the background: a drag rolls back, then edit mode closes (design.md 退出).
@@ -641,13 +644,24 @@ struct HomeView: View {
 
     // MARK: Header (HomeGreetingTitle.kt)
 
-    private var greeting: String { Self.greeting(at: .now) }
+    /// Today's on-device line for the slot when Labs' Home greeting is on and one was made (Android
+    /// HomeGreetingTitle over HomeGreetingStore.cachedFor), else the static greeting.
+    private var greeting: String {
+        let now = Date.now
+        if LyricHighlightStore.shared.greetingsEnabled,
+           let line = HomeGreetingStore.shared.text(at: now, profileId: model.profiles.active?.id) {
+            return line
+        }
+        return Self.greeting(at: now)
+    }
 
-    /// The header's greeting at [date] (the tip page's demo Home says it too).
+    /// The header's static greeting at [date] (the tip page's demo Home says it too): 5–11 morning, 11–13 noon
+    /// (中午好; "Good afternoon" in English), 13–18 afternoon, the rest evening (Android home_greeting_*).
     static func greeting(at date: Date) -> String {
         switch Calendar.current.component(.hour, from: date) {
         case 5..<11: String(localized: "Good morning")
-        case 11..<18: String(localized: "Good afternoon")
+        case 11..<13: String(localized: "home.greeting.noon", defaultValue: "Good afternoon")
+        case 13..<18: String(localized: "Good afternoon")
         default: String(localized: "Good evening")
         }
     }
@@ -664,6 +678,9 @@ struct HomeView: View {
                     .font(YoinFont.rounded(16, relativeTo: .subheadline))
                     .foregroundStyle(scheme.onSurfaceVariant)
                     .frame(height: 24)
+                    // A line made while Home is open fades in over the static one (effects spring).
+                    .contentTransition(.opacity)
+                    .animation(Yoin.effects, value: greeting)
                     .opacity(intro.greeting)
                     .offset(y: (1 - intro.greeting) * 12)
                 EditTitleSwap(edit: edit, scheme: scheme)

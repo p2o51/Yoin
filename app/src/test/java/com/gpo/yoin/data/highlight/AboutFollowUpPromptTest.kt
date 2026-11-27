@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.highlight
 
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.shared.ondevice.AboutFollowUpPrompt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull

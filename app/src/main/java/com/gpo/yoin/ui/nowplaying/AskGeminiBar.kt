@@ -2,6 +2,7 @@
 
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.shared.ondevice.AboutFollowUpPrompt
 import com.gpo.yoin.ui.component.aiString
 import com.gpo.yoin.ui.component.pointerPressPreview
 import androidx.compose.animation.AnimatedContent
@@ -65,7 +66,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
-import com.gpo.yoin.data.highlight.AboutFollowUpPrompt
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.QuickPrompts
