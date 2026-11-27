@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,6 +45,9 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+
+/** The song row's artist-and-album line, for tests. */
+internal const val SongListItemSubtitleTag = "song_row_subtitle"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -199,6 +203,9 @@ fun SongListItem(
                         if (album.isNotBlank()) add(MetaGroup.Plain(album, muted = true))
                     },
                     style = MaterialTheme.typography.bodySmall,
+                    // A long artist or album name ellipsizes; neither drops the other (Galaxy S25 report).
+                    overflow = MetaOverflow.Share,
+                    modifier = Modifier.testTag(SongListItemSubtitleTag),
                 )
             }
 
