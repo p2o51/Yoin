@@ -34,6 +34,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -58,6 +60,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
@@ -153,6 +156,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
@@ -188,6 +193,7 @@ import com.gpo.yoin.ui.component.NoteWriteBar
 import com.gpo.yoin.ui.component.NoteWriteBarDefaults
 import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.component.QueueSheet
+import com.gpo.yoin.ui.component.RatingLabelMinHorizontal
 import com.gpo.yoin.ui.component.SongInfoDisplay
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.edgeFade
@@ -703,52 +709,17 @@ private fun LaunchingContent(
     dismissFraction: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.align(Alignment.Start).handPointer(),
-        ) {
-            Icon(
-                imageVector = YoinSymbols.ChevronDown,
-                contentDescription = stringResource(R.string.np_cd_launching_collapse),
-                modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
-            )
-        }
+    PendingSongContent(
+        songTitle = state.songTitle,
+        artist = state.artist,
+        coverArtUrl = state.coverArtUrl,
+        coverMax = 240.dp,
+        collapseDescription = stringResource(R.string.np_cd_launching_collapse),
+        onDismiss = onDismiss,
+        dismissFraction = dismissFraction,
+        modifier = modifier,
+    ) { _ ->
         Spacer(modifier = Modifier.height(24.dp))
-        Box(
-            modifier = Modifier
-                .size(240.dp)
-                .clip(YoinArtworkShapes.NowPlayingCover)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (state.coverArtUrl != null) {
-                AsyncImage(
-                    model = state.coverArtUrl,
-                    contentDescription = state.songTitle,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(32.dp))
-        Text(
-            text = state.songTitle,
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = state.artist,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(32.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -781,68 +752,183 @@ private fun ConnectErrorContent(
     dismissFraction: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        IconButton(
-            onClick = onDismiss,
-            modifier = Modifier.align(Alignment.Start).handPointer(),
-        ) {
-            Icon(
-                imageVector = YoinSymbols.ChevronDown,
-                contentDescription = stringResource(R.string.np_cd_connect_error_collapse),
-                modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
-            )
-        }
-        Spacer(modifier = Modifier.height(24.dp))
-        Box(
-            modifier = Modifier
-                .size(200.dp)
-                .clip(YoinArtworkShapes.NowPlayingCover)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (state.coverArtUrl != null) {
-                AsyncImage(
-                    model = state.coverArtUrl,
-                    contentDescription = state.songTitle,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(28.dp))
-        Text(
-            text = state.songTitle,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = state.artist,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(24.dp))
+    PendingSongContent(
+        songTitle = state.songTitle,
+        artist = state.artist,
+        coverArtUrl = state.coverArtUrl,
+        coverMax = 200.dp,
+        collapseDescription = stringResource(R.string.np_cd_connect_error_collapse),
+        onDismiss = onDismiss,
+        dismissFraction = dismissFraction,
+        modifier = modifier,
+    ) { sideBySide ->
+        Spacer(modifier = Modifier.height(20.dp))
         Text(
             text = state.message.asString(),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.error,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            textAlign = if (sideBySide) TextAlign.Start else TextAlign.Center,
         )
         if (state.opensSpotify) {
             // The way out sits on the page itself: the shell snackbar that also
             // offers it is hidden behind Now Playing and gone after a few seconds.
-            Spacer(modifier = Modifier.height(20.dp))
-            FilledTonalButton(onClick = onOpenSpotify, modifier = Modifier.handPointer()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            FilledTonalButton(
+                onClick = onOpenSpotify,
+                modifier = Modifier
+                    .handPointer()
+                    .testTag(PendingOpenSpotifyTag),
+            ) {
                 Text(text = stringResource(R.string.shell_snackbar_open_spotify))
             }
         }
     }
 }
+
+/**
+ * The page of a song that isn't playing yet (launching, or its connection
+ * failed): the back arrow fixed at the top start, tinted like every top bar,
+ * then the cover, the title and [details]. A window shorter than
+ * [PendingSideBySideMaxHeight] (a phone on its side) sets the cover beside the
+ * text; the text scrolls wherever it can't fit, so the error and its recovery
+ * button never fall off the screen (review 2026-11-27).
+ */
+@Composable
+private fun PendingSongContent(
+    songTitle: String,
+    artist: String,
+    coverArtUrl: String?,
+    coverMax: Dp,
+    collapseDescription: String,
+    onDismiss: () -> Unit,
+    dismissFraction: () -> Float,
+    modifier: Modifier = Modifier,
+    details: @Composable (sideBySide: Boolean) -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+            .padding(horizontal = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(TopBarTouchHeight),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onDismiss, modifier = Modifier.handPointer().testTag(PendingBackTag)) {
+                Icon(
+                    imageVector = YoinSymbols.ChevronDown,
+                    contentDescription = collapseDescription,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .graphicsLayer { rotationZ = 180f * dismissFraction() },
+                )
+            }
+        }
+        BoxWithConstraints(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+        ) {
+            val sideBySide = maxHeight < PendingSideBySideMaxHeight && maxWidth > maxHeight
+            val frameHeight = maxHeight
+            val scroll = rememberScrollState()
+            val cover: @Composable (Dp) -> Unit = { side ->
+                Box(
+                    modifier = Modifier
+                        .size(side)
+                        .clip(YoinArtworkShapes.NowPlayingCover)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (coverArtUrl != null) {
+                        AsyncImage(
+                            model = coverArtUrl,
+                            contentDescription = songTitle,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+            val titleBlock: @Composable (TextAlign) -> Unit = { align ->
+                Text(
+                    text = songTitle,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = align,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = artist,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = align,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (sideBySide) {
+                // The cover fills the height it has (less a little air), beside the text.
+                val side = minOf(coverMax, maxHeight - 16.dp, maxWidth * 0.4f).coerceAtLeast(0.dp)
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                ) {
+                    cover(side)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .widthIn(max = PendingTextMaxWidth)
+                            .fillMaxHeight()
+                            .verticalScroll(scroll),
+                    ) {
+                        Column(
+                            modifier = Modifier.heightIn(min = frameHeight),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            titleBlock(TextAlign.Start)
+                            details(true)
+                        }
+                    }
+                }
+            } else {
+                val side = minOf(coverMax, maxWidth, maxHeight * 0.45f).coerceAtLeast(0.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scroll),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = frameHeight)
+                            .padding(vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        cover(side)
+                        Spacer(modifier = Modifier.height(28.dp))
+                        titleBlock(TextAlign.Center)
+                        details(false)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Below this the launching / error page sets the cover beside the text. */
+private val PendingSideBySideMaxHeight = 480.dp
+private val PendingTextMaxWidth = 420.dp
+internal const val PendingBackTag = "pendingBack"
+internal const val PendingOpenSpotifyTag = "pendingOpenSpotify"
 
 private data class NowPlayingPlaybackActions(
     val onTogglePlayPause: () -> Unit,
@@ -1601,9 +1687,6 @@ private fun CompactPlayingContent(
         )
         val focusLyricOverflowPx = with(LocalDensity.current) { focusLyricOverflow.roundToPx() }
         val focusRunOnFade = RunOnFadeShare + (RunOnFadeShareAtEase - RunOnFadeShare) * focusIdleShown
-        // Enlarged tablet: the lyric tools ride at the end of the tab row even
-        // at rest (TabletPortraitNP).
-        val toolsInCompactTabs = enlarged != null && !lyricOneLine
         // Rest ⇄ focus by immersive, then ⇄ the Expanded layout by detail.
         fun stage(rest: Dp, focus: Dp, expanded: Dp): Dp =
             lerpDp(lerpDp(rest, focus, immersiveProgress), expanded, detailProgress)
@@ -1665,7 +1748,7 @@ private fun CompactPlayingContent(
             hasSyncedLyrics = hasSyncedLyrics,
             autoScroll = lyricsAutoScroll,
             lyricsPageSelected = lyricsPageSelected,
-            toolsOnScreen = stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs,
+            toolsOnScreen = stageMode == NowPlayingStageMode.Expanded,
             selectingLines = lyricsSelection.active,
             singEnabled = portraitSingEnabled,
         )
@@ -1773,8 +1856,7 @@ private fun CompactPlayingContent(
                 },
                 onEditLyricsClick = { showApplyDialog = true },
                 onMessage = onLyricsMessage,
-                // Enlarged tablet at rest: the tools ride the tab row, but
-                // select mode lives on the expanded page.
+                // Select mode lives on the expanded page.
                 onBeforeSelect = {
                     if (stageMode != NowPlayingStageMode.Expanded) {
                         onStageModeChange(NowPlayingStageMode.Expanded)
@@ -2006,7 +2088,7 @@ private fun CompactPlayingContent(
                                     val portraitSing = LocalNowPlayingSing.current
                                     val portraitLyricsSingVisible = !lyricsSelection.active &&
                                         detailPage == NowPlayingDetailPage.Lyrics &&
-                                        (stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs)
+                                        stageMode == NowPlayingStageMode.Expanded
                                     val showPortraitSingInRating = portraitSing?.isActive == true && !portraitLyricsSingVisible
                                     val showPortraitSingInFavorite = portraitSing?.isEnabled == true && !portraitLyricsSingVisible
                                     SingAwareRatingBarSlot(
@@ -2077,25 +2159,6 @@ private fun CompactPlayingContent(
                         textOnly = lyricOneLine,
                         expandedInTopBar = tabsInTopBar,
                         aboutBusy = aboutBusy,
-                        // Enlarged at rest: the lyric tools at the tab row's end.
-                        tools = if (tabsSelected == NowPlayingDetailPage.Lyrics && toolsInCompactTabs) {
-                            {
-                                Box(
-                                    modifier = Modifier
-                                        .graphicsLayer {
-                                            // Top tools fade IN PLACE when idle — nothing moves.
-                                            alpha = lyricToolsAlpha
-                                        }
-                                        // …but stay where a blind tap lands: while
-                                        // they are away it only wakes them.
-                                        .lyricToolsInPlaceWakeGuard(lyricToolsIdle),
-                                ) {
-                                    lyricTools(EnlargedTabToolSize)
-                                }
-                            }
-                        } else {
-                            null
-                        },
                         modifier = Modifier
                             .padding(horizontal = horizontalPadding)
                             .dotDissolve { immersiveProgress },
@@ -2468,21 +2531,17 @@ private fun CompactPlayingContent(
                                         contentAlignment = Alignment.BottomStart,
                                     ) {
                                         val detail = NowPlayingDetailPage.entries[page]
-                                        // The page's action fills the row; Share at its end.
+                                        // The page's action fills the row; About and Note end it with Share
+                                        // (the lyric keys end with Select instead).
                                         when (detail) {
-                                            NowPlayingDetailPage.Lyrics -> PageActionRow(
-                                                share = pageShare(detail),
-                                                showShare = !lyricsSelection.active,
-                                                keySize = LyricKeySize,
-                                                interactive = !lyricToolsIdle.hidden,
+                                            NowPlayingDetailPage.Lyrics -> Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(LyricKeySize)
                                                     .graphicsLayer { alpha = lyricToolsAlpha },
-                                            ) { lead ->
-                                                Box(modifier = lead, contentAlignment = Alignment.CenterStart) {
-                                                    lyricTools(LyricKeySize)
-                                                }
+                                                contentAlignment = Alignment.CenterStart,
+                                            ) {
+                                                lyricTools(LyricKeySize)
                                             }
                                             NowPlayingDetailPage.About -> PageActionRow(
                                                 share = pageShare(detail),
@@ -3039,6 +3098,8 @@ private fun WidePlayingContent(
                         ),
                     )
                     TickingPlaybackControls(
+                        // Two columns: the times on the wave's two sides.
+                        labelsBesideWave = true,
                         noteAnchorsMs = remember(notesState) {
                             notesState.mapNotNull { it.positionMs }.sorted()
                         },
@@ -3270,23 +3331,21 @@ private fun WidePlayingContent(
                                     contentAlignment = Alignment.BottomStart,
                                 ) {
                                     val detail = NowPlayingDetailPage.entries[page]
-                                    // The page's action fills the row; Share at its end.
+                                    // The page's action fills the row; About and Note end it with Share
+                                    // (the lyric keys end with Select instead).
                                     when (detail) {
-                                        NowPlayingDetailPage.Lyrics -> PageActionRow(
-                                            share = pageShare(detail),
-                                            showShare = !lyricsSelection.active,
-                                            keySize = LyricKeySize,
-                                            interactive = !lyricToolsIdle.hidden,
+                                        NowPlayingDetailPage.Lyrics -> Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .height(LyricKeySize)
                                                 .graphicsLayer { alpha = lyricToolsAlpha }
                                                 .focusRetreat(focusNow),
-                                        ) { lead ->
+                                            contentAlignment = Alignment.CenterStart,
+                                        ) {
                                             LyricsTools(
                                                 state = state,
                                                 selection = lyricsSelection,
-                                                modifier = lead,
+                                                modifier = Modifier.fillMaxWidth(),
                                                 searchBarState = lyricsSearchBarState,
                                                 canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                                                 onSearchClick = onOpenLyricsSearch,
@@ -3568,16 +3627,21 @@ private fun LandscapePlayingContent(
             .windowInsetsPadding(
                 WindowInsets.systemBars.union(WindowInsets.displayCutout.only(WindowInsetsSides.Start)),
             )
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 24.dp, vertical = LandscapeFrameVerticalPadding),
     ) {
         val density = LocalDensity.current
         val endCutout = WindowInsets.displayCutout.only(WindowInsetsSides.End).asPaddingValues()
             .calculateEndPadding(LocalLayoutDirection.current)
         val frameWidth = maxWidth - endCutout
         val frameHeight = maxHeight
+        // Stacked, a page open: the rating bar under the cover keeps a bar's
+        // length beside the heart (and the library add, where there is one).
+        val favoriteButtons = (if (state.serviceFeatures.supportsFavorites) 1 else 0) +
+            (if (Capability.LIBRARY_ADD in state.serviceFeatures.capabilities) 1 else 0)
+        val expandedLeftMin = landscapeRatingRowMin(favoriteButtons)
         val labelLine = with(density) { MaterialTheme.typography.labelLarge.lineHeight.toDp() }
-        val geometry = remember(frameWidth, frameHeight, labelLine) {
-            resolveLandscapeLayout(frameWidth, frameHeight, labelLine)
+        val geometry = remember(frameWidth, frameHeight, labelLine, expandedLeftMin) {
+            resolveLandscapeLayout(frameWidth, frameHeight, labelLine, expandedLeftMin = expandedLeftMin)
         }
         val stacked = geometry.stacked
 
@@ -3747,7 +3811,7 @@ private fun LandscapePlayingContent(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .offset(x = 0.dp, y = geometry.restCover + LandscapeRatingGap)
-                    .width(geometry.restCover)
+                    .width(geometry.expandedLeftWidth)
                     .height(LandscapeRatingRow)
                     .graphicsLayer {
                         alpha = resolvedStageProgress.detail
@@ -3776,7 +3840,7 @@ private fun LandscapePlayingContent(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(LandscapeRatingRowGap))
                 SingAwareFavoriteSlot(
                     showSing = showLandscapeSingInFavorite,
                     sing = landscapeSing,
@@ -3888,8 +3952,6 @@ private fun LandscapePlayingContent(
                             onDeleteNote = onDeleteNote,
                             noteDraft = noteDraft,
                             noteWriting = noteBar.open,
-                            // The title stays on screen beside / under the cover.
-                            lyricsTitleCard = false,
                             modifier = pageModifier.graphicsLayer {
                                 val detail = resolvedStageProgress.detail
                                 alpha = ((detail - 0.1f) / 0.6f).coerceIn(0f, 1f)
@@ -3926,6 +3988,9 @@ private fun LandscapePlayingContent(
                     },
             ) {
                 TickingPlaybackControls(
+                    // Wide: two columns, the times beside the wave. Stacked: the
+                    // transport is a single column under the cover, times under it.
+                    labelsBesideWave = !stacked,
                     noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
                     isPlaying = state.isPlaying,
                     onTogglePlayPause = onTogglePlayPause,
@@ -3968,7 +4033,7 @@ private fun LandscapePlayingContent(
             Column(
                 modifier = Modifier
                     .offset(x = 0.dp, y = blockTop)
-                    .width(geometry.restCover)
+                    .width(geometry.expandedLeftWidth)
                     .height((frameHeight - blockTop).coerceAtLeast(0.dp))
                     .graphicsLayer { alpha = stackedTitleBlock },
                 verticalArrangement = Arrangement.Bottom,
@@ -4134,26 +4199,17 @@ private fun LandscapePlayingContent(
                                 iconSize = ShortTabToolSize,
                                 idle = lyricToolsIdle,
                                 modifier = actionsModifier
+                                    // 44dp keys in the 40dp header: they stand
+                                    // 2dp proud of it rather than shrink.
+                                    .requiredHeight(ShortTabToolSize)
                                     // Idle: they fade in place; a blind tap
                                     // there only brings them back.
                                     .graphicsLayer { alpha = lyricToolsAlpha }
                                     .lyricToolsInPlaceWakeGuard(lyricToolsIdle),
                             )
-                            NowPlayingDetailPage.About -> AskGeminiBar(
-                                askState = askState,
-                                onSubmit = onAskQuestion,
-                                onFocus = onAskBarFocused,
-                                onCollapseRequest = onAskBarCollapseRequested,
-                                onDismissError = onDismissAskError,
-                                asked = aboutUiState.askedQuestions(),
-                                aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
-                                // Taller than the header: it hangs from the
-                                // header's top and grows down over the page.
-                                modifier = actionsModifier
-                                    .width(pageActionWidth)
-                                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                                    .offset(y = LandscapePageActionLift),
-                            )
+                            // Ask sits at the page's foot (below), not up here:
+                            // hung from the header it grew down over the page.
+                            NowPlayingDetailPage.About -> Unit
                             NowPlayingDetailPage.Note -> Box(
                                 modifier = actionsModifier
                                     .width(pageActionWidth)
@@ -4178,6 +4234,46 @@ private fun LandscapePlayingContent(
                         }
                     }
                 }
+            }
+        }
+
+        // ── Ask, at the About page's foot (owner 2026-11-27, until landscape
+        // joins the two-column player): anchored to the bottom of the right
+        // column, above the keyboard when it is up, and never taller than the
+        // room there — the focused card used to hang from the 40dp header and
+        // cover the page.
+        if (!focusSettled && detailPage == NowPlayingDetailPage.About &&
+            (expanded || detailProgress > HiddenLayerVisibilityThreshold)
+        ) {
+            val imeBottom = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+            val barsBottom = with(density) { WindowInsets.systemBars.getBottom(density).toDp() }
+            val imeOverlap = (imeBottom - barsBottom - LandscapeFrameVerticalPadding).coerceAtLeast(0.dp)
+            val askBottom = minOf(lyricsBottom, frameHeight - imeOverlap).coerceAtLeast(0.dp)
+            // Open, it stays under the tab row; with the keyboard up it may
+            // cover the tabs too (never the header with the back arrow).
+            val askTop = if (imeOverlap > 0.dp) LandscapeHeaderHeight else LandscapeLyricsTop
+            val askFocusedHeight = (askBottom - askTop)
+                .coerceIn(minOf(AskBarUsableHeight, askBottom), AskBarFocusedHeight)
+            Box(
+                modifier = Modifier
+                    .offset(x = columnX)
+                    .width(columnWidth)
+                    .height(askBottom)
+                    .graphicsLayer { alpha = resolvedStageProgress.detail }
+                    .retreatInput { 1f - resolvedStageProgress.detail },
+                contentAlignment = Alignment.BottomStart,
+            ) {
+                AskGeminiBar(
+                    askState = askState,
+                    onSubmit = onAskQuestion,
+                    onFocus = onAskBarFocused,
+                    onCollapseRequest = onAskBarCollapseRequested,
+                    onDismissError = onDismissAskError,
+                    asked = aboutUiState.askedQuestions(),
+                    aboutEntries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty(),
+                    focusedHeight = askFocusedHeight,
+                    modifier = Modifier.testTag(LandscapeAskTag),
+                )
             }
         }
     }
@@ -4271,6 +4367,24 @@ private val LandscapeHeaderHeight = 40.dp
 private val LandscapeTabRow = 40.dp
 private val LandscapeLyricsTop = LandscapeHeaderHeight + LandscapeTabRow + 6.dp
 private val LandscapeRatingRow = 48.dp
+internal const val LandscapeAskTag = "landscapeAsk"
+
+/** The least the open Ask card takes in landscape: its mark, a line to type in and the prompts. */
+private val AskBarUsableHeight = 132.dp
+
+/** The landscape frame's own top / bottom padding inside the system bars. */
+private val LandscapeFrameVerticalPadding = 12.dp
+
+/** The heart (and library add) beside the lying rating bar: a 48dp touch target each. */
+private val LandscapeRatingRowButton = 48.dp
+private val LandscapeRatingRowGap = 8.dp
+
+/**
+ * Stacked, a page open: the left column's least width, so the rating bar lying under the cover stays
+ * [RatingLabelMinHorizontal] long beside its [buttons] (568×320 drew it as a ~70dp ball, 2026-11-27).
+ */
+internal fun landscapeRatingRowMin(buttons: Int): Dp =
+    RatingLabelMinHorizontal + if (buttons > 0) LandscapeRatingRowGap + LandscapeRatingRowButton * buttons else 0.dp
 private val LandscapeRatingRetreat = 24.dp
 
 /** Wide: the gap between the transport and the title row, and over the transport. */
@@ -4587,6 +4701,7 @@ private fun TabletopPlayingContent(
                     Icon(
                         imageVector = YoinSymbols.ChevronDown,
                         contentDescription = stringResource(R.string.np_cd_tabletop_close),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.graphicsLayer {
                             rotationZ = 180f * dismissFraction()
                         },
@@ -4618,6 +4733,8 @@ private fun TabletopPlayingContent(
                     )
                 }
                 TickingPlaybackControls(
+                    // Two columns: the times on the wave's two sides.
+                    labelsBesideWave = true,
                     noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
                     isPlaying = state.isPlaying,
                     onTogglePlayPause = onTogglePlayPause,
@@ -4723,6 +4840,8 @@ private fun WideTopBar(
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
                 contentDescription = stringResource(R.string.np_cd_wide_close),
+                // Tinted like every top bar's arrow (untinted it drew black on the dark aurora).
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
         }
@@ -4989,9 +5108,9 @@ internal fun StageTabs(
     onSelect: (NowPlayingDetailPage) -> Unit,
     modifier: Modifier = Modifier,
     // 16:9 (断点交接 §3.1): the expanded page keeps the TEXT tabs instead of
-    // swapping to the big button group, with the lyric tools at the row's end.
+    // swapping to the big button group. The lyric tools never ride this row:
+    // they live at the expanded page's foot on every size (owner 2026-11-27).
     textOnly: Boolean = false,
-    tools: (@Composable () -> Unit)? = null,
     // Gemini is loading About over credits / facts already shown: a small
     // indicator sits between the About and Note tabs (owner 2026-11-16).
     aboutBusy: Boolean = false,
@@ -5014,8 +5133,6 @@ internal fun StageTabs(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CompactTextTabs(selected = selected, onSelect = onSelect, aboutBusy = aboutBusy)
-                Spacer(modifier = Modifier.weight(1f))
-                tools?.invoke()
             }
             return@Box
         }
@@ -5030,13 +5147,9 @@ internal fun StageTabs(
                         alpha = (1f - detailProgress).coerceIn(0f, 1f)
                         translationY = -6.dp.toPx() * detailProgress
                     },
-                verticalAlignment = if (tools != null) Alignment.CenterVertically else Alignment.Top,
+                verticalAlignment = Alignment.Top,
             ) {
                 CompactTextTabs(selected = selected, onSelect = onSelect, aboutBusy = aboutBusy)
-                if (tools != null) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    tools()
-                }
             }
         }
         if (detailProgress > 0f && !expandedInTopBar) {
@@ -5488,8 +5601,6 @@ private fun ExpandedDetailPage(
     lyricsEndOverflow: Dp = 0.dp,
     // Two-column focus (0..1, draw phase): the lyrics print as halftone.
     lyricsFocus: () -> Float = { 0f },
-    // The title card over the lyrics; off where the layout keeps the title in view.
-    lyricsTitleCard: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     when (page) {
@@ -5504,8 +5615,11 @@ private fun ExpandedDetailPage(
             viewportGrowthAbovePx = lyricsViewportGrowthAbovePx,
             trackKey = state.songId,
             queueIndex = state.currentQueueIndex,
-            songTitle = state.songTitle.takeIf { lyricsTitleCard },
-            artist = state.artist.takeIf { lyricsTitleCard },
+            // No title card over the lyrics: every layout keeps the title and
+            // artist in view beside or under the page (owner 2026-11-27: the
+            // card printed them a second time).
+            songTitle = null,
+            artist = null,
             upNext = state.upNextLyrics,
             durationMs = state.durationMs,
             lyrics = state.lyrics,
@@ -5581,6 +5695,7 @@ private fun TickingPlaybackControls(
     live: Boolean = true,
     prevToTopRow: Float = 0f,
     atEase: Float = 0f,
+    labelsBesideWave: Boolean = false,
 ) {
     val position = positionMs()
     val progress = if (durationMs > 0) {
@@ -5616,6 +5731,7 @@ private fun TickingPlaybackControls(
         live = live,
         prevToTopRow = prevToTopRow,
         atEase = atEase,
+        labelsBesideWave = labelsBesideWave,
     )
 }
 
@@ -6123,7 +6239,7 @@ private val ExpandedTabRowHeight = 52.dp
 private val ExpandedTabGap = 12.dp
 private val ExpandedAccessoryHeight = 68.dp
 
-/** The lyric tools' keys in the bottom row (and the page's Share as their sixth). */
+/** The lyric tools' keys in the bottom row. */
 private val LyricKeySize = 52.dp
 
 /** The wide layout's right-column action bar (lyric tools / Ask Gemini) at rest. */
@@ -6145,8 +6261,8 @@ private const val HeroStackSplit = 0.6f
 private const val HeroOneLineArtistShare = 0.4f
 
 /** Enlarged phone: the lyric tools at the end of the tab row. */
-private val EnlargedTabToolSize = 44.dp
-private val ShortTabToolSize = 40.dp
+/** The landscape header's lyric keys: the keys' 44dp floor ([LyricsKeyMinWidth]). */
+private val ShortTabToolSize = 44.dp
 
 private val WideColumnGap = 24.dp
 private val WideFramePadding = 24.dp

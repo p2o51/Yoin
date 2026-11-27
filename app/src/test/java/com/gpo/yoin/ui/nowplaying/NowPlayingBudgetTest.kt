@@ -158,7 +158,9 @@ class NowPlayingBudgetTest {
     fun should_keepEnlargedTabletUnchanged_when_800x1212() {
         val spec = nowPlayingEnlargedSpec(800.dp)
         val rest = resolveStageColumnBudget(800.dp, 1212.dp, column(transport = 124.dp), enlarged = spec).rest
-        assertDp(524.dp, rest.cover)
+        // The 640dp column less its margins, the 12dp gap and the 56dp rating column (owner 2026-11-27:
+        // no longer the 104dp one, so the cover takes the 48dp back).
+        assertDp(572.dp, rest.cover)
         assertEquals(0f, rest.lower)
         assertEquals(0f, rest.upper)
     }
@@ -231,17 +233,16 @@ class NowPlayingBudgetTest {
     }
 
     @Test
-    fun should_makeRoomForTheTimeLabels_when_focusNarrowsTheColumn() {
-        // Fold inner panel: the rest column keeps the time labels inline;
-        // focus narrows it under 360dp, so they drop under the wave and the
-        // transport slot grows by their row instead of covering the title.
-        val metrics = column().copy(labelLine = 20.dp)
-        val inline = resolveStageColumnBudget(475.dp, 800.dp, column())
-        val budget = resolveStageColumnBudget(475.dp, 800.dp, metrics)
+    fun should_keepTheTransportSlot_when_focusNarrowsTheColumn() {
+        // Owner 2026-11-27: the single column's time labels sit under the wave at
+        // every width (their row is part of the transport metric), so focus
+        // narrowing the column below 360dp no longer grows the transport slot.
+        val budget = resolveStageColumnBudget(475.dp, 800.dp, column())
         val focus = nn(budget.focus)
         assertTrue(focus.cover < 360.dp)
-        assertTrue(focus.controls >= 116.dp + 20.dp)
-        assertTrue(focus.controls >= nn(inline.focus).controls + 20.dp - 0.5.dp)
+        // No label row joins the slot: at most the resting one (focus may spend its air).
+        assertTrue("focus ${focus.controls} over rest ${budget.rest.controls}", focus.controls <= budget.rest.controls + 0.5.dp)
+        assertTrue(focus.controls >= 116.dp)
         assertDp(800.dp, focus.total)
     }
 
@@ -272,10 +273,6 @@ class NowPlayingBudgetTest {
             assertDp(focus.controls, budget.focusLyricOverflow)
             assertDp(h.dp, focus.total)
         }
-        // The labels' row doesn't apply: the progress bar has its own full-width row.
-        val labelled = nn(resolveStageColumnBudget(475.dp, 690.dp, column().copy(labelLine = 20.dp)).focus)
-        assertDp(96.dp, labelled.controls)
-        assertDp(690.dp, labelled.total)
         // Shorter still: the folded transport frees enough that the cover
         // still keeps its size.
         for (h in listOf(480, 520)) {
@@ -404,6 +401,36 @@ class NowPlayingBudgetTest {
     }
 
     @Test
+    fun should_keepALyingRatingBar_when_shortNarrowLandscapeOpensAPage() {
+        // 568×320 (review 2026-11-27): the rating bar under an ~86dp cover was a
+        // ~70dp ball. The left column now keeps a 120dp bar beside the heart.
+        val rowMin = landscapeRatingRowMin(buttons = 1)
+        assertDp(120.dp + 8.dp + 48.dp, rowMin)
+        val layout = resolveLandscapeLayout(width = 520.dp, height = 248.dp, labelLine = 20.dp, expandedLeftMin = rowMin)
+        assertTrue(layout.stacked)
+        assertTrue("cover ${layout.restCover} under the floor", layout.restCover < rowMin)
+        assertDp(rowMin, layout.expandedLeftWidth)
+        assertDp(rowMin + 28.dp, layout.expandedColumnX)
+        // The bar itself: the row less the gap and the heart.
+        assertTrue(layout.expandedLeftWidth - 8.dp - 48.dp >= 120.dp - 0.5.dp)
+        // The right column keeps a page's worth of width.
+        assertTrue(520.dp - layout.expandedColumnX >= 300.dp)
+    }
+
+    @Test
+    fun should_placeTheTimeLabelsByTopology_when_landscape() {
+        // Owner 2026-11-27: no width threshold. Wide landscape is two columns, the
+        // labels beside the wave; stacked, the transport is a single column under
+        // the cover and carries the label row under the wave at any width.
+        val narrow = resolveLandscapeLayout(width = 520.dp, height = 248.dp, labelLine = 20.dp)
+        val wide = resolveLandscapeLayout(width = 867.dp, height = 348.dp, labelLine = 20.dp)
+        assertTrue(narrow.stacked)
+        assertDp(playbackControlsHeight(LandscapeControlSizeToken, labelsBeside = false, labelLine = 20.dp), narrow.restTransport)
+        assertDp(playbackControlsHeight(LandscapeControlSizeToken, labelsBeside = true), wide.restTransport)
+        assertDp(narrow.restTransport - 20.dp, wide.restTransport)
+    }
+
+    @Test
     fun should_stackTransportUnderCover_when_narrowLandscape() {
         // Fold outer screen on its side: 750×475 → about 702×411 of content.
         val layout = resolveLandscapeLayout(width = 702.dp, height = 411.dp, labelLine = 20.dp)
@@ -414,7 +441,8 @@ class NowPlayingBudgetTest {
             layout.restCover + 10.dp + layout.restTransport + 4.dp + 36.dp,
         )
         assertDp(maxOf(layout.restCover + 56.dp + 12.dp, 300.dp), layout.leftWidth)
-        // Expanded: the rating drops under the cover, the column narrows to it.
+        // Expanded: the rating drops under the cover, the column narrows to it
+        // (no rating-row floor asked for here).
         assertDp(layout.restCover + 28.dp, layout.expandedColumnX)
         // Focus never outgrows the left column.
         assertTrue(layout.focusCover <= layout.leftWidth)

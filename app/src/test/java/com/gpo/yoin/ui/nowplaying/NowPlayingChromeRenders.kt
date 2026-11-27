@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -16,10 +17,14 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.PlayMode
+import com.gpo.yoin.player.sing.SingMode
+import com.gpo.yoin.player.sing.VocalLevel
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
@@ -37,6 +42,11 @@ import org.robolectric.annotation.GraphicsMode
  * pages, plus the resting player, into `<YOIN_RENDER_OUT>/<size>-<theme>-<lang>-<state>.png`.
  *
  * `YOIN_RENDER_OUT=/path ./gradlew :app:testDebugUnitTest --tests '*NowPlayingChromeRenders'`
+ *
+ * The `p0-*` scenes (review 2026-11-27) draw the states its P0 bugs lived in: landscape 915×412 and
+ * 568×320 (resting, lyrics with and without Sing, About, Ask open, launching, can't connect), the foldable's
+ * enlarged column 690×840 and the tablet's 800×1280 with Sing, a 393 phone's lyrics with Sing, a 412 phone
+ * at rest (the time labels) and a short two-column 860×500.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -94,6 +104,314 @@ class NowPlayingChromeRenders {
 
     @Config(qualifiers = "zh-rCN-w800dp-h1280dp-night")
     @Test fun tabletDarkZh() = renderAll("tablet-800x1280", 800, 1280, "dark", "zh", tablet = true)
+
+    // ── P0 layout states (review 2026-11-27): landscape, foldable, Sing, Ask, the short rating bar ──
+    // `<YOIN_RENDER_OUT>/p0-<scene>-<theme>-<lang>-<shot>.png`, one test per scene × theme × language.
+
+    @Config(qualifiers = "w915dp-h412dp-land-notnight")
+    @Test fun landWideLightEn() = renderScene(Scene.LandWide, "light", "en")
+
+    @Config(qualifiers = "w915dp-h412dp-land-night")
+    @Test fun landWideDarkEn() = renderScene(Scene.LandWide, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-notnight")
+    @Test fun landWideLightZh() = renderScene(Scene.LandWide, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-night")
+    @Test fun landWideDarkZh() = renderScene(Scene.LandWide, "dark", "zh")
+
+    @Config(qualifiers = "w568dp-h320dp-land-notnight")
+    @Test fun landShortLightEn() = renderScene(Scene.LandShort, "light", "en")
+
+    @Config(qualifiers = "w568dp-h320dp-land-night")
+    @Test fun landShortDarkEn() = renderScene(Scene.LandShort, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-notnight")
+    @Test fun landShortLightZh() = renderScene(Scene.LandShort, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-night")
+    @Test fun landShortDarkZh() = renderScene(Scene.LandShort, "dark", "zh")
+
+    @Config(qualifiers = "w915dp-h412dp-land-notnight")
+    @Test fun landWidePendingLightEn() = renderScene(Scene.LandWidePending, "light", "en")
+
+    @Config(qualifiers = "w915dp-h412dp-land-night")
+    @Test fun landWidePendingDarkEn() = renderScene(Scene.LandWidePending, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-notnight")
+    @Test fun landWidePendingLightZh() = renderScene(Scene.LandWidePending, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-night")
+    @Test fun landWidePendingDarkZh() = renderScene(Scene.LandWidePending, "dark", "zh")
+
+    @Config(qualifiers = "w568dp-h320dp-land-notnight")
+    @Test fun landShortPendingLightEn() = renderScene(Scene.LandShortPending, "light", "en")
+
+    @Config(qualifiers = "w568dp-h320dp-land-night")
+    @Test fun landShortPendingDarkEn() = renderScene(Scene.LandShortPending, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-notnight")
+    @Test fun landShortPendingLightZh() = renderScene(Scene.LandShortPending, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-night")
+    @Test fun landShortPendingDarkZh() = renderScene(Scene.LandShortPending, "dark", "zh")
+
+    @Config(qualifiers = "w690dp-h840dp-notnight")
+    @Test fun foldLightEn() = renderScene(Scene.Fold, "light", "en")
+
+    @Config(qualifiers = "w690dp-h840dp-night")
+    @Test fun foldDarkEn() = renderScene(Scene.Fold, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w690dp-h840dp-notnight")
+    @Test fun foldLightZh() = renderScene(Scene.Fold, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w690dp-h840dp-night")
+    @Test fun foldDarkZh() = renderScene(Scene.Fold, "dark", "zh")
+
+    @Config(qualifiers = "w800dp-h1280dp-notnight")
+    @Test fun tabletSingLightEn() = renderScene(Scene.Tablet, "light", "en")
+
+    @Config(qualifiers = "w800dp-h1280dp-night")
+    @Test fun tabletSingDarkEn() = renderScene(Scene.Tablet, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w800dp-h1280dp-notnight")
+    @Test fun tabletSingLightZh() = renderScene(Scene.Tablet, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w800dp-h1280dp-night")
+    @Test fun tabletSingDarkZh() = renderScene(Scene.Tablet, "dark", "zh")
+
+    @Config(qualifiers = "w393dp-h852dp-notnight")
+    @Test fun regularSingLightEn() = renderScene(Scene.Regular, "light", "en")
+
+    @Config(qualifiers = "w393dp-h852dp-night")
+    @Test fun regularSingDarkEn() = renderScene(Scene.Regular, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w393dp-h852dp-notnight")
+    @Test fun regularSingLightZh() = renderScene(Scene.Regular, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w393dp-h852dp-night")
+    @Test fun regularSingDarkZh() = renderScene(Scene.Regular, "dark", "zh")
+
+    @Config(qualifiers = "w412dp-h915dp-notnight")
+    @Test fun tallRestLightEn() = renderScene(Scene.Tall, "light", "en")
+
+    @Config(qualifiers = "w412dp-h915dp-night")
+    @Test fun tallRestDarkEn() = renderScene(Scene.Tall, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w412dp-h915dp-notnight")
+    @Test fun tallRestLightZh() = renderScene(Scene.Tall, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w412dp-h915dp-night")
+    @Test fun tallRestDarkZh() = renderScene(Scene.Tall, "dark", "zh")
+
+    @Config(qualifiers = "w860dp-h500dp-land-notnight")
+    @Test fun dualShortLightEn() = renderScene(Scene.DualShort, "light", "en")
+
+    @Config(qualifiers = "w860dp-h500dp-land-night")
+    @Test fun dualShortDarkEn() = renderScene(Scene.DualShort, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w860dp-h500dp-land-notnight")
+    @Test fun dualShortLightZh() = renderScene(Scene.DualShort, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w860dp-h500dp-land-night")
+    @Test fun dualShortDarkZh() = renderScene(Scene.DualShort, "dark", "zh")
+
+    /** What a P0 shot draws: the state, the stage, the page and whether Sing is on. */
+    private data class SceneShot(
+        val name: String,
+        val kind: Kind = Kind.Playing,
+        val stage: NowPlayingStageMode = NowPlayingStageMode.Compact,
+        val page: NowPlayingDetailPage = NowPlayingDetailPage.Lyrics,
+        val ask: AskBarState = AskBarState.Idle,
+        val sing: Boolean = false,
+        val about: Boolean = true,
+    )
+
+    private enum class Kind { Playing, Launching, ConnectError }
+
+    private enum class Scene(
+        val id: String,
+        val width: Int,
+        val height: Int,
+        val presentation: NowPlayingPresentation,
+        val top: Int,
+        val bottom: Int,
+        val shots: List<SceneShot>,
+    ) {
+        LandWide(
+            "land-915x412", 915, 412, NowPlayingPresentation.Landscape, 24, 16,
+            listOf(
+                SceneShot("rest"),
+                SceneShot("lyrics", stage = NowPlayingStageMode.Expanded),
+                SceneShot("about", stage = NowPlayingStageMode.Expanded, page = NowPlayingDetailPage.About),
+                SceneShot(
+                    "ask-focused",
+                    stage = NowPlayingStageMode.Expanded,
+                    page = NowPlayingDetailPage.About,
+                    ask = AskBarState.Focused,
+                ),
+                SceneShot("lyrics-sing", stage = NowPlayingStageMode.Expanded, sing = true),
+            ),
+        ),
+        LandShort(
+            "land-568x320", 568, 320, NowPlayingPresentation.Landscape, 24, 16,
+            listOf(
+                SceneShot("rest"),
+                SceneShot("lyrics", stage = NowPlayingStageMode.Expanded),
+                SceneShot("about", stage = NowPlayingStageMode.Expanded, page = NowPlayingDetailPage.About),
+                SceneShot(
+                    "ask-focused",
+                    stage = NowPlayingStageMode.Expanded,
+                    page = NowPlayingDetailPage.About,
+                    ask = AskBarState.Focused,
+                ),
+                SceneShot("lyrics-sing", stage = NowPlayingStageMode.Expanded, sing = true),
+            ),
+        ),
+        // The pending pages in their own runs: a render harness quirk keeps the frame of a shot that follows
+        // a launching / error page or the open Sing capsule, so those go last or alone.
+        LandWidePending(
+            "land-915x412", 915, 412, NowPlayingPresentation.Landscape, 24, 16,
+            listOf(
+                SceneShot("launching", kind = Kind.Launching),
+                SceneShot("connect-error", kind = Kind.ConnectError),
+            ),
+        ),
+        LandShortPending(
+            "land-568x320", 568, 320, NowPlayingPresentation.Landscape, 24, 16,
+            listOf(
+                SceneShot("launching", kind = Kind.Launching),
+                SceneShot("connect-error", kind = Kind.ConnectError),
+            ),
+        ),
+        Fold(
+            "fold-690x840", 690, 840, NowPlayingPresentation.Enlarged, 24, 24,
+            listOf(
+                SceneShot("rest"),
+                SceneShot("rest-sing", sing = true),
+                SceneShot("lyrics-sing", stage = NowPlayingStageMode.Expanded, sing = true),
+            ),
+        ),
+        Tablet(
+            "tablet-800x1280", 800, 1280, NowPlayingPresentation.Enlarged, 24, 24,
+            listOf(
+                SceneShot("about-empty", stage = NowPlayingStageMode.Expanded, page = NowPlayingDetailPage.About, about = false),
+                SceneShot("rest-sing", sing = true),
+                SceneShot("lyrics-sing", stage = NowPlayingStageMode.Expanded, sing = true),
+            ),
+        ),
+        Regular(
+            "regular-393x852", 393, 852, NowPlayingPresentation.Phone, 32, 24,
+            listOf(
+                SceneShot("rest"),
+                SceneShot("about-empty-rest", page = NowPlayingDetailPage.About, about = false),
+                SceneShot("lyrics-sing", stage = NowPlayingStageMode.Expanded, sing = true),
+            ),
+        ),
+        Tall(
+            "tall-412x915", 412, 915, NowPlayingPresentation.Phone, 32, 24,
+            listOf(SceneShot("rest")),
+        ),
+        DualShort(
+            "dual-860x500", 860, 500, NowPlayingPresentation.DualPane, 24, 16,
+            listOf(
+                SceneShot("rest"),
+                SceneShot("launching", kind = Kind.Launching),
+                SceneShot("connect-error", kind = Kind.ConnectError),
+            ),
+        ),
+    }
+
+    private fun renderScene(scene: Scene, theme: String, lang: String) {
+        val dir = out
+        assumeTrue("YOIN_RENDER_OUT not set", dir != null)
+        dir!!.mkdirs()
+        val zh = lang == "zh"
+        var shot by mutableStateOf(scene.shots.first())
+        val enlarged = scene.presentation == NowPlayingPresentation.Enlarged
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            YoinTheme {
+                ProvidePreviewWindow(widthDp = scene.width, heightDp = scene.height) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                            .padding(top = scene.top.dp, bottom = scene.bottom.dp),
+                    ) {
+                        key(shot) {
+                            val sing = if (shot.sing) {
+                                NowPlayingSingUi(
+                                    mode = SingMode.Ready,
+                                    vocalLevel = VocalLevel(0.12f),
+                                    isSupported = true,
+                                    onEnter = {},
+                                    onExit = {},
+                                    onSetVocalLevel = {},
+                                )
+                            } else {
+                                null
+                            }
+                            CompositionLocalProvider(LocalNowPlayingSing provides sing) {
+                                NowPlayingScreen(
+                                    uiState = when (shot.kind) {
+                                        Kind.Playing -> playing(zh)
+                                        Kind.Launching -> launching(zh)
+                                        Kind.ConnectError -> connectError(zh)
+                                    },
+                                    positionMs = { 147_000L },
+                                    bufferedMs = { 180_000L },
+                                    hasAudioSpectrum = false,
+                                    onTogglePlayPause = {},
+                                    onSkipNext = {},
+                                    onSkipPrevious = {},
+                                    onSeek = {},
+                                    onRatingChange = {},
+                                    onToggleFavorite = {},
+                                    onAddCurrentToPlaylist = {},
+                                    onSkipToQueueItem = {},
+                                    aboutUiState = AboutUiState.Ready(if (shot.about) aboutEntries(zh) else emptyList()),
+                                    askState = shot.ask,
+                                    stageMode = shot.stage,
+                                    detailPage = shot.page,
+                                    notesState = notes(zh),
+                                    presentation = scene.presentation,
+                                    enlarged = if (enlarged) nowPlayingEnlargedSpec(scene.width.dp) else null,
+                                    topBarAction = if (enlarged) {
+                                        { PanelToggleButton(fullscreen = true, onClick = {}) }
+                                    } else {
+                                        null
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (s in scene.shots) {
+            rule.runOnIdle { shot = s }
+            rule.mainClock.advanceTimeBy(3_000L)
+            save(dir, "p0-${scene.id}-$theme-$lang-${s.name}")
+        }
+    }
+
+    private fun launching(zh: Boolean) = NowPlayingUiState.Launching(
+        songTitle = if (zh) "东京晚安" else "Goodnight, Tokyo",
+        artist = if (zh) "子午线" else "The Meridians",
+        albumName = if (zh) "玻璃果园" else "Glass Orchard",
+        coverArtUrl = null,
+        durationMs = 240_000L,
+        hint = UiText.Res(R.string.np_msg_connecting_spotify),
+    )
+
+    private fun connectError(zh: Boolean) = NowPlayingUiState.ConnectError(
+        songTitle = if (zh) "东京晚安" else "Goodnight, Tokyo",
+        artist = if (zh) "子午线" else "The Meridians",
+        coverArtUrl = null,
+        message = UiText.Res(R.string.np_msg_couldnt_start),
+        opensSpotify = true,
+    )
 
     private enum class Shot { Rest, Lyrics, About, AboutEmpty, Note, AskLoading }
 

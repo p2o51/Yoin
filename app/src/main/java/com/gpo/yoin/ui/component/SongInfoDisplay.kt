@@ -135,7 +135,12 @@ private fun AboutStatus(state: AboutUiState, onRetry: () -> Unit) {
                 )
                 TextButton(onClick = onRetry, modifier = Modifier.handPointer()) { Text(stringResource(R.string.cmp_song_info_retry)) }
             }
-            is AboutUiState.Ready -> Unit
+            // Ready with nothing in it: say so rather than leave the page blank.
+            is AboutUiState.Ready -> Text(
+                text = stringResource(R.string.detail_scrap_about_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

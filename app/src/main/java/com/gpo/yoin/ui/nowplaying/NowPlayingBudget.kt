@@ -102,9 +102,6 @@ data class StageColumnMetrics(
      * progress bar on its own row. Null = the window keeps both rows.
      */
     val compactTransport: Dp? = null,
-    /** The time-label row the transport gains when its column narrows below [labelsInlineMin]. */
-    val labelLine: Dp = 0.dp,
-    val labelsInlineMin: Dp = 360.dp,
 )
 
 /** Resting / focus geometry of the single column. Every slot is exact: they sum to the height. */
@@ -307,15 +304,10 @@ fun resolveStageColumnBudget(
         rest.cover * CoverFocusMaxScale,
     )
     val focusBottom = NpGap(FocusBottomNominal, FocusBottomMin)
-    // [labelRow]: the time labels drop under the wave when focus narrows
-    // the column below [StageColumnMetrics.labelsInlineMin].
-    fun solveFocus(labelRow: Dp, hero: NpGap): StageColumnPose? {
-        val focusControls = if (labelRow > 0.dp) {
-            NpGap(controls.nominal + labelRow, controls.min + labelRow)
-        } else {
-            controls
-        }
-        val focusLower = listOf(focusControls, hero, focusBottom)
+    // The single column's time labels sit under the wave at rest and in
+    // focus alike (owner 2026-11-27), already in [StageColumnMetrics.transport].
+    fun solveFocus(hero: NpGap): StageColumnPose? {
+        val focusLower = listOf(controls, hero, focusBottom)
         val focusUpper = listOf(coverGap)
         val focusNominal = nominalSum(focusLower) + nominalSum(focusUpper)
         val focusFixedMin = focusNominal - slackOf(focusLower) - slackOf(focusUpper)
@@ -345,7 +337,7 @@ fun resolveStageColumnBudget(
                 focusUpper,
             )
             val cg = coverGap.at(squeeze.upper)
-            val ctl = focusControls.at(squeeze.lower)
+            val ctl = controls.at(squeeze.lower)
             val hr = hero.at(squeeze.lower)
             val bottom = focusBottom.at(squeeze.lower)
             val lyric = (height - top - cover - cg - ctl - hr - bottom).coerceAtLeast(0.dp)
@@ -447,15 +439,9 @@ fun resolveStageColumnBudget(
             ?: shortWindowFocus(1, hero, coverGives = false)
             ?: shortWindowFocus(1, hero)
     } else {
-        solveFocus(0.dp, hero)
+        solveFocus(hero)
     }
-    var focus = focusWith(hero)
-    val restLabelsInline = stageWidth - ColumnPadding * 2 >= metrics.labelsInlineMin
-    if (!shortWindow && focus != null && restLabelsInline &&
-        focus.cover < metrics.labelsInlineMin
-    ) {
-        focus = solveFocus(metrics.labelLine, hero)
-    }
+    val focus = focusWith(hero)
     val compactFocus = shortWindow && focus != null
     return StageColumnBudget(
         stageWidth = stageWidth,
@@ -670,6 +656,12 @@ data class LandscapeLayout(
     val restColumnX: Dp,
     val focusColumnX: Dp,
     val expandedColumnX: Dp,
+    /**
+     * Stacked, a page open: the left column's width (the cover, or more where
+     * the rating row under it needs it — [resolveLandscapeLayout]'s
+     * expandedLeftMin). Wide: the cover.
+     */
+    val expandedLeftWidth: Dp = restCover,
     /** The resting two-row transport's height at its own width. */
     val restTransport: Dp,
 )
@@ -677,8 +669,13 @@ data class LandscapeLayout(
 fun resolveLandscapeLayout(
     width: Dp,
     height: Dp,
+    // The time-label row the stacked transport carries under its wave.
     labelLine: Dp,
     controlSize: Dp = LandscapeControlSizeToken,
+    // Stacked, a page open: the rating bar lies under the cover with the heart
+    // beside it; the left column never narrows below what keeps that bar a
+    // bar ([RatingLabelMinHorizontal] long), not a ball (568×320, 2026-11-27).
+    expandedLeftMin: Dp = 0.dp,
 ): LandscapeLayout {
     val rating = LandscapeRatingColumn + LandscapeRatingGap
     if (width >= LandscapeStackedMaxWidth) {
@@ -698,12 +695,13 @@ fun resolveLandscapeLayout(
             restColumnX = restColumnX,
             focusColumnX = focusCover + LandscapeColumnGap,
             expandedColumnX = restColumnX,
-            restTransport = playbackControlsHeight(controlSize, width - restColumnX, labelLine),
+            restTransport = playbackControlsHeight(controlSize, labelsBeside = true),
         )
     }
     // Stacked: the cover takes what the two transport rows and the title
-    // leave; the transport spans the cover + rating column, so its time
-    // labels move under the wave below 360 wide — measure twice.
+    // leave. The transport is a single column under the cover here, so its
+    // time labels sit under the wave, as in every single column (beside it,
+    // a ~260dp column left the wave a ~90dp stub). Wide keeps them beside.
     // A short window (a 568×320 one, say) lets the cover go below the
     // wide floor before the stack spills past the frame.
     fun coverFor(transport: Dp): Dp =
@@ -715,10 +713,8 @@ fun resolveLandscapeLayout(
     // stays at its start.
     val leftFloor = minOf(LandscapeStackedLeftMin, width * LandscapeStackedLeftShare)
     fun leftFor(cover: Dp): Dp = maxOf(cover + rating, leftFloor)
-    var transport = playbackControlsHeight(controlSize, 0.dp, labelLine)
-    var cover = coverFor(transport)
-    transport = playbackControlsHeight(controlSize, leftFor(cover), labelLine)
-    cover = coverFor(transport)
+    val transport = playbackControlsHeight(controlSize, labelsBeside = false, labelLine = labelLine)
+    val cover = coverFor(transport)
     val leftWidth = leftFor(cover)
     val focusCover = minOf(
         height - LandscapeCoverToTransport - shortFocusControlsHeight(controlSize) -
@@ -732,8 +728,9 @@ fun resolveLandscapeLayout(
         leftWidth = leftWidth,
         restColumnX = leftWidth + LandscapeColumnGap,
         focusColumnX = leftWidth + LandscapeColumnGap,
-        expandedColumnX = cover + LandscapeColumnGap,
+        expandedColumnX = maxOf(cover, expandedLeftMin) + LandscapeColumnGap,
         restTransport = transport,
+        expandedLeftWidth = maxOf(cover, expandedLeftMin),
     )
 }
 
