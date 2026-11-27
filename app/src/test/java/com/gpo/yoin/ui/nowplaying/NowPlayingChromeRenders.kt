@@ -234,6 +234,152 @@ class NowPlayingChromeRenders {
     @Config(qualifiers = "zh-rCN-w860dp-h500dp-land-night")
     @Test fun dualShortDarkZh() = renderScene(Scene.DualShort, "dark", "zh")
 
+    // ── PR 3 (2026-11-27): phone landscape in the two-column player, the tablet's two columns, the unified
+    // Tabletop and the narrow side panel's top bar. `<YOIN_RENDER_OUT>/pr3-<scene>-<theme>-<lang>-<shot>.png`.
+
+    @Config(qualifiers = "w915dp-h412dp-land-notnight")
+    @Test fun pr3Land915LightEn() = renderScene(Scene.Pr3Land915, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-notnight")
+    @Test fun pr3Land915LightZh() = renderScene(Scene.Pr3Land915, "light", "zh")
+
+    @Config(qualifiers = "w915dp-h412dp-land-night")
+    @Test fun pr3Land915DarkEn() = renderScene(Scene.Pr3Land915, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-night")
+    @Test fun pr3Land915DarkZh() = renderScene(Scene.Pr3Land915, "dark", "zh")
+
+    @Config(qualifiers = "w915dp-h412dp-land-notnight")
+    @Test fun pr3Land915PendingLightEn() = renderScene(Scene.Pr3Land915Pending, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-notnight")
+    @Test fun pr3Land915PendingLightZh() = renderScene(Scene.Pr3Land915Pending, "light", "zh")
+
+    @Config(qualifiers = "w915dp-h412dp-land-night")
+    @Test fun pr3Land915PendingDarkEn() = renderScene(Scene.Pr3Land915Pending, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w915dp-h412dp-land-night")
+    @Test fun pr3Land915PendingDarkZh() = renderScene(Scene.Pr3Land915Pending, "dark", "zh")
+
+    @Config(qualifiers = "w851dp-h393dp-land-notnight")
+    @Test fun pr3Land851LightEn() = renderScene(Scene.Pr3Land851, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w851dp-h393dp-land-notnight")
+    @Test fun pr3Land851LightZh() = renderScene(Scene.Pr3Land851, "light", "zh")
+
+    @Config(qualifiers = "w851dp-h393dp-land-night")
+    @Test fun pr3Land851DarkEn() = renderScene(Scene.Pr3Land851, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w851dp-h393dp-land-night")
+    @Test fun pr3Land851DarkZh() = renderScene(Scene.Pr3Land851, "dark", "zh")
+
+    @Config(qualifiers = "w851dp-h393dp-land-notnight")
+    @Test fun pr3Land851PendingLightEn() = renderScene(Scene.Pr3Land851Pending, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w851dp-h393dp-land-notnight")
+    @Test fun pr3Land851PendingLightZh() = renderScene(Scene.Pr3Land851Pending, "light", "zh")
+
+    @Config(qualifiers = "w851dp-h393dp-land-night")
+    @Test fun pr3Land851PendingDarkEn() = renderScene(Scene.Pr3Land851Pending, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w851dp-h393dp-land-night")
+    @Test fun pr3Land851PendingDarkZh() = renderScene(Scene.Pr3Land851Pending, "dark", "zh")
+
+    @Config(qualifiers = "w740dp-h360dp-land-notnight")
+    @Test fun pr3Land740LightEn() = renderScene(Scene.Pr3Land740, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w740dp-h360dp-land-notnight")
+    @Test fun pr3Land740LightZh() = renderScene(Scene.Pr3Land740, "light", "zh")
+
+    @Config(qualifiers = "w740dp-h360dp-land-night")
+    @Test fun pr3Land740DarkEn() = renderScene(Scene.Pr3Land740, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w740dp-h360dp-land-night")
+    @Test fun pr3Land740DarkZh() = renderScene(Scene.Pr3Land740, "dark", "zh")
+
+    @Config(qualifiers = "w740dp-h360dp-land-notnight")
+    @Test fun pr3Land740PendingLightEn() = renderScene(Scene.Pr3Land740Pending, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w740dp-h360dp-land-notnight")
+    @Test fun pr3Land740PendingLightZh() = renderScene(Scene.Pr3Land740Pending, "light", "zh")
+
+    @Config(qualifiers = "w740dp-h360dp-land-night")
+    @Test fun pr3Land740PendingDarkEn() = renderScene(Scene.Pr3Land740Pending, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w740dp-h360dp-land-night")
+    @Test fun pr3Land740PendingDarkZh() = renderScene(Scene.Pr3Land740Pending, "dark", "zh")
+
+    @Config(qualifiers = "w568dp-h320dp-land-notnight")
+    @Test fun pr3Land568LightEn() = renderScene(Scene.Pr3Land568, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-notnight")
+    @Test fun pr3Land568LightZh() = renderScene(Scene.Pr3Land568, "light", "zh")
+
+    @Config(qualifiers = "w568dp-h320dp-land-night")
+    @Test fun pr3Land568DarkEn() = renderScene(Scene.Pr3Land568, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-night")
+    @Test fun pr3Land568DarkZh() = renderScene(Scene.Pr3Land568, "dark", "zh")
+
+    @Config(qualifiers = "w568dp-h320dp-land-notnight")
+    @Test fun pr3Land568PendingLightEn() = renderScene(Scene.Pr3Land568Pending, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-notnight")
+    @Test fun pr3Land568PendingLightZh() = renderScene(Scene.Pr3Land568Pending, "light", "zh")
+
+    @Config(qualifiers = "w568dp-h320dp-land-night")
+    @Test fun pr3Land568PendingDarkEn() = renderScene(Scene.Pr3Land568Pending, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w568dp-h320dp-land-night")
+    @Test fun pr3Land568PendingDarkZh() = renderScene(Scene.Pr3Land568Pending, "dark", "zh")
+
+    @Config(qualifiers = "w1280dp-h800dp-land-notnight")
+    @Test fun pr3Dual1280LightEn() = renderScene(Scene.Pr3Dual1280, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w1280dp-h800dp-land-notnight")
+    @Test fun pr3Dual1280LightZh() = renderScene(Scene.Pr3Dual1280, "light", "zh")
+
+    @Config(qualifiers = "w1280dp-h800dp-land-night")
+    @Test fun pr3Dual1280DarkEn() = renderScene(Scene.Pr3Dual1280, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w1280dp-h800dp-land-night")
+    @Test fun pr3Dual1280DarkZh() = renderScene(Scene.Pr3Dual1280, "dark", "zh")
+
+    @Config(qualifiers = "w841dp-h701dp-land-notnight")
+    @Test fun pr3TabletopLightEn() = renderScene(Scene.Pr3Tabletop, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w841dp-h701dp-land-notnight")
+    @Test fun pr3TabletopLightZh() = renderScene(Scene.Pr3Tabletop, "light", "zh")
+
+    @Config(qualifiers = "w841dp-h701dp-land-night")
+    @Test fun pr3TabletopDarkEn() = renderScene(Scene.Pr3Tabletop, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w841dp-h701dp-land-night")
+    @Test fun pr3TabletopDarkZh() = renderScene(Scene.Pr3Tabletop, "dark", "zh")
+
+    @Config(qualifiers = "w420dp-h800dp-notnight")
+    @Test fun pr3Panel420LightEn() = renderScene(Scene.Pr3Panel420, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w420dp-h800dp-notnight")
+    @Test fun pr3Panel420LightZh() = renderScene(Scene.Pr3Panel420, "light", "zh")
+
+    @Config(qualifiers = "w420dp-h800dp-night")
+    @Test fun pr3Panel420DarkEn() = renderScene(Scene.Pr3Panel420, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w420dp-h800dp-night")
+    @Test fun pr3Panel420DarkZh() = renderScene(Scene.Pr3Panel420, "dark", "zh")
+
+    @Config(qualifiers = "w360dp-h840dp-notnight")
+    @Test fun pr3Panel360LightEn() = renderScene(Scene.Pr3Panel360, "light", "en")
+
+    @Config(qualifiers = "zh-rCN-w360dp-h840dp-notnight")
+    @Test fun pr3Panel360LightZh() = renderScene(Scene.Pr3Panel360, "light", "zh")
+
+    @Config(qualifiers = "w360dp-h840dp-night")
+    @Test fun pr3Panel360DarkEn() = renderScene(Scene.Pr3Panel360, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w360dp-h840dp-night")
+    @Test fun pr3Panel360DarkZh() = renderScene(Scene.Pr3Panel360, "dark", "zh")
     /** What a P0 shot draws: the state, the stage, the page and whether Sing is on. */
     private data class SceneShot(
         val name: String,
@@ -243,6 +389,10 @@ class NowPlayingChromeRenders {
         val ask: AskBarState = AskBarState.Idle,
         val sing: Boolean = false,
         val about: Boolean = true,
+        // How long the shot settles.
+        val advanceMs: Long = 3_000L,
+        // Focus left without a touch past FocusIdleMs (the controls step away).
+        val atEase: Boolean = false,
     )
 
     private enum class Kind { Playing, Launching, ConnectError }
@@ -255,6 +405,9 @@ class NowPlayingChromeRenders {
         val top: Int,
         val bottom: Int,
         val shots: List<SceneShot>,
+        val prefix: String = "p0",
+        // Tabletop: a horizontal hinge this far down the window (dp).
+        val hingeAt: Int? = null,
     ) {
         LandWide(
             "land-915x412", 915, 412, NowPlayingPresentation.Landscape, 24, 16,
@@ -338,6 +491,42 @@ class NowPlayingChromeRenders {
                 SceneShot("connect-error", kind = Kind.ConnectError),
             ),
         ),
+        Pr3Land915("land-915x412", 915, 412, NowPlayingPresentation.Landscape, 24, 16, pr3LandShots, "pr3"),
+        Pr3Land915Pending("land-915x412", 915, 412, NowPlayingPresentation.Landscape, 24, 16, pendingShots, "pr3"),
+        Pr3Land851("land-851x393", 851, 393, NowPlayingPresentation.Landscape, 24, 16, pr3LandShots, "pr3"),
+        Pr3Land851Pending("land-851x393", 851, 393, NowPlayingPresentation.Landscape, 24, 16, pendingShots, "pr3"),
+        Pr3Land740("land-740x360", 740, 360, NowPlayingPresentation.Landscape, 24, 16, pr3LandShots, "pr3"),
+        Pr3Land740Pending("land-740x360", 740, 360, NowPlayingPresentation.Landscape, 24, 16, pendingShots, "pr3"),
+        Pr3Land568("land-568x320", 568, 320, NowPlayingPresentation.Landscape, 24, 16, pr3LandShots, "pr3"),
+        Pr3Land568Pending("land-568x320", 568, 320, NowPlayingPresentation.Landscape, 24, 16, pendingShots, "pr3"),
+        Pr3Dual1280("dual-1280x800", 1280, 800, NowPlayingPresentation.DualPane, 24, 16, pr3LandShots, "pr3"),
+        Pr3Tabletop(
+            "tabletop-841x701", 841, 701, NowPlayingPresentation.Tabletop, 24, 16,
+            listOf(
+                SceneShot("rest"),
+                SceneShot("about", stage = NowPlayingStageMode.Expanded, page = NowPlayingDetailPage.About),
+                SceneShot("note", stage = NowPlayingStageMode.Expanded, page = NowPlayingDetailPage.Note),
+                SceneShot(
+                    "ask-focused",
+                    stage = NowPlayingStageMode.Expanded,
+                    page = NowPlayingDetailPage.About,
+                    ask = AskBarState.Focused,
+                ),
+                SceneShot("lyrics-sing", stage = NowPlayingStageMode.Expanded, sing = true),
+            ),
+            "pr3",
+            hingeAt = 350,
+        ),
+        Pr3Panel420(
+            "panel-420x800", 420, 800, NowPlayingPresentation.Panel, 24, 24,
+            listOf(SceneShot("rest"), SceneShot("lyrics", stage = NowPlayingStageMode.Expanded)),
+            "pr3",
+        ),
+        Pr3Panel360(
+            "panel-360x840", 360, 840, NowPlayingPresentation.Panel, 24, 24,
+            listOf(SceneShot("rest"), SceneShot("lyrics", stage = NowPlayingStageMode.Expanded)),
+            "pr3",
+        ),
     }
 
     private fun renderScene(scene: Scene, theme: String, lang: String) {
@@ -348,9 +537,11 @@ class NowPlayingChromeRenders {
         var shot by mutableStateOf(scene.shots.first())
         val enlarged = scene.presentation == NowPlayingPresentation.Enlarged
         rule.mainClock.autoAdvance = false
+        val panel = scene.presentation == NowPlayingPresentation.Panel
         rule.setContent {
             YoinTheme {
                 ProvidePreviewWindow(widthDp = scene.width, heightDp = scene.height) {
+                    ProvideHinge(scene) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -373,7 +564,7 @@ class NowPlayingChromeRenders {
                             CompositionLocalProvider(LocalNowPlayingSing provides sing) {
                                 NowPlayingScreen(
                                     uiState = when (shot.kind) {
-                                        Kind.Playing -> playing(zh)
+                                        Kind.Playing -> playing(zh, fromAlbum = scene.prefix == "pr3")
                                         Kind.Launching -> launching(zh)
                                         Kind.ConnectError -> connectError(zh)
                                     },
@@ -395,8 +586,8 @@ class NowPlayingChromeRenders {
                                     notesState = notes(zh),
                                     presentation = scene.presentation,
                                     enlarged = if (enlarged) nowPlayingEnlargedSpec(scene.width.dp) else null,
-                                    topBarAction = if (enlarged) {
-                                        { PanelToggleButton(fullscreen = true, onClick = {}) }
+                                    topBarAction = if (enlarged || panel) {
+                                        { PanelToggleButton(fullscreen = enlarged, onClick = {}) }
                                     } else {
                                         null
                                     },
@@ -404,14 +595,38 @@ class NowPlayingChromeRenders {
                             }
                         }
                     }
+                    }
                 }
             }
         }
         for (s in scene.shots) {
             rule.runOnIdle { shot = s }
-            rule.mainClock.advanceTimeBy(3_000L)
-            save(dir, "p0-${scene.id}-$theme-$lang-${s.name}")
+            if (s.atEase) {
+                // The idle counts read SystemClock, which Robolectric holds still: let the shot settle,
+                // move that clock past FocusIdleMs, then let the count notice and the springs land.
+                rule.mainClock.advanceTimeBy(1_000L)
+                org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(10))
+            }
+            rule.mainClock.advanceTimeBy(s.advanceMs)
+            save(dir, "${scene.prefix}-${scene.id}-$theme-$lang-${s.name}")
         }
+    }
+
+    /** A Tabletop scene's window: half folded on a horizontal hinge at [Scene.hingeAt] dp. */
+    @androidx.compose.runtime.Composable
+    private fun ProvideHinge(scene: Scene, content: @androidx.compose.runtime.Composable () -> Unit) {
+        val at = scene.hingeAt ?: return content()
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val hinge = with(density) {
+            androidx.compose.ui.geometry.Rect(0f, at.dp.toPx(), scene.width.dp.toPx(), at.dp.toPx())
+        }
+        val info = com.gpo.yoin.ui.experience.resolveYoinWindowInfo(
+            width = scene.width.dp,
+            height = scene.height.dp,
+            isTabletop = true,
+            hingeBounds = hinge,
+        )
+        CompositionLocalProvider(com.gpo.yoin.ui.experience.LocalYoinWindowInfo provides info, content = content)
     }
 
     private fun launching(zh: Boolean) = NowPlayingUiState.Launching(
@@ -542,7 +757,7 @@ class NowPlayingChromeRenders {
         Shot.AskLoading -> "ask-loading-start"
     }
 
-    private fun playing(zh: Boolean) = NowPlayingUiState.Playing(
+    private fun playing(zh: Boolean, fromAlbum: Boolean = false) = NowPlayingUiState.Playing(
         songTitle = if (zh) "东京晚安" else "Goodnight, Tokyo",
         artist = if (zh) "子午线" else "The Meridians",
         albumName = if (zh) "玻璃果园" else "Glass Orchard",
@@ -561,7 +776,12 @@ class NowPlayingChromeRenders {
         playMode = PlayMode.RepeatAll,
         albumId = "a1",
         artistId = "ar1",
-        activityContext = ActivityContext.None,
+        // PR 3's scenes play from the album, so the top bars show its name.
+        activityContext = if (fromAlbum) {
+            ActivityContext.Album(albumId = "a1", albumName = if (zh) "玻璃果园" else "Glass Orchard")
+        } else {
+            ActivityContext.None
+        },
     )
 
     private fun lyrics(zh: Boolean): List<LyricLine> {
@@ -645,5 +865,32 @@ class NowPlayingChromeRenders {
                 positionMs = at,
             )
         }
+    }
+
+    private companion object {
+        /** PR 3's landscape and two-column shots: rest, each page, Ask open, Sing, focus, focus at ease. */
+        val pr3LandShots = listOf(
+            SceneShot("rest"),
+            SceneShot("lyrics", stage = NowPlayingStageMode.Expanded),
+            SceneShot("about", stage = NowPlayingStageMode.Expanded, page = NowPlayingDetailPage.About),
+            SceneShot("note", stage = NowPlayingStageMode.Expanded, page = NowPlayingDetailPage.Note),
+            SceneShot(
+                "ask-focused",
+                stage = NowPlayingStageMode.Expanded,
+                page = NowPlayingDetailPage.About,
+                ask = AskBarState.Focused,
+            ),
+            SceneShot("focus", stage = NowPlayingStageMode.Immersive, advanceMs = 1_500L),
+            // Past FocusIdleMs (4s) without a touch: the controls step away.
+            SceneShot("focus-at-ease", stage = NowPlayingStageMode.Immersive, advanceMs = 6_000L, atEase = true),
+            // Last: the open Sing capsule keeps its frame into the next shot (harness quirk).
+            SceneShot("lyrics-sing", stage = NowPlayingStageMode.Expanded, sing = true),
+        )
+
+        /** The launching / can't-connect pages, in a run of their own (see LandWidePending). */
+        val pendingShots = listOf(
+            SceneShot("launching", kind = Kind.Launching),
+            SceneShot("connect-error", kind = Kind.ConnectError),
+        )
     }
 }

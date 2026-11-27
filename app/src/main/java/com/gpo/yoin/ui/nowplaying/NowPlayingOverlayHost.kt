@@ -219,6 +219,8 @@ fun NowPlayingOverlayHost(
     // Read only while the player enters or leaves — see coverMorph below.
     val pillMorph = rememberPillMorph(expanded, presentation)
     val dualPaneNowPlaying = presentation == NowPlayingPresentation.DualPane
+    // The two-column player (DualPane, a landscape handset, Tabletop): the page is always on screen.
+    val pageAtRest = presentation.showsPageAtRest
     val panelMode = presentation == NowPlayingPresentation.Panel
     // Medium or Wide full window: panel ⇄ Full (enlarged phone / two columns)
     // share one container that slides in from the right; everything else
@@ -327,25 +329,25 @@ fun NowPlayingOverlayHost(
         }
     }
 
-    // Dual-pane NP has no Expanded substate (the right column is always
-    // expanded), so collapse a stale Expanded to Compact when entering the
-    // two-column player (Wide + tall only). Writes ONLY stageMode; the
+    // The two-column player (DualPane, a landscape handset, Tabletop) has no
+    // Expanded substate (its page is always on screen), so collapse a stale
+    // Expanded to Compact when entering it. Writes ONLY stageMode; the
     // reconcile effect above stays the sole driver of the stage Animatable.
-    LaunchedEffect(dualPaneNowPlaying, stageMode) {
-        if (dualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded) {
+    LaunchedEffect(pageAtRest, stageMode) {
+        if (pageAtRest && stageMode == NowPlayingStageMode.Expanded) {
             // Remembered for the way back: a rotation to one column reopens it (below).
-            viewModel.expandedBeforeDualPane = true
+            viewModel.expandedBeforeTwoColumns = true
             viewModel.setStageMode(NowPlayingStageMode.Compact)
         }
     }
-    // Back to one column (a tablet turned to portrait): the stage the lyrics were expanded in before the two
-    // columns comes back, and so does the lyrics page when select mode or a pick's share sheet is on — the pick
-    // must survive the turn either way (owner device check 2026-11-25).
-    LaunchedEffect(dualPaneNowPlaying) {
-        if (dualPaneNowPlaying || !expanded) return@LaunchedEffect
+    // Back to one column (a tablet or a phone turned to portrait): the stage the lyrics were expanded in before
+    // the two columns comes back, and so does the lyrics page when select mode or a pick's share sheet is on —
+    // the pick must survive the turn either way (owner device check 2026-11-25).
+    LaunchedEffect(pageAtRest) {
+        if (pageAtRest || !expanded) return@LaunchedEffect
         val keepPick = shareRetained.pickInProgress
-        if (viewModel.expandedBeforeDualPane || keepPick) {
-            viewModel.expandedBeforeDualPane = false
+        if (viewModel.expandedBeforeTwoColumns || keepPick) {
+            viewModel.expandedBeforeTwoColumns = false
             if (keepPick) viewModel.setDetailPage(NowPlayingDetailPage.Lyrics)
             viewModel.setStageMode(NowPlayingStageMode.Expanded)
         }
@@ -372,7 +374,7 @@ fun NowPlayingOverlayHost(
     val backLive = expanded && !backYields
     val stageBackLevel = backLive && (
         stageMode == NowPlayingStageMode.Immersive ||
-            !dualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded
+            !pageAtRest && stageMode == NowPlayingStageMode.Expanded
         )
     val fullscreenBackLevel = backLive && !stageBackLevel &&
         (presentation == NowPlayingPresentation.Enlarged || dualPaneNowPlaying) &&
@@ -615,7 +617,9 @@ fun NowPlayingOverlayHost(
         // own drags; once it reaches its top, the rest of a downward pull becomes the pull-down-to-close,
         // and an upward drag first takes a started pull back (owner 2026-11-27: the scrolling About must
         // not fight the sheet). Vertical only: the side panel closes sideways.
-        val pullDownEnabled by rememberUpdatedState(dismissDragEnabled && !panelMode)
+        // Not on a page that is always on screen (the two-column forms): its lists scroll, and a pull
+        // past their top must not close the player.
+        val pullDownEnabled by rememberUpdatedState(dismissDragEnabled && !panelMode && !pageAtRest)
         val currentSettleDismissDrag by rememberUpdatedState(settleDismissDrag)
         val pullDownToClose = remember {
             object : NestedScrollConnection {
@@ -706,7 +710,7 @@ fun NowPlayingOverlayHost(
                     singAvailability is com.gpo.yoin.player.sing.SingAvailability.Available ||
                         singMode !is com.gpo.yoin.player.sing.SingMode.Off
                     )
-                val singUi = remember(singMode, singVocalLevel, singSupported, singFailureTick, dualPaneNowPlaying) {
+                val singUi = remember(singMode, singVocalLevel, singSupported, singFailureTick, pageAtRest) {
                     NowPlayingSingUi(
                         mode = singMode,
                         vocalLevel = singVocalLevel,
@@ -715,7 +719,7 @@ fun NowPlayingOverlayHost(
                         onEnter = { expandToLyrics ->
                             if (container.singController.enter() && expandToLyrics) {
                                 viewModel.setDetailPage(NowPlayingDetailPage.Lyrics)
-                                if (!dualPaneNowPlaying) {
+                                if (!pageAtRest) {
                                     viewModel.setStageMode(NowPlayingStageMode.Expanded)
                                 }
                             }

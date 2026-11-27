@@ -7,8 +7,6 @@
     <string name="np_cd_transport_pause" translatable="false">Pause</string>
     <string name="np_cd_skip_next">Skip next</string>
     <string name="np_cd_skip_previous">Skip previous</string>
-    <string name="np_cd_collapse_lyrics">Collapse lyrics</string>
-    <string name="np_cd_expand_lyrics">Expand lyrics</string>
     <string name="np_cd_play_mode">Play mode</string>
     <string name="np_transport_repeat_all">Repeat all</string>
     <string name="np_transport_shuffle">Shuffle</string>
@@ -35,20 +33,15 @@
     <string name="np_empty_nothing_playing">Nothing playing</string>
     <string name="np_cd_launching_collapse">Collapse</string>
     <string name="np_cd_connect_error_collapse">Collapse</string>
-    <string name="np_cd_tabletop_close">Close</string>
     <string name="np_cd_wide_close">Close</string>
-    <string name="np_cd_landscape_back_now_playing">Back to Now Playing</string>
-    <string name="np_cd_landscape_close_now_playing">Close Now Playing</string>
     <string name="np_cd_stage_close_now_playing">Close Now Playing</string>
     <string name="np_cd_stage_back_now_playing">Back to Now Playing</string>
     <string name="np_cd_plain_album_cover">Album cover</string>
     <string name="np_cd_album_cover">Album cover</string>
     <string name="np_cd_focus_artwork">Focus artwork</string>
     <string name="np_cd_focus_artwork_wide">Focus artwork</string>
-    <string name="np_cd_focus_artwork_landscape">Focus artwork</string>
     <string name="np_cd_show_lyrics_rating">Show lyrics and rating</string>
     <string name="np_cd_show_lyrics_rating_wide">Show lyrics and rating</string>
-    <string name="np_cd_show_lyrics_rating_landscape">Show lyrics and rating</string>
     <string name="np_cd_add_favorite">Add to favorites</string>
     <string name="np_cd_remove_favorite">Remove from favorites</string>
     <string name="np_lyric_loading">Loading lyrics</string>

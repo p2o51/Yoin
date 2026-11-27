@@ -73,14 +73,26 @@ enum class NowPlayingPresentation {
     DualPane,
 
     /**
-     * A short, wide window — a landscape handset (LandscapeNP): cover left,
-     * the phone's column on the right.
+     * A short, wide window — a landscape handset: the two-column player in
+     * its dense form (cover and controls left, the page right), at every
+     * width (no wide / narrow cliff since 2026-11-27).
      */
     Landscape,
 
     /** Horizontal-hinge half fold. */
     Tabletop,
 }
+
+/**
+ * The frames that show the page (Lyrics / About / Note) at all times — the
+ * two-column player in its three forms. They have no Expanded stage: the host
+ * turns a stale one back to Compact (and restores it on the way back to one
+ * column), and Sing opens the lyrics in place.
+ */
+val NowPlayingPresentation.showsPageAtRest: Boolean
+    get() = this == NowPlayingPresentation.DualPane ||
+        this == NowPlayingPresentation.Landscape ||
+        this == NowPlayingPresentation.Tabletop
 
 /**
  * Whether Now Playing opening in [presentation] covers Home. Only the side

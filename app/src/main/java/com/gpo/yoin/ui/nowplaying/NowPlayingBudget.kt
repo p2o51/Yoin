@@ -176,18 +176,14 @@ fun resolveStageColumnBudget(
     } else {
         (stageMaxWidth - ColumnPadding * 2 - RatingGap - ratingColumn).coerceAtLeast(0.dp)
     }
-    val tabsWithTools = enlarged != null
-
     // Slots: nominal = the designed value (or content + min air when the
     // font is larger), min = content + min air.
     val topBar = NpGap(TopBarNominal, TopBarMin)
     val coverGap = NpGap(CoverGapNominal, CoverGapMin)
-    val tabs = if (tabsWithTools) {
-        NpGap(EnlargedToolTabRow, EnlargedToolTabRow)
-    } else {
-        NpGap(maxOf(TabRowNominal, metrics.tabText + TabRowAir), metrics.tabText)
-    }
-    val tabGap = if (tabsWithTools) NpGap(TabGapNominal, 0.dp) else NpGap(TabGapNominal, TabGapNominal)
+    // Every column's resting row holds the text tabs alone (the lyric keys live at the expanded
+    // page's foot since 2026-11-27), so the enlarged column keeps the same text-tab height too.
+    val tabs = NpGap(maxOf(TabRowNominal, metrics.tabText + TabRowAir), metrics.tabText)
+    val tabGap = NpGap(TabGapNominal, TabGapNominal)
     val controlsDesigned = ControlsSlotNominal + ((enlarged?.controlSize ?: 56.dp) - 56.dp) * 2
     val controls = slot(controlsDesigned, metrics.transport, ControlsAirMin)
     // The identity block: artist over title, or — when the window is short
@@ -623,115 +619,43 @@ fun resolveDualPaneBudget(
     }
 }
 
-// ── Landscape ───────────────────────────────────────────────────────────
+// ── Dense two columns ──────────────────────────────────────────────────
 
 /**
- * The landscape handset's frame (LandscapeNP, owner 2026-11-06, prototype
- * landscape-focus v10). Two arrangements, chosen by the content width alone
- * (a breakpoint follows the window, never the device model):
- *
- * - Wide (an ordinary phone on its side): the cover takes the whole height
- *   with the rating column standing at its right; the right column carries
- *   the header, the tabs, a few lyric lines, the transport and the title.
- * - Stacked (16:9, a Fold outer screen on its side): the transport and the
- *   title sit under the cover, the rating column at its right; the right
- *   column is header + tabs + a full column of lyrics. Expanded, the
- *   transport steps away and the rating drops under the cover, so the left
- *   column narrows to the cover and the page gains its width.
- *
- * Focus works on every landscape window: the header, tabs and rating step
- * away and the right column is re-laid as focus lyrics over a one-row
- * transport. On the ordinary phone the cover then takes the whole height;
- * on the narrower windows it stays within [LandscapeFocusCoverShare] of the
- * width (owner: "封面可以不铺那么满").
+ * The two-column player on a short window (TwoColumnForm.Dense: any window under 480dp tall, a
+ * phone on its side, owner 2026-11-27). One rule for every width — no wide / narrow cliff: the left
+ * column is the cover with the rating column at its right over the controls (title row, progress
+ * row, one row of keys), the right column the page. [leftWidth] is what the cover and its rating
+ * column ask for, never less than the controls need ([DenseTransportMin]) and, short of that,
+ * never more than [DenseLeftMaxShare] of the row or than leaves the page [DenseRightMin].
  */
 @Immutable
-data class LandscapeLayout(
-    val stacked: Boolean,
-    val restCover: Dp,
-    val focusCover: Dp,
-    /** Stacked: the left column at rest (cover + rating column). */
+data class DenseTwoColumn(
     val leftWidth: Dp,
-    /** Where the right column starts at rest / in focus / expanded. */
-    val restColumnX: Dp,
-    val focusColumnX: Dp,
-    val expandedColumnX: Dp,
-    /**
-     * Stacked, a page open: the left column's width (the cover, or more where
-     * the rating row under it needs it — [resolveLandscapeLayout]'s
-     * expandedLeftMin). Wide: the cover.
-     */
-    val expandedLeftWidth: Dp = restCover,
-    /** The resting two-row transport's height at its own width. */
-    val restTransport: Dp,
+    /** The cover at rest, the rating column at its right. */
+    val restCover: Dp,
+    /** Focus: the rating column has stepped away. */
+    val focusCover: Dp,
+    /** Focus at ease: the row of keys has folded away under the progress row too. */
+    val easeCover: Dp,
 )
 
-fun resolveLandscapeLayout(
-    width: Dp,
-    height: Dp,
-    // The time-label row the stacked transport carries under its wave.
-    labelLine: Dp,
-    controlSize: Dp = LandscapeControlSizeToken,
-    // Stacked, a page open: the rating bar lies under the cover with the heart
-    // beside it; the left column never narrows below what keeps that bar a
-    // bar ([RatingLabelMinHorizontal] long), not a ball (568×320, 2026-11-27).
-    expandedLeftMin: Dp = 0.dp,
-): LandscapeLayout {
-    val rating = LandscapeRatingColumn + LandscapeRatingGap
-    if (width >= LandscapeStackedMaxWidth) {
-        val restCover = minOf(height, width - LandscapeColumnGap - rating - LandscapeRestColumnMin)
-            .coerceAtLeast(LandscapeCoverFloor)
-        val focusCover = minOf(
-            height,
-            width - LandscapeColumnGap - LandscapeFocusColumnMin,
-            width * LandscapeFocusCoverShare,
-        ).coerceAtLeast(LandscapeCoverFloor)
-        val restColumnX = restCover + rating + LandscapeColumnGap
-        return LandscapeLayout(
-            stacked = false,
-            restCover = restCover,
-            focusCover = focusCover,
-            leftWidth = restCover + rating,
-            restColumnX = restColumnX,
-            focusColumnX = focusCover + LandscapeColumnGap,
-            expandedColumnX = restColumnX,
-            restTransport = playbackControlsHeight(controlSize, labelsBeside = true),
-        )
-    }
-    // Stacked: the cover takes what the two transport rows and the title
-    // leave. The transport is a single column under the cover here, so its
-    // time labels sit under the wave, as in every single column (beside it,
-    // a ~260dp column left the wave a ~90dp stub). Wide keeps them beside.
-    // A short window (a 568×320 one, say) lets the cover go below the
-    // wide floor before the stack spills past the frame.
-    fun coverFor(transport: Dp): Dp =
-        (height - LandscapeCoverToTransport - transport - LandscapeTransportToTitle - LandscapeTitleRow)
-            .coerceAtLeast(LandscapeStackedCoverFloor)
-    // The left column never drops under [LandscapeStackedLeftMin] (within
-    // [LandscapeStackedLeftShare] of the width) so the transport and the
-    // title keep room on a short 16:9 window; the cover + rating column
-    // stays at its start.
-    val leftFloor = minOf(LandscapeStackedLeftMin, width * LandscapeStackedLeftShare)
-    fun leftFor(cover: Dp): Dp = maxOf(cover + rating, leftFloor)
-    val transport = playbackControlsHeight(controlSize, labelsBeside = false, labelLine = labelLine)
-    val cover = coverFor(transport)
-    val leftWidth = leftFor(cover)
-    val focusCover = minOf(
-        height - LandscapeCoverToTransport - shortFocusControlsHeight(controlSize) -
-            LandscapeTransportToTitle - LandscapeTitleRow,
-        leftWidth,
-    ).coerceAtLeast(LandscapeStackedCoverFloor)
-    return LandscapeLayout(
-        stacked = true,
-        restCover = cover,
-        focusCover = focusCover,
-        leftWidth = leftWidth,
-        restColumnX = leftWidth + LandscapeColumnGap,
-        focusColumnX = leftWidth + LandscapeColumnGap,
-        expandedColumnX = maxOf(cover, expandedLeftMin) + LandscapeColumnGap,
-        restTransport = transport,
-        expandedLeftWidth = maxOf(cover, expandedLeftMin),
+/**
+ * [rowWidth] × [height] is the frame inside the system bars; [controls] the left column's controls
+ * (title row + progress row + keys), [controlsAtEase] the same without the keys.
+ */
+fun resolveDenseTwoColumn(rowWidth: Dp, height: Dp, controls: Dp, controlsAtEase: Dp): DenseTwoColumn {
+    val coverRoom = (height - DenseCoverToControls - controls).coerceAtLeast(0.dp)
+    // The controls' room wins over the page's: their keys never shrink under 48dp.
+    val leftCap = maxOf(
+        minOf(rowWidth * DenseLeftMaxShare, rowWidth - DenseColumnGapToken - DenseRightMin),
+        DenseTransportMin,
     )
+    val left = (coverRoom + DualPaneRatingSide).coerceIn(DenseTransportMin, leftCap)
+    val rest = minOf(coverRoom, left - DualPaneRatingSide).coerceAtLeast(0.dp)
+    val focus = minOf(coverRoom, left).coerceAtLeast(rest)
+    val ease = minOf((height - DenseCoverToControls - controlsAtEase).coerceAtLeast(0.dp), left).coerceAtLeast(focus)
+    return DenseTwoColumn(leftWidth = left, restCover = rest, focusCover = focus, easeCover = ease)
 }
 
 // ── Shared ──────────────────────────────────────────────────────────────
@@ -810,7 +734,6 @@ private val CoverGapNominal = 16.dp
 private val CoverGapMin = 8.dp
 private val TabRowNominal = 30.dp
 private val TabRowAir = 10.dp
-private val EnlargedToolTabRow = 44.dp
 private val TabGapNominal = 4.dp
 private val ControlsSlotNominal = 148.dp
 private val ControlsAirMin = 8.dp
@@ -876,19 +799,15 @@ private val WideTransportToTitleMin = 8.dp
 private val WideColumnGapToken = 24.dp
 private val WideRightColumnMinToken = 320.dp
 
-/** Below this content width the landscape player stacks its transport under the cover. */
-internal val LandscapeStackedMaxWidth = 792.dp
-internal val LandscapeControlSizeToken = 48.dp
-internal val LandscapeRatingColumn = 56.dp
-internal val LandscapeRatingGap = 12.dp
-internal val LandscapeColumnGap = 28.dp
-internal val LandscapeTitleRow = 36.dp
-internal val LandscapeCoverToTransport = 10.dp
-internal val LandscapeTransportToTitle = 4.dp
-private val LandscapeCoverFloor = 120.dp
-private val LandscapeStackedCoverFloor = 72.dp
-internal val LandscapeStackedLeftMin = 300.dp
-private const val LandscapeStackedLeftShare = 0.46f
-private val LandscapeRestColumnMin = 300.dp
-private val LandscapeFocusColumnMin = 300.dp
-private const val LandscapeFocusCoverShare = 0.44f
+/** Dense two columns: the least the controls take (a 320dp phone's column less its insets). */
+internal val DenseTransportMin = FocusMinColumn
+
+/** Dense: the left column's widest share of the row, and the least the page keeps beside it. */
+private const val DenseLeftMaxShare = 0.46f
+private val DenseRightMin = 200.dp
+
+/** Dense: the gap between the columns (kept in step with NowPlayingScreen's DenseColumnGap). */
+private val DenseColumnGapToken = 20.dp
+
+/** Dense: the air between the cover and the title row. */
+private val DenseCoverToControls = 8.dp

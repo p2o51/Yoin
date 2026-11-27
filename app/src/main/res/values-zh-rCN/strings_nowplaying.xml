@@ -2,8 +2,6 @@
 <resources>
     <string name="np_cd_skip_next">下一首</string>
     <string name="np_cd_skip_previous">上一首</string>
-    <string name="np_cd_collapse_lyrics">收起歌词</string>
-    <string name="np_cd_expand_lyrics">展开歌词</string>
     <string name="np_cd_play_mode">播放模式</string>
     <string name="np_transport_repeat_all">列表循环</string>
     <string name="np_transport_shuffle">随机播放</string>
@@ -27,20 +25,15 @@
     <string name="np_empty_nothing_playing">未在播放</string>
     <string name="np_cd_launching_collapse">收起</string>
     <string name="np_cd_connect_error_collapse">收起</string>
-    <string name="np_cd_tabletop_close">关闭</string>
     <string name="np_cd_wide_close">关闭</string>
-    <string name="np_cd_landscape_back_now_playing">返回正在播放</string>
-    <string name="np_cd_landscape_close_now_playing">关闭正在播放</string>
     <string name="np_cd_stage_close_now_playing">关闭正在播放</string>
     <string name="np_cd_stage_back_now_playing">返回正在播放</string>
     <string name="np_cd_plain_album_cover">专辑封面</string>
     <string name="np_cd_album_cover">专辑封面</string>
     <string name="np_cd_focus_artwork">聚焦封面</string>
     <string name="np_cd_focus_artwork_wide">聚焦封面</string>
-    <string name="np_cd_focus_artwork_landscape">聚焦封面</string>
     <string name="np_cd_show_lyrics_rating">显示歌词与评分</string>
     <string name="np_cd_show_lyrics_rating_wide">显示歌词与评分</string>
-    <string name="np_cd_show_lyrics_rating_landscape">显示歌词与评分</string>
     <string name="np_cd_add_favorite">加入收藏</string>
     <string name="np_cd_remove_favorite">取消收藏</string>
     <string name="np_lyric_loading">正在加载歌词</string>

@@ -129,8 +129,6 @@ internal fun PlaybackControls(
     playMode: PlayMode = PlayMode.RepeatAll,
     onSetPlayMode: (PlayMode) -> Unit = {},
     controlSize: Dp = 56.dp,
-    lyricsExpanded: Boolean = false,
-    onExpandLyrics: (() -> Unit)? = null,
     noteAnchorsMs: List<Long> = emptyList(),
     modifier: Modifier = Modifier,
     // False while the row is hidden (see WaveProgressBar's `animating`).
@@ -151,6 +149,10 @@ internal fun PlaybackControls(
     // The two-column forms (DualPane, landscape, tabletop): the times on the
     // wave's two sides. The single column: under it.
     labelsBesideWave: Boolean = false,
+    // The dense two-column form (with [prevToTopRow] = 1): the progress row
+    // ABOVE the row of keys, right under the title, so at ease the keys fold
+    // away below it and the progress bar stays beside the title.
+    progressFirst: Boolean = false,
 ) {
     val away = atEase.coerceIn(0f, 1f)
     val awayModifier = Modifier.graphicsLayer { alpha = 1f - away }
@@ -223,7 +225,7 @@ internal fun PlaybackControls(
             val fit = rememberPlaybackControlsFit(
                 maxWidth = maxWidth,
                 controlSize = controlSize,
-                hasExpandToggle = onExpandLyrics != null,
+                prevInTopRow = prevToTopRow,
             )
             val controlSize = fit.controlSize
             val controlButtonSize = controlSize
@@ -390,7 +392,7 @@ internal fun PlaybackControls(
                 }
             }
             Box(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                val keysRow: @Composable () -> Unit = {
                     Row(
                         modifier = Modifier.fillMaxWidth().then(awayModifier),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -405,47 +407,6 @@ internal fun PlaybackControls(
                             transportGroup()
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Tabletop adds an "expand lyrics" toggle to the right group (left of
-                            // the play-mode button); other layouts pass null and never render it.
-                            if (onExpandLyrics != null) {
-                                val expandContainer = if (lyricsExpanded) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.tertiaryContainer
-                                }
-                                val expandContent = if (lyricsExpanded) {
-                                    MaterialTheme.colorScheme.onPrimary
-                                } else {
-                                    MaterialTheme.colorScheme.onTertiaryContainer
-                                }
-                                FilledIconButton(
-                                    onClick = {
-                                        haptics.performTick()
-                                        onExpandLyrics()
-                                    },
-                                    modifier = Modifier.size(controlSize).handPointer(),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = expandContainer,
-                                        contentColor = expandContent,
-                                    ),
-                                ) {
-                                    Icon(
-                                        imageVector = if (lyricsExpanded) {
-                                            YoinSymbols.UnfoldLess
-                                        } else {
-                                            YoinSymbols.UnfoldMore
-                                        },
-                                        contentDescription = if (lyricsExpanded) {
-                                            stringResource(R.string.np_cd_collapse_lyrics)
-                                        } else {
-                                            stringResource(R.string.np_cd_expand_lyrics)
-                                        },
-                                        modifier = Modifier.size(controlIconSize),
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-
                             if (playModeSplitState == null) {
                                 // Until the Play modes tip is read, a run round the whole cycle
                                 // splits the button once to show it, and that reads the tip.
@@ -477,8 +438,8 @@ internal fun PlaybackControls(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(TransportRowGap))
-
+                }
+                val progressRow: @Composable () -> Unit = {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         // Where the times sit is the layout's call, never a width threshold
                         // (owner 2026-11-27: a 393 and a 412 phone looked like two players):
@@ -567,6 +528,17 @@ internal fun PlaybackControls(
                         }
                     }
                 }
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (progressFirst) {
+                        progressRow()
+                        Spacer(modifier = Modifier.height(TransportRowGap))
+                        keysRow()
+                    } else {
+                        keysRow()
+                        Spacer(modifier = Modifier.height(TransportRowGap))
+                        progressRow()
+                    }
+                }
                 // PREVIOUS: at the start of the progress row at rest, gliding up to the
                 // start of the top row in short focus (one button, so one press state).
                 // Offset first, then the fade's layer: a layer outside the offset
@@ -574,10 +546,13 @@ internal fun PlaybackControls(
                 // row's bottom as it slid down, popping back once settled.
                 Box(
                     modifier = Modifier.offset {
-                        val secondRowTop = (controlSize + TransportRowGap).toPx()
-                        val secondRowHeight = lerp(controlSize, ShortFocusProgressRowHeight, prevToTopRow).toPx()
-                        val restTop = secondRowTop + (secondRowHeight - controlSize.toPx()) / 2f
-                        IntOffset(0, (restTop * (1f - prevToTopRow)).roundToInt())
+                        val progressHeight = lerp(controlSize, ShortFocusProgressRowHeight, prevToTopRow).toPx()
+                        val gap = TransportRowGap.toPx()
+                        // The keys' row and the progress row, in the order they stack.
+                        val keysTop = if (progressFirst) progressHeight + gap else 0f
+                        val progressTop = if (progressFirst) 0f else controlSize.toPx() + gap
+                        val restTop = progressTop + (progressHeight - controlSize.toPx()) / 2f
+                        IntOffset(0, (restTop + (keysTop - restTop) * prevToTopRow).roundToInt())
                     }.then(awayModifier),
                 ) {
                     prevButton()
@@ -973,13 +948,14 @@ internal fun fitPlaybackControls(
     maxWidth: Dp,
     controlSize: Dp,
     playTextWidth: Dp,
-    hasExpandToggle: Boolean,
+    // How far PREVIOUS has joined the keys' row (prevToTopRow): its key and gap count there.
+    prevInTopRow: Float = 0f,
 ): PlaybackControlsFit {
     // Everything but the play-mode pill.
     fun rest(size: Dp, paddingScale: Float): Dp {
         val play = playTextWidth * PlayTextStretchMax + PlayRestPadding * 2 * paddingScale
-        val expand = if (hasExpandToggle) size + TransportGap else 0.dp
-        return play + TransportGap + size + TransportGap + expand
+        val prev = (size + TransportGap) * prevInTopRow
+        return prev + play + TransportGap + size + TransportGap
     }
     fun fits(size: Dp, paddingScale: Float) = rest(size, paddingScale) + playModeNaturalWidth(size) <= maxWidth
     return when {
@@ -1003,7 +979,7 @@ internal fun fitPlaybackControls(
 internal fun rememberPlaybackControlsFit(
     maxWidth: Dp,
     controlSize: Dp,
-    hasExpandToggle: Boolean,
+    prevInTopRow: Float = 0f,
 ): PlaybackControlsFit {
     val textMeasurer = rememberTextMeasurer()
     val style = MaterialTheme.typography.titleLarge.let { base ->
@@ -1015,11 +991,11 @@ internal fun rememberPlaybackControlsFit(
     }
     val pauseWord = stringResource(R.string.np_transport_pause_word)
     val density = LocalDensity.current
-    return remember(maxWidth, controlSize, hasExpandToggle, style, density, pauseWord) {
+    return remember(maxWidth, controlSize, prevInTopRow, style, density, pauseWord) {
         val playTextWidth = with(density) {
             textMeasurer.measure(pauseWord, style, maxLines = 1, softWrap = false).size.width.toDp()
         }
-        fitPlaybackControls(maxWidth, controlSize, playTextWidth, hasExpandToggle)
+        fitPlaybackControls(maxWidth, controlSize, playTextWidth, prevInTopRow)
     }
 }
 
