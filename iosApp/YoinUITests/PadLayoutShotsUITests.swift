@@ -2,7 +2,7 @@ import XCTest
 
 /// iPad layout QA (not an assertion test): launches with the arguments in `YOIN_SHOT_ARGS`, turns the
 /// device to `YOIN_SHOT_ORIENTATION` (landscape / portrait) and saves a screenshot to `YOIN_SHOT_PATH`.
-/// `YOIN_SHOT_STEPS` (optional) drives the app first, for screenshots after a tap or a pointer click and for screen
+/// `YOIN_SHOT_STEPS` (optional) drives the app first (also `rotate:portrait` and `key:cmd+k`, below), for screenshots after a tap or a pointer click and for screen
 /// recordings: `;`-separated `tap:x,y`, `drag:x,y,x2,y2` (`slowdrag:` for a slow pull, `lift:` for a drag and drop by touch, `clickdrag:` by pointer), `type:words` (into the focused field, a key at a time), `return:` (the keyboard's Return), `wait:s` and `shot:path`, with x / y as
 /// fractions of the window. Skipped unless `YOIN_SHOT_PATH` is set, so the normal run never pays for it.
 final class PadLayoutShotsUITests: XCTestCase {
@@ -51,6 +51,31 @@ final class PadLayoutShotsUITests: XCTestCase {
                     Thread.sleep(forTimeInterval: 0.22)
                 }
             case "return": app.typeText("\n")
+            // `rotate:portrait` / `rotate:landscape`: the device turns (rotation state checks).
+            case "rotate":
+                XCUIDevice.shared.orientation = parts[1] == "portrait" ? .portrait : .landscapeLeft
+            // `key:<k>` / `key:cmd+<k>` (also shift+, alt+, ctrl+): a hardware keyboard key, for the
+            // keyboard shortcuts. Named keys: space, esc, left, right, up, down, tab, return.
+            case "key":
+                let tokens = parts[1].split(separator: "+").map(String.init)
+                var flags: XCUIElement.KeyModifierFlags = []
+                for m in tokens.dropLast() {
+                    switch m {
+                    case "cmd": flags.insert(.command)
+                    case "shift": flags.insert(.shift)
+                    case "alt": flags.insert(.option)
+                    case "ctrl": flags.insert(.control)
+                    default: break
+                    }
+                }
+                let named: [String: String] = [
+                    "space": " ", "esc": XCUIKeyboardKey.escape.rawValue, "left": XCUIKeyboardKey.leftArrow.rawValue,
+                    "right": XCUIKeyboardKey.rightArrow.rawValue, "up": XCUIKeyboardKey.upArrow.rawValue,
+                    "down": XCUIKeyboardKey.downArrow.rawValue, "tab": XCUIKeyboardKey.tab.rawValue,
+                    "return": XCUIKeyboardKey.return.rawValue,
+                ]
+                let k = tokens.last ?? ""
+                app.typeKey(named[k] ?? k, modifierFlags: flags)
             case "wait": Thread.sleep(forTimeInterval: Double(parts[1]) ?? 1)
             case "shot":
                 try XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: parts[1]))
