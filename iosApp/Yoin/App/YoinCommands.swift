@@ -40,12 +40,13 @@ struct YoinCommands: Commands {
             Button(p.shuffle ? "Shuffle Off" : "Shuffle On") { p.setShuffle(!p.shuffle) }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(idle)
-            Menu("Repeat") {
-                Button("All") { p.setRepeat(.all) }
-                Button("One") { p.setRepeat(.one) }
-                Button("Off") { p.setRepeat(.off) }
+            // ⌘R steps repeat on as the play-mode button's repeat does (all → one → off → all), named for the
+            // mode it turns on, as Shuffle On / Off is (Spotify's ⌘R; iPad round 2, owner 2026-11-27).
+            Button(KeyboardShortcutsMenu.repeatTitle(next: p.shownRepeatMode.next)) {
+                p.setShownRepeat(p.shownRepeatMode.next)
             }
-            .disabled(idle)
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(idle)
             Divider()
             Button("Like") {
                 if let t = p.currentTrack {
@@ -57,15 +58,20 @@ struct YoinCommands: Commands {
             Button("Now Playing") { model.toggleNowPlayingFromKeyboard() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(idle)
+            // ⌘F is Search (iPadOS / macOS "find"); Focus Cover takes ⌥⌘F (owner 2026-11-27).
             Button("Focus Cover") { model.toggleFocusFromKeyboard() }
-                .keyboardShortcut("f", modifiers: .command)
+                .keyboardShortcut("f", modifiers: [.command, .option])
                 .disabled(idle)
             Button("Lyrics") { model.toggleLyricsFromKeyboard() }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(idle)
+            // Up Next's ⌥⌘U (Apple Music on the Mac): the queue pops over from Now Playing's Queue.
+            Button("Queue") { model.toggleQueueFromKeyboard() }
+                .keyboardShortcut("u", modifiers: [.command, .option])
+                .disabled(idle)
             Divider()
             Button("Search") { model.openSearch(from: .bar) }
-                .keyboardShortcut("k", modifiers: .command)
+                .keyboardShortcut("f", modifiers: .command)
             Button("Back") { model.backFromKeyboard() }
                 .keyboardShortcut("[", modifiers: .command)
             Button("Dismiss") { model.escapeFromKeyboard() }
@@ -80,6 +86,18 @@ struct YoinCommands: Commands {
                 .keyboardShortcut("2", modifiers: .command)
             Button("All Memories") { model.openAllMemoriesFromKeyboard() }
                 .keyboardShortcut("3", modifiers: .command)
+        }
+    }
+}
+
+/// The Controls menu's titles that follow the player.
+enum KeyboardShortcutsMenu {
+    /// ⌘R's title: the repeat mode it turns on.
+    static func repeatTitle(next: RepeatMode) -> LocalizedStringKey {
+        switch next {
+        case .all: "Repeat All"
+        case .one: "Repeat One"
+        case .off: "Repeat Off"
         }
     }
 }
@@ -124,6 +142,20 @@ extension AppModel {
         guard next != path else { return }
         if searchActive { withAnimation(Yoin.spatial) { searchActive = false } }
         path = next
+    }
+
+    /// ⌥⌘U: the queue, over Now Playing's Queue (a popover on iPad); Now Playing opens first when it is closed
+    /// (the panel where it fits). Again: the queue closes.
+    func toggleQueueFromKeyboard() {
+        if queueSheetOpen { queueSheetOpen = false; return }
+        guard player.currentTrack != nil else { return }
+        if npExpanded || (isPad && npPanel) { queueSheetOpen = true; return }
+        if isPad { openNowPlayingOnPad() } else { setNowPlaying(expanded: true) }
+        Task { @MainActor in
+            // Once the player is up and its Queue is on screen.
+            try? await Task.sleep(for: .seconds(0.6 / max(LaunchConfig.animationSpeed, 0.05)))
+            if npExpanded || (isPad && npPanel) { queueSheetOpen = true }
+        }
     }
 
     /// ⌘⇧P: Now Playing opens (the iPad panel when there is room) or closes.

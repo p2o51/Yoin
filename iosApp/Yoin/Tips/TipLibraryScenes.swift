@@ -110,7 +110,7 @@ struct LibraryRefreshDemo: View {
 // MARK: - Keyboard shortcuts
 
 /// Keyboard shortcuts (Android KeyboardShortcutsDemo), the iPad's and the Mac's keys (YoinCommands): Space
-/// pauses and plays the mini player, ⌘→ moves it to the next song, ⌘K opens search, a keyboard's keys as
+/// pauses and plays the mini player, ⌘→ moves it to the next song, ⌘F opens search, a keyboard's keys as
 /// keycaps on a tray of their own that the bar sits on, pressed by the dot (or the user).
 struct KeyboardShortcutsDemo: View {
     var playing: Bool
@@ -197,7 +197,7 @@ enum DemoKey: String, CaseIterable {
         switch self {
         case .space: String(localized: "tip.key.space", defaultValue: "space")
         case .next: "⌘ →"
-        case .search: "⌘ K"
+        case .search: "⌘ F"
         }
     }
 }

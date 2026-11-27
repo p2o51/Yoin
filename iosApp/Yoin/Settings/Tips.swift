@@ -84,13 +84,14 @@ enum Tips {
             titleZhHans: "iCloud 云同步",
             textZhHans: "在设置 › 云同步的同步位置里，可以切换用 iCloud 在 Apple 设备间同步"),
         // Keyboard shortcuts (Android KeyboardShortcuts, first in its list): the iPad's and the Mac's wired keys
-        // in YoinCommands (Space, ←/→ seek ±5s, ⌘←/⌘→ skip, ⌘F focus cover, ⌘L lyrics, ⌘⇧P Now Playing,
-        // ⌘K search, Esc / ⌘[ back).
-        Tip(id: "KeyboardShortcuts", icon: "keyboard", updated: "2026-11-18",
+        // in YoinCommands (Space, ←/→ seek ±5s, ⌘←/⌘→ skip, ⌘R repeat, ⌥⌘U queue, ⌥⌘F focus cover, ⌘L lyrics,
+        // ⌘⇧P Now Playing, ⌘F search, Esc / ⌘[ back). iPad round 2 (2026-11-27): ⌘F became Search (the demo's
+        // keycap with it), cover focus ⌥⌘F; Gemini's lines (.argon/ipad-round2-keyboard-tip).
+        Tip(id: "KeyboardShortcuts", icon: "keyboard", updated: "2026-11-27",
             title: "Keyboard shortcuts",
-            text: "Use Space to play or pause, ←/→ to skip 5s, ⌘←/⌘→ to change tracks, ⌘F for cover focus, ⌘L for lyrics, ⌘⇧P for Now Playing, ⌘K to search, and Esc or ⌘[ to go back; hold ⌘ on iPad or check Controls and Go in the menu bar on Mac",
+            text: "Use Space to play or pause, ←/→ to skip 5s, ⌘←/⌘→ to change tracks, ⌘R for repeat, ⌥⌘U for queue, ⌥⌘F for cover focus, ⌘L for lyrics, ⌘⇧P for Now Playing, ⌘F to search, and Esc or ⌘[ to go back; hold ⌘ on iPad or check Controls and Go in the menu bar on Mac",
             titleZhHans: "键盘快捷键",
-            textZhHans: "用空格播放或暂停、←/→ 快退快进 5 秒、⌘←/⌘→ 切歌、⌘F 专注封面、⌘L 切歌词、⌘⇧P 开正在播放、⌘K 搜索、Esc 或 ⌘[ 返回；iPad 上按住 ⌘ 或在 Mac 菜单栏「控制」与「前往」查看全部快捷键",
+            textZhHans: "用空格播放或暂停、←/→ 快退快进 5 秒、⌘←/⌘→ 切歌、⌘R 切循环、⌥⌘U 开队列、⌥⌘F 专注封面、⌘L 切歌词、⌘⇧P 开正在播放、⌘F 搜索、Esc 或 ⌘[ 返回；iPad 上按住 ⌘ 或在 Mac 菜单栏「控制」与「前往」查看全部快捷键",
             keyboard: true),
         // Library's pull to refresh (Android LibraryRefresh; LibraryView `.refreshable`); Android's line, which Gemini
         // kept for iOS (.argon/ios-tips-1115).
