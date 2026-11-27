@@ -328,7 +328,7 @@ private fun BoxScope.RatingLabel(
 internal fun ratingLabelFits(length: Dp, vertical: Boolean): Boolean =
     length >= if (vertical) RatingLabelMinVertical else RatingLabelMinHorizontal
 
-internal val RatingLabelMinVertical = 160.dp
+internal val RatingLabelMinVertical = 196.dp
 internal val RatingLabelMinHorizontal = 120.dp
 
 /**

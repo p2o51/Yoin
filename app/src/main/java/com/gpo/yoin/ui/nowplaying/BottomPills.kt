@@ -65,13 +65,12 @@ internal fun BottomPills(
     onCastClick: () -> Unit = {},
     showWrite: Boolean = true,
     supportsYoinCast: Boolean = true,
-    pillHeight: Dp = 44.dp,
-    forceCapsule: Boolean = false,
     /** The other device Spotify plays on: the Devices pill carries its name instead of "Devices". */
     playingOn: String? = null,
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val pillHeight = BottomPillHeight
         val haptics = rememberYoinHaptics()
         val queueInteraction = remember { MutableInteractionSource() }
         val devicesInteraction = remember { MutableInteractionSource() }
@@ -153,11 +152,7 @@ internal fun BottomPills(
                                 pressWiden = layout.labelled,
                                 interactionSource = devicesInteraction,
                                 modifier = Modifier.reportGlowAnchor(GlowAnchor.Devices),
-                                shape = if (forceCapsule) {
-                                    YoinShapeTokens.Full
-                                } else {
-                                    RoundedCornerShape(20.dp)
-                                },
+                                shape = RoundedCornerShape(20.dp),
                                 pillHeight = pillHeight,
                             )
                         },
@@ -204,7 +199,7 @@ internal class BottomPillsLayout(
 
 /**
  * The queue / devices / write actions as plain icons, for the end of a top
- * bar: the landscape and two-pane players set them there (owner 2026-11-06
+ * bar: the two-column player (every form) sets them there (owner 2026-11-06
  * 「三个按钮应该在右上角」, prototype v10's three icons) — the pills would
  * crowd out the "playing from" line.
  */
@@ -221,6 +216,9 @@ internal fun TopBarActionIcons(
     // Spotify plays on another device: the devices button names it (owner
     // 2026-11-06, as the Devices pill does).
     playingOn: String? = null,
+    // False where the page's own write bar is the way to write (the dense
+    // two-column row keeps its width for the tabs).
+    showWrite: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     Row(
@@ -232,10 +230,10 @@ internal fun TopBarActionIcons(
             castState = if (supportsYoinCast) castState else CastState.NotAvailable,
             onClick = onCastClick,
         )
-        listOf(
+        listOfNotNull(
             Triple(YoinSymbols.Queue, R.string.np_pill_queue, onQueueClick),
             Triple(YoinSymbols.Devices, R.string.np_pill_devices, onDevicesClick),
-            Triple(YoinSymbols.Note, R.string.np_pill_write, onWriteClick),
+            Triple(YoinSymbols.Note, R.string.np_pill_write, onWriteClick).takeIf { showWrite },
         ).forEach { (icon, label, onClick) ->
             if (icon == YoinSymbols.Devices && playingOn != null) {
                 Surface(
@@ -283,6 +281,9 @@ internal fun TopBarActionIcons(
 }
 
 private val TopBarDeviceNameMax = 96.dp
+
+/** The pills' height (the Cast button's 48dp touch target can set the row's). */
+private val BottomPillHeight = 44.dp
 
 @Composable
 private fun rememberBottomPillsLayout(

@@ -374,94 +374,51 @@ class NowPlayingBudgetTest {
         assertEquals(DualPaneStackWidth, budget.rest.slot)
     }
 
-    // ── Landscape ───────────────────────────────────────────────────────
+    // ── Dense two columns (phone landscape, PR 3) ────────────────────────
+
+    // A 28dp title row + 4 + the 36dp progress row + 4 + 48dp keys; at ease the keys fold away.
+    private val denseControls = 28.dp + 4.dp + 36.dp + 4.dp + 48.dp
+    private val denseAtEase = 28.dp + 4.dp + 36.dp
 
     @Test
-    fun should_fillHeightWithCover_when_ordinaryPhoneLandscape() {
-        // 915×412 window → about 867×348 of content.
-        val layout = resolveLandscapeLayout(width = 867.dp, height = 348.dp, labelLine = 20.dp)
-        assertEquals(false, layout.stacked)
-        assertDp(348.dp, layout.restCover)
-        assertDp(348.dp, layout.focusCover)
-        // The rating column stands at the cover's right; focus hands its room to the column.
-        assertDp(348.dp + 56.dp + 12.dp + 28.dp, layout.restColumnX)
-        assertDp(348.dp + 28.dp, layout.focusColumnX)
+    fun should_shareOneRule_when_landscapeAtEveryWidth() {
+        // Owner 2026-11-27: no 792dp cliff. The four phones on their side (frame less the 16dp
+        // sides, 8dp top / bottom and the bars) all lay out the same way: cover + rating column
+        // over the controls on the left, the page on the right.
+        val windows = listOf(883.dp to 356.dp, 819.dp to 337.dp, 708.dp to 304.dp, 536.dp to 264.dp)
+        for ((width, height) in windows) {
+            val dense = resolveDenseTwoColumn(width, height, denseControls, denseAtEase)
+            // The controls always fit their column…
+            assertTrue("$width: left ${dense.leftWidth}", dense.leftWidth >= DenseTransportMin - 0.5.dp)
+            // …the cover and its rating column fit beside each other in it…
+            assertTrue(dense.restCover + DualPaneRatingSide <= dense.leftWidth + 0.5.dp)
+            // …the cover sits above the controls inside the height…
+            assertTrue(dense.restCover + 8.dp + denseControls <= height + 0.5.dp)
+            // …and the page keeps its room.
+            assertTrue("$width: page ${width - 20.dp - dense.leftWidth}", width - 20.dp - dense.leftWidth >= 200.dp - 0.5.dp)
+        }
     }
 
     @Test
-    fun should_keepStackInsideFrame_when_shortNarrowLandscape() {
-        // 568×320 less the frame padding and system bars; a 20dp label line.
-        val height = 248.dp
-        val layout = resolveLandscapeLayout(width = 520.dp, height = height, labelLine = 20.dp)
-        assertTrue(layout.stacked)
-        val stack = layout.restCover + LandscapeCoverToTransport + layout.restTransport +
-            LandscapeTransportToTitle + LandscapeTitleRow
-        assertTrue("stack $stack over $height", stack <= height + 0.5.dp)
-        assertTrue(layout.focusCover <= layout.leftWidth)
+    fun should_growTheCover_when_focusLeftAtEase() {
+        val dense = resolveDenseTwoColumn(883.dp, 356.dp, denseControls, denseAtEase)
+        // Height-led: the cover takes what the controls leave, the rating column at its side.
+        assertDp(356.dp - 8.dp - denseControls, dense.restCover)
+        assertDp(dense.restCover + DualPaneRatingSide, dense.leftWidth)
+        // Focus: the rating steps away, the cover keeps the height; at ease the keys fold away
+        // and the cover grows into their row (never past the column).
+        assertTrue(dense.focusCover >= dense.restCover)
+        assertTrue("ease ${dense.easeCover}", dense.easeCover > dense.focusCover)
+        assertTrue(dense.easeCover <= dense.leftWidth + 0.5.dp)
     }
 
     @Test
-    fun should_keepALyingRatingBar_when_shortNarrowLandscapeOpensAPage() {
-        // 568×320 (review 2026-11-27): the rating bar under an ~86dp cover was a
-        // ~70dp ball. The left column now keeps a 120dp bar beside the heart.
-        val rowMin = landscapeRatingRowMin(buttons = 1)
-        assertDp(120.dp + 8.dp + 48.dp, rowMin)
-        val layout = resolveLandscapeLayout(width = 520.dp, height = 248.dp, labelLine = 20.dp, expandedLeftMin = rowMin)
-        assertTrue(layout.stacked)
-        assertTrue("cover ${layout.restCover} under the floor", layout.restCover < rowMin)
-        assertDp(rowMin, layout.expandedLeftWidth)
-        assertDp(rowMin + 28.dp, layout.expandedColumnX)
-        // The bar itself: the row less the gap and the heart.
-        assertTrue(layout.expandedLeftWidth - 8.dp - 48.dp >= 120.dp - 0.5.dp)
-        // The right column keeps a page's worth of width.
-        assertTrue(520.dp - layout.expandedColumnX >= 300.dp)
-    }
-
-    @Test
-    fun should_placeTheTimeLabelsByTopology_when_landscape() {
-        // Owner 2026-11-27: no width threshold. Wide landscape is two columns, the
-        // labels beside the wave; stacked, the transport is a single column under
-        // the cover and carries the label row under the wave at any width.
-        val narrow = resolveLandscapeLayout(width = 520.dp, height = 248.dp, labelLine = 20.dp)
-        val wide = resolveLandscapeLayout(width = 867.dp, height = 348.dp, labelLine = 20.dp)
-        assertTrue(narrow.stacked)
-        assertDp(playbackControlsHeight(LandscapeControlSizeToken, labelsBeside = false, labelLine = 20.dp), narrow.restTransport)
-        assertDp(playbackControlsHeight(LandscapeControlSizeToken, labelsBeside = true), wide.restTransport)
-        assertDp(narrow.restTransport - 20.dp, wide.restTransport)
-    }
-
-    @Test
-    fun should_stackTransportUnderCover_when_narrowLandscape() {
-        // Fold outer screen on its side: 750×475 → about 702×411 of content.
-        val layout = resolveLandscapeLayout(width = 702.dp, height = 411.dp, labelLine = 20.dp)
-        assertEquals(true, layout.stacked)
-        // Cover + gap + transport + gap + title fill the height.
-        assertDp(
-            411.dp,
-            layout.restCover + 10.dp + layout.restTransport + 4.dp + 36.dp,
-        )
-        assertDp(maxOf(layout.restCover + 56.dp + 12.dp, 300.dp), layout.leftWidth)
-        // Expanded: the rating drops under the cover, the column narrows to it
-        // (no rating-row floor asked for here).
-        assertDp(layout.restCover + 28.dp, layout.expandedColumnX)
-        // Focus never outgrows the left column.
-        assertTrue(layout.focusCover <= layout.leftWidth)
-    }
-
-    @Test
-    fun should_keepTransportRoom_when_shortWideStackedLandscape() {
-        // 16:9 phone on its side: 732×412 → about 684×300 of content. The
-        // cover alone is ~180 wide; the transport and title still get 300.
-        val layout = resolveLandscapeLayout(width = 684.dp, height = 300.dp, labelLine = 20.dp)
-        assertTrue(layout.stacked)
-        assertDp(300.dp, layout.leftWidth)
-        assertTrue(layout.restCover + 56.dp + 12.dp < layout.leftWidth)
-        assertDp(300.dp + 28.dp, layout.restColumnX)
-        // Expanded still narrows the left column to the cover.
-        assertDp(layout.restCover + 28.dp, layout.expandedColumnX)
-        val stack = layout.restCover + LandscapeCoverToTransport + layout.restTransport +
-            LandscapeTransportToTitle + LandscapeTitleRow
-        assertTrue("stack $stack over 300", stack <= 300.dp + 0.5.dp)
+    fun should_keepTheControlsWhole_when_theCoverIsSmall() {
+        // 568 with side navigation: the cover alone would leave the controls a ~200dp column.
+        val dense = resolveDenseTwoColumn(488.dp, 264.dp, denseControls, denseAtEase)
+        assertDp(DenseTransportMin, dense.leftWidth)
+        assertTrue(dense.restCover + DualPaneRatingSide <= dense.leftWidth)
+        assertTrue(488.dp - 20.dp - dense.leftWidth >= 196.dp)
     }
 
     @Test

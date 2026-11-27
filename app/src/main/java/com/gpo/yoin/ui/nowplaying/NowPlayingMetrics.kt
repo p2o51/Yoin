@@ -27,7 +27,7 @@ internal fun rememberStageColumnMetrics(
     val typography = MaterialTheme.typography
     val density = LocalDensity.current
     val transportWidth = (width - ColumnContentInset * 2).coerceAtLeast(0.dp)
-    val fit = rememberPlaybackControlsFit(maxWidth = transportWidth, controlSize = controlSize, hasExpandToggle = false)
+    val fit = rememberPlaybackControlsFit(maxWidth = transportWidth, controlSize = controlSize)
     return remember(transportWidth, fit, castVisible, typography, density) {
         StageColumnMetrics(
             tabText = typography.labelLarge.lineDp(density),
@@ -57,7 +57,6 @@ internal fun rememberDualPaneMetrics(
     val fit = rememberPlaybackControlsFit(
         maxWidth = DualPaneStackWidth,
         controlSize = YoinTokens.NowPlaying.CONTROL_SIZE.dp,
-        hasExpandToggle = false,
     )
     return remember(fit, navBottom, typography, density) {
         val artist = typography.titleMedium.lineDp(density) + WideTitleLineGap

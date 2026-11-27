@@ -142,7 +142,6 @@ class NowPlayingControlsFitTest {
             maxWidth = 400.dp,
             controlSize = 56.dp,
             playTextWidth = 72.dp,
-            hasExpandToggle = false,
         )
         assertEquals(PlaybackControlsFit(56.dp, 1f), wide)
         assertEquals(playModeNaturalWidth(56.dp), wide.playModeWidth)
@@ -151,20 +150,20 @@ class NowPlayingControlsFitTest {
     @Test
     fun should_shrinkPaddingFirst_then_controls_when_columnNarrows() {
         // PLAY 72 × 1.1 + 48 padding, NEXT 56, two 8dp gaps, play mode 91.6 → 291.
-        val padded = fitPlaybackControls(275.dp, 56.dp, playTextWidth = 72.dp, hasExpandToggle = false)
+        val padded = fitPlaybackControls(275.dp, 56.dp, playTextWidth = 72.dp)
         assertEquals(PlaybackControlsFit(56.dp, 0.5f), padded)
-        val stepped = fitPlaybackControls(250.dp, 56.dp, playTextWidth = 72.dp, hasExpandToggle = false)
+        val stepped = fitPlaybackControls(250.dp, 56.dp, playTextWidth = 72.dp)
         assertEquals(PlaybackControlsFit(48.dp, 0.5f), stepped)
         assertEquals(playModeNaturalWidth(48.dp), stepped.playModeWidth)
     }
 
     @Test
     fun should_narrowPlayModeButNotBelowItsMinimum_when_columnIsTight() {
-        val tight = fitPlaybackControls(230.dp, 56.dp, playTextWidth = 72.dp, hasExpandToggle = false)
+        val tight = fitPlaybackControls(230.dp, 56.dp, playTextWidth = 72.dp)
         assertEquals(48.dp, tight.controlSize)
         assertTrue(tight.playModeWidth < playModeNaturalWidth(48.dp))
         assertTrue(tight.playModeWidth >= playModeMinWidth(48.dp))
-        val starved = fitPlaybackControls(150.dp, 56.dp, playTextWidth = 72.dp, hasExpandToggle = false)
+        val starved = fitPlaybackControls(150.dp, 56.dp, playTextWidth = 72.dp)
         assertEquals(playModeMinWidth(48.dp), starved.playModeWidth)
     }
 

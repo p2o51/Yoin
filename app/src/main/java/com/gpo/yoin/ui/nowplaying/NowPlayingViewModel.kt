@@ -189,7 +189,7 @@ class NowPlayingViewModel(
      * The stage was Expanded when the two-column player took over (it has no Expanded substate): a return
      * to one column reopens it. Held here, so an Activity recreated by the rotation still knows.
      */
-    internal var expandedBeforeDualPane: Boolean = false
+    internal var expandedBeforeTwoColumns: Boolean = false
     private val _aboutRegenerated = MutableSharedFlow<AboutRegenerated>(extraBufferCapacity = 4)
     val aboutRegenerated: SharedFlow<AboutRegenerated> = _aboutRegenerated.asSharedFlow()
 

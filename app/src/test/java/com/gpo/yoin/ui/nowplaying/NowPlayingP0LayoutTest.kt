@@ -97,7 +97,9 @@ class NowPlayingP0LayoutTest {
     @Test
     fun should_hideTheRatingNumberAtRest_when_theBarIsShort() {
         assertFalse(ratingLabelFits(150.dp, vertical = true))
-        assertTrue(ratingLabelFits(160.dp, vertical = true))
+        // 915×412 landscape's ~160dp bar: at 8.4 only ~26dp stays unfilled, under the ~31dp label.
+        assertFalse(ratingLabelFits(160.dp, vertical = true))
+        assertTrue(ratingLabelFits(196.dp, vertical = true))
         assertFalse(ratingLabelFits(70.dp, vertical = false))
         assertTrue(ratingLabelFits(120.dp, vertical = false))
     }
@@ -164,10 +166,10 @@ class NowPlayingP0LayoutTest {
             ask = AskBarState.Focused,
         )
         val root = rule.onRoot().getBoundsInRoot()
-        val ask = rule.onNodeWithTag(LandscapeAskTag, useUnmergedTree = true).getBoundsInRoot()
-        // On screen, under the 40dp header and the 40dp tab row (+ 6dp), inside the 12dp frame (the card
-        // used to hang from the header over the page) …
-        assertTrue("ask top ${ask.top}", ask.top >= LandscapeTop + 12.dp + 86.dp - 0.5.dp)
+        val ask = rule.onNodeWithTag(PageAskTag, useUnmergedTree = true).getBoundsInRoot()
+        // On screen, under the right column's top row (back, album, tabs, icons; PR 3), at the page's foot
+        // (the card used to hang from the header over the page) …
+        assertTrue("ask top ${ask.top}", ask.top >= tabsBottom() - 0.5.dp)
         assertTrue("ask bottom ${ask.bottom} over ${root.bottom}", ask.bottom <= root.bottom + 0.5.dp)
         // … and inside the right column, its width the column's.
         assertTrue("ask right ${ask.right}", ask.right <= root.right + 0.5.dp)
@@ -186,8 +188,9 @@ class NowPlayingP0LayoutTest {
             ask = AskBarState.Focused,
         )
         val root = rule.onRoot().getBoundsInRoot()
-        val ask = rule.onNodeWithTag(LandscapeAskTag, useUnmergedTree = true).getBoundsInRoot()
-        assertTrue("ask top ${ask.top}", ask.top >= LandscapeTop + 12.dp + 86.dp - 0.5.dp)
+        val ask = rule.onNodeWithTag(PageAskTag, useUnmergedTree = true).getBoundsInRoot()
+        // The 568 row drops its tabs under the back arrow and the icons: the card stays under both.
+        assertTrue("ask top ${ask.top}", ask.top >= tabsBottom() - 0.5.dp)
         assertTrue("ask bottom ${ask.bottom} over ${root.bottom}", ask.bottom <= root.bottom + 0.5.dp)
         assertTrue("ask right ${ask.right}", ask.right <= root.right + 0.5.dp)
     }
@@ -199,9 +202,11 @@ class NowPlayingP0LayoutTest {
         val keys = lyricKeyBounds()
         assertKeys(keys, rootWidth = 568.dp)
         assertClearOfTabs(keys)
-        // The rating lies under the cover: a bar at least 120dp long, not a ball.
+        // PR 3: no rating bar lying under the cover any more — it stands at the cover's side as everywhere
+        // (taller than wide), clear of the lyric keys.
         val rating = rule.onNode(ratingBar).getBoundsInRoot()
-        assertTrue("rating ${rating.right - rating.left}", rating.right - rating.left >= 120.dp - 0.5.dp)
+        assertTrue("rating ${rating.right - rating.left} × ${rating.bottom - rating.top}", rating.bottom - rating.top > rating.right - rating.left)
+        keys.forEach { key -> assertTrue("rating under key $key", rating.right <= key.left) }
     }
 
     @Config(qualifiers = "w915dp-h412dp-land")
@@ -273,6 +278,10 @@ class NowPlayingP0LayoutTest {
         keys.zipWithNext().forEach { (a, b) ->
             assertTrue("keys overlap: ${a.right} > ${b.left}", a.right <= b.left + 0.5.dp)
         }
+    }
+
+    private fun tabsBottom(): Dp = rule.onAllNodesWithTag(TextTabTag).fetchSemanticsNodes().maxOf { node ->
+        with(rule.density) { node.boundsInRoot.bottom.toDp() }
     }
 
     private fun assertClearOfTabs(keys: List<DpRect>) {
