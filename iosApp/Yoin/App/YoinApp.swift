@@ -85,6 +85,8 @@ struct RootView: View {
             RestoreLiveActivity.endLeftovers()
             // Offline downloads' Live Activity follows them from here (Data/Cache/DownloadLiveActivity.swift).
             DownloadLiveActivity.shared.start()
+            // Animation QA (`-qaHitches`, `-qaCycle`): runs on both iPhone and iPad.
+            QAProbe.start(model)
             #if DEBUG
             RestoreLiveActivity.startQADemo()
             DownloadLiveActivity.startQADemo()

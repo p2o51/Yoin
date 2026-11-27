@@ -71,11 +71,39 @@ final class CoverArtwork: @unchecked Sendable {
     private let slots = OSAllocatedUnfairLock<[String: Slot]>(initialState: [:])
     @MainActor private var tasks: [String: Task<Void, Never>] = [:]
     /// Decoded images kept in memory; older ones drop their image (the colors stay).
-    private static let memoryLimit = 160
+    /// iPad displays 3–5× as many covers simultaneously, so keep a wider working set.
+    @MainActor private static let memoryLimit: Int = UIDevice.current.userInterfaceIdiom == .pad ? 360 : 160
+    private static let trimHysteresis = 32
     private static let cardImageSize = 48
     private static let cardBlurSigma: Double = 8
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+    private static let decodeLimiter = DecodeLimiter(limit: 4)
     private static let log = Logger(subsystem: "com.gpo.yoin", category: "covers")
+
+    private actor DecodeLimiter {
+        private let limit: Int
+        private var active = 0
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+
+        init(limit: Int) { self.limit = limit }
+
+        func acquire() async {
+            if active < limit {
+                active += 1
+                return
+            }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func release() {
+            if !waiters.isEmpty {
+                let next = waiters.removeFirst()
+                next.resume()
+            } else {
+                active = max(0, active - 1)
+            }
+        }
+    }
 
     func slot(_ ref: CoverRef) -> Slot {
         if let existing = slots.withLock({ $0[ref.key] }) {
@@ -148,7 +176,7 @@ final class CoverArtwork: @unchecked Sendable {
     @MainActor
     private func trimMemory() {
         let loaded = slots.withLock { $0.values.filter { $0.image != nil } }
-        guard loaded.count > Self.memoryLimit else { return }
+        guard loaded.count > Self.memoryLimit + Self.trimHysteresis else { return }
         for s in loaded.sorted(by: { $0.lastUse < $1.lastUse }).prefix(loaded.count - Self.memoryLimit) {
             s.image = nil
             s.cardImage = nil
@@ -164,15 +192,25 @@ final class CoverArtwork: @unchecked Sendable {
         return dir
     }()
 
+    private static let hexDigits: [UInt8] = Array("0123456789abcdef".utf8)
+
     static func file(for key: String) -> URL {
-        let hash = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: Data(key.utf8))
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(64)
+        for b in digest {
+            bytes.append(hexDigits[Int(b >> 4)])
+            bytes.append(hexDigits[Int(b & 0x0f)])
+        }
+        let hash = String(decoding: bytes, as: UTF8.self)
         return directory.appendingPathComponent(hash)
     }
 
     private static func fetch(_ ref: CoverRef) async -> FetchResult? {
         let file = file(for: ref.key)
         let sidecar = file.appendingPathExtension("colors")
-        if let disk = await Task.detached(priority: .userInitiated, operation: { () -> FetchResult? in
+        await decodeLimiter.acquire()
+        let disk = await Task.detached(priority: .userInitiated, operation: { () -> FetchResult? in
             guard let data = try? Data(contentsOf: file),
                   let image = decode(data, maxPixel: 640) else { return nil }
             let card = makeCardImage(from: image)
@@ -182,7 +220,9 @@ final class CoverArtwork: @unchecked Sendable {
                 try? encodeColors(computed).write(to: sidecar, options: .atomic)
             }
             return FetchResult(image: image, cardImage: card, colors: loadedColors, fromDisk: true)
-        }).value {
+        }).value
+        await decodeLimiter.release()
+        if let disk {
             return disk
         }
 
@@ -196,7 +236,8 @@ final class CoverArtwork: @unchecked Sendable {
             return nil
         }
 
-        return await Task.detached(priority: .userInitiated) {
+        await decodeLimiter.acquire()
+        let decoded = await Task.detached(priority: .userInitiated) { () -> FetchResult? in
             guard let image = decode(body, maxPixel: 640) else { return nil }
             let card = makeCardImage(from: image)
             let computed = colors(of: image)
@@ -206,6 +247,8 @@ final class CoverArtwork: @unchecked Sendable {
             }
             return FetchResult(image: image, cardImage: card, colors: computed, fromDisk: false)
         }.value
+        await decodeLimiter.release()
+        return decoded
     }
 
     /// Downsampled decode (ImageIO thumbnail, orientation applied).

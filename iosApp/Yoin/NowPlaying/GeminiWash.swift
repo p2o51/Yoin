@@ -18,12 +18,13 @@ struct GeminiWash: View {
     @State private var changedAt = Date.distantPast
     @State private var from: Double = 0
     @State private var target: Double = 0
+    @State private var settleTask: Task<Void, Never>?
 
     private static let ramp: TimeInterval = 0.6
 
     var body: some View {
         let live = active || target > 0 || from > 0
-        TimelineView(.animation(paused: !live)) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !live)) { ctx in
             let f = envelope(ctx.date)
             Canvas { gc, size in
                 guard f > 0.001 else { return }
@@ -33,6 +34,11 @@ struct GeminiWash: View {
         .allowsHitTesting(false)
         .onAppear { if active { set(1) } }
         .onChange(of: active) { _, on in set(on ? 1 : 0) }
+        .onDisappear {
+            settleTask?.cancel()
+            settleTask = nil
+            if !active { from = 0; target = 0 }
+        }
     }
 
     private func set(_ to: Double) {
@@ -40,6 +46,15 @@ struct GeminiWash: View {
         from = envelope(now)
         target = to
         changedAt = now
+        settleTask?.cancel()
+        settleTask = nil
+        if to == 0 {
+            settleTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Self.ramp + 0.05))
+                guard !Task.isCancelled, target == 0 else { return }
+                from = 0
+            }
+        }
     }
 
     /// Smoothstep from `from` to `target` over the ramp (the slow effects feel).
@@ -81,8 +96,10 @@ struct GeminiWash: View {
         let dx = sin(t / 3100) * w * 0.08
         bloom(&gc, CGPoint(x: w * 0.12 + dx, y: h * 0.04), w * 0.78, hsl(hueB, 1), a * 0.85)
         bloom(&gc, CGPoint(x: w * 0.92 - dx, y: h * 0.10), w * 0.70, hsl(hueC, 1), a * 0.75)
-        // Fine dots where the wash fades out.
-        let grid = 6.0, rMax = 1.3
+        // Fine dots where the wash fades out. Scale spacing on large iPad canvases so CPU path
+        // construction stays bounded instead of adding ~17,000 ellipses per frame.
+        let grid = w > 600 ? 12.0 : 6.0
+        let rMax = w > 600 ? 1.8 : 1.3
         let y0 = depth * 0.55, y1 = depth + h * 0.14
         let dot = hsl(hueB, (dark ? 0.55 : 0.45) * frac, dark ? 0.7 : 0.62)
         var dots = Path()

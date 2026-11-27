@@ -464,10 +464,23 @@ final class LibraryStore {
 
     /// The account's album memories (the Home lists' albums known too), for
     /// the Memories bubble and deck. Signed out: none (the mock deck stands in).
+    /// Memoized via `withObservationTracking` like `home` so frequent readers
+    /// (HomeView.pill, WidgetPublisher) never re-aggregate history on every pass.
     var memories: [AlbumMemory] {
-        guard isReal else { return [] }
-        return HomeHistory.memories(historyInputs(extra: homeListAlbums))
+        let revision = memoriesRevision
+        if let cached = memoriesCache, cached.revision == revision { return cached.value }
+        let value: [AlbumMemory] = withObservationTracking {
+            guard isReal else { return [] }
+            return HomeHistory.memories(historyInputs(extra: homeListAlbums))
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { self?.memoriesRevision &+= 1 }
+        }
+        memoriesCache = (revision, value)
+        return value
     }
+
+    private var memoriesRevision = 0
+    @ObservationIgnored private var memoriesCache: (revision: Int, value: [AlbumMemory])?
 
     /// Every album the Home lists carry (so a memory knows its cover and counts).
     private var homeListAlbums: [Album] {
@@ -483,10 +496,21 @@ final class LibraryStore {
 
     /// The account's written notes (Android `countNotes`: blank notes don't count).
     var noteCount: Int {
-        guard isReal else { return 0 }
-        let provider = provider
-        return notes.notes.filter { $0.provider == provider && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        let revision = noteCountRevision
+        if let cached = noteCountCache, cached.revision == revision { return cached.value }
+        let value: Int = withObservationTracking {
+            guard isReal else { return 0 }
+            let provider = provider
+            return notes.notes.filter { $0.provider == provider && !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        } onChange: { [weak self] in
+            DispatchQueue.main.async { self?.noteCountRevision &+= 1 }
+        }
+        noteCountCache = (revision, value)
+        return value
     }
+
+    private var noteCountRevision = 0
+    @ObservationIgnored private var noteCountCache: (revision: Int, value: Int)?
 
     /// What the Memories deck reads: the memories, each album's notes (by the
     /// plays' and loaded track lists' song → album), reviews, titles, ratings.

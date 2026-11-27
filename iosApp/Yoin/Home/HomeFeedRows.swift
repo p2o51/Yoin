@@ -248,12 +248,21 @@ extension View {
     /// Two columns: exactly [units] grid units tall ([height] while a unit drag runs), the content top-aligned in
     /// it and cut off at the bottom (sideways it may still bleed, as a full row's shelves do). One column: as it is.
     @ViewBuilder
-    func homeGridBox(_ units: Int?, height: CGFloat? = nil) -> some View {
+    func homeGridBox(_ units: Int?, height: CGFloat? = nil, half: Bool = false) -> some View {
         if let units {
             let h = height ?? HomeGrid.height(units: units)
-            frame(height: h, alignment: .top)
+            let sized = frame(height: h, alignment: .top)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
-                .mask(alignment: .top) { Rectangle().frame(width: 20_000, height: h) }
+            if half {
+                // Half-row sections never bleed sideways: hardware rect clip, zero offscreen mask.
+                sized.clipped()
+            } else if height != nil {
+                // Live vertical unit-resize drag on a full-width row: clip vertically while allowing horizontal shelf bleed.
+                sized.mask(alignment: .top) { Rectangle().frame(width: 3000, height: h) }
+            } else {
+                // Resting full-width rows already match `units` height; skip offscreen alpha masks completely.
+                sized
+            }
         } else {
             self
         }
@@ -350,7 +359,7 @@ struct HomeGridShelf<Lead: View, Content: View>: View {
             VStack(alignment: .leading, spacing: 0) {
                 HomeGridTitleRow(title)
                 ScrollView(.horizontal) {
-                    HStack(alignment: .top, spacing: fullGap) {
+                    LazyHStack(alignment: .top, spacing: fullGap) {
                         if hasLead { leadContent(cell.width) }
                         content(fullGap)
                     }
@@ -384,7 +393,7 @@ struct HomeGridShelf<Lead: View, Content: View>: View {
                 }
             }
             ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: gap) {
+                LazyHStack(alignment: .top, spacing: gap) {
                     if hasLead { leadContent(cell.width).frame(width: cell.width, alignment: .topLeading) }
                     content(gap)
                     if filler > 0 { Color.clear.frame(width: filler, height: 1) }

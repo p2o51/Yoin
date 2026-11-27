@@ -115,17 +115,29 @@ final class WidgetPublisher {
     private func publish(_ input: Input) async {
         guard let folder = WidgetStore.folder else { return }
         let covers = WidgetStore.coversURL(in: folder)
-        try? FileManager.default.createDirectory(at: covers, withIntermediateDirectories: true)
         var used = Set<String>()
         func file(_ ref: CoverRef?) async -> String? {
             guard let ref else { return nil }
             let name = Self.coverName(ref)
             let url = covers.appendingPathComponent(name)
-            if !FileManager.default.fileExists(atPath: url.path) {
+            let exists = await Task.detached(priority: .utility) {
+                FileManager.default.fileExists(atPath: url.path)
+            }.value
+            if !exists {
                 await CoverArtwork.shared.load(ref)
-                guard let image = CoverArtwork.shared.image(ref),
-                      let data = Self.thumbnail(image)?.jpegData(compressionQuality: 0.85) else { return nil }
-                try? data.write(to: url, options: .atomic)
+                guard let image = CoverArtwork.shared.image(ref) else { return nil }
+                let maxPixels = Self.coverPixels
+                let wrote = await Task.detached(priority: .utility) { () -> Bool in
+                    try? FileManager.default.createDirectory(at: covers, withIntermediateDirectories: true)
+                    guard let data = Self.thumbnail(image, maxPixels: maxPixels)?.jpegData(compressionQuality: 0.85) else { return false }
+                    do {
+                        try data.write(to: url, options: .atomic)
+                        return true
+                    } catch {
+                        return false
+                    }
+                }.value
+                guard wrote else { return nil }
             }
             used.insert(name)
             return name
@@ -146,11 +158,18 @@ final class WidgetPublisher {
         }
         guard !Task.isCancelled else { return }
         let snapshot = WidgetSnapshot(account: input.account, play: play, memories: memories, neutral: Self.neutral())
-        guard Self.shouldWrite(old: WidgetStore.read(from: folder), new: snapshot),
-              let data = try? WidgetStore.encode(snapshot) else { return }
-        try? data.write(to: WidgetStore.snapshotURL(in: folder), options: .atomic)
-        Self.removeCovers(in: covers, keeping: used)
-        WidgetCenter.shared.reloadAllTimelines()
+        let usedCovers = used
+        let didWrite = await Task.detached(priority: .utility) { () -> Bool in
+            try? FileManager.default.createDirectory(at: covers, withIntermediateDirectories: true)
+            guard Self.shouldWrite(old: WidgetStore.read(from: folder), new: snapshot),
+                  let data = try? WidgetStore.encode(snapshot) else { return false }
+            try? data.write(to: WidgetStore.snapshotURL(in: folder), options: .atomic)
+            Self.removeCovers(in: covers, keeping: usedCovers)
+            return true
+        }.value
+        if didWrite {
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     /// Reload only for a real change: the same snapshot again (the app opened, a row re-read) costs nothing.
@@ -162,10 +181,10 @@ final class WidgetPublisher {
         return digest.prefix(12).map { String(format: "%02x", $0) }.joined() + ".jpg"
     }
 
-    private static func thumbnail(_ image: UIImage) -> UIImage? {
+    nonisolated private static func thumbnail(_ image: UIImage, maxPixels: CGFloat) -> UIImage? {
         let side = min(image.size.width, image.size.height)
         guard side > 0 else { return nil }
-        let target = min(coverPixels, side * image.scale)
+        let target = min(maxPixels, side * image.scale)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         return UIGraphicsImageRenderer(size: CGSize(width: target, height: target), format: format).image { _ in
@@ -176,7 +195,7 @@ final class WidgetPublisher {
         }
     }
 
-    private static func removeCovers(in folder: URL, keeping used: Set<String>) {
+    nonisolated private static func removeCovers(in folder: URL, keeping used: Set<String>) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         for n in names where !used.contains(n) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(n))
