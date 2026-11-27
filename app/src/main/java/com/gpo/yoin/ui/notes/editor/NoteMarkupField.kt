@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -96,7 +97,11 @@ fun NoteMarkupField(
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     var fieldTopPx by remember { mutableIntStateOf(0) }
     val fieldBounds = remember { FieldBounds() }
-    val output = remember(colors) { NoteEditorOutputTransformation(colors) }
+    // One transformation for the field's whole life: a new one (each frame of a colour spring — the Note
+    // page's filled capsule opening) restarts the field's input session, hiding and re-showing the keyboard
+    // as it rises. The colours are read through state, so a change restyles the words in place.
+    val latestColors = rememberUpdatedState(colors)
+    val output = remember { NoteEditorOutputTransformation { latestColors.value } }
     val trigger = state.trigger
     var rows by remember { mutableStateOf(MentionCandidates.Empty) }
     var loading by remember { mutableStateOf(false) }
@@ -303,8 +308,12 @@ private const val QueryDebounceMs = 160L
 private const val PopupRowsPerKind = 5
 
 /** The stored text as the editor shows it: [NoteEditorDisplay]'s replacements and spans. */
-internal class NoteEditorOutputTransformation(private val colors: NoteEditorColors) : OutputTransformation {
+internal class NoteEditorOutputTransformation(
+    // Read on each pass (snapshot state), so the instance can stay the same while the colours change.
+    private val colorsNow: () -> NoteEditorColors,
+) : OutputTransformation {
     override fun TextFieldBuffer.transformOutput() {
+        val colors = colorsNow()
         val display = NoteEditorDisplay.of(asCharSequence().toString())
         display.replacements.asReversed().forEach { replace(it.start, it.end, it.shown) }
         display.styles.forEach { range ->
@@ -330,8 +339,4 @@ internal class NoteEditorOutputTransformation(private val colors: NoteEditorColo
             }
         }
     }
-
-    override fun equals(other: Any?): Boolean = other is NoteEditorOutputTransformation && other.colors == colors
-
-    override fun hashCode(): Int = colors.hashCode()
 }
