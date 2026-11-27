@@ -14,6 +14,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
@@ -34,15 +35,16 @@ sealed interface MetaGroup {
 
 /**
  * How many leading groups fit in [maxWidth]. Groups are dropped from the end,
- * whole. A group wider than the line is dropped too, so the result can be 0.
- * [gapPx] is the space between groups, not inside one.
+ * whole. The first group always stays (MetaLine cuts it to the line with an
+ * ellipsis): dropping it left a playlist row with a long artist credit showing
+ * neither artist nor album. [gapPx] is the space between groups, not inside one.
  */
 internal fun metaLineVisibleCount(groupWidths: List<Int>, gapPx: Int, maxWidth: Int): Int {
     if (groupWidths.isEmpty() || maxWidth <= 0) return 0
     var used = 0
     var count = 0
     for (width in groupWidths) {
-        val next = if (count == 0) width else used + gapPx + width
+        val next = if (count == 0) minOf(width, maxWidth) else used + gapPx + width
         if (next > maxWidth) return count
         used = next
         count++
@@ -77,8 +79,11 @@ fun MetaLine(
         // Every group is measured at its natural width, then the ones that fit are placed. Not intrinsics:
         // asking for a group's intrinsic width and then not measuring it (a dropped group) left the
         // ticket's line re-measuring without end when the page's width changed under Now Playing (ANR).
+        // The first group is held to the line's width instead, so a group longer than the
+        // whole line ends in an ellipsis rather than leaving the line empty.
         val natural = Constraints(maxHeight = constraints.maxHeight)
-        val measured = measurables.map { it.measure(natural) }
+        val firstFit = Constraints(maxWidth = constraints.maxWidth, maxHeight = constraints.maxHeight)
+        val measured = measurables.mapIndexed { i, it -> it.measure(if (i == 0) firstFit else natural) }
         val count = metaLineVisibleCount(measured.map(Placeable::width), gapPx, constraints.maxWidth)
         val placeables = measured.take(count)
         val width = placeables.fold(0) { acc, placeable ->
@@ -183,6 +188,7 @@ private fun MetaGroupText(
             color = if (group.muted) ink.copy(alpha = ink.alpha * 0.6f) else ink,
             maxLines = maxLines,
             softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             modifier = modifier,
         )
         // The line's own size (a fixed labelSmall read a size smaller than the
@@ -198,6 +204,7 @@ private fun MetaGroupText(
             },
             maxLines = maxLines,
             softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             modifier = modifier,
         )
     }
@@ -212,6 +219,19 @@ private fun MetaLinePreview() {
                 MetaGroup.Plain("2024"),
                 MetaGroup.Stat("12", "tracks"),
                 MetaGroup.Stat("44", "min"),
+            ),
+        )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 160, name = "Cuts a first group longer than the line")
+@Composable
+private fun MetaLineLongFirstGroupPreview() {
+    YoinTheme {
+        MetaLine(
+            groups = listOf(
+                MetaGroup.Plain("SKAI ISYOURGOD, 步步高先生, 阿牛 & Friends"),
+                MetaGroup.Plain("善恶终有报", muted = true),
             ),
         )
     }

@@ -19,8 +19,11 @@ class MetaLineTest {
     }
 
     @Test
-    fun should_dropTheOnlyGroup_when_itIsWiderThanTheLine() {
-        assertEquals(0, metaLineVisibleCount(listOf(80), gapPx = 12, maxWidth = 50))
+    fun should_keepTheFirstGroup_when_itIsWiderThanTheLine() {
+        // A playlist row whose artist credit is longer than the row (S25 ticket): the line kept
+        // nothing and the row lost its artist and album both. The first group stays, cut to the line.
+        assertEquals(1, metaLineVisibleCount(listOf(80), gapPx = 12, maxWidth = 50))
+        assertEquals(1, metaLineVisibleCount(listOf(80, 10), gapPx = 12, maxWidth = 50))
     }
 
     @Test
