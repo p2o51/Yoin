@@ -50,11 +50,15 @@ struct PadShell: View {
                     // Inside the shell's plane: it recedes with the shell.
                     NowPlayingView(npNamespace: npNS, panel: true)
                         .frame(width: panelWidth)
-                        .clipShape(.rect(cornerRadius: 28))
-                        .padding([.vertical, .trailing], AppModel.padPanelInset)
+                        // Full bleed to the window's top, bottom and trailing edges (no inset card): its
+                        // room's colours run behind the status bar and the home indicator as Full's do, with a
+                        // hairline where it meets the columns.
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(Yoin.outline.opacity(0.35)).frame(width: 0.5).ignoresSafeArea()
+                        }
                         // Where Full grows out of when the panel goes Full (and folds back into).
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global).insetBy(dx: 0, dy: 0) } action: { r in
-                            model.np.panelFrame = r.inset(by: UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 8))
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                            model.np.panelFrame = r
                         }
                         // Android OverlayPlayerVisibility: in and out by its own width, no fade, on the
                         // spring the columns give way on.

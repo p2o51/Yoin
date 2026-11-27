@@ -680,7 +680,7 @@ struct NowPlayingView: View, Equatable {
     private var page: some View {
         ZStack {
             if panel {
-                pageGradient.ignoresSafeArea()
+                panelBase
             } else if npMorph == nil {
                 base
             }
@@ -807,10 +807,16 @@ struct NowPlayingView: View, Equatable {
 
     // MARK: Background (iOS)
 
-    /// Android page background: vertical gradient surfaceContainer → background
-    /// (NowPlayingAuroraBackground.kt:402). Used by the iPad panel.
-    private var pageGradient: LinearGradient {
-        LinearGradient(colors: [scheme.surfaceContainer, scheme.background], startPoint: .top, endPoint: .bottom)
+    /// The iPad side panel's room: Full's frosted glass over the neighbouring albums' colours (not the flat
+    /// surfaceContainer → background gradient it had, which read as a card stuck on the window), edge to edge.
+    /// No matched geometry: Full is the morph's source.
+    private var panelBase: some View {
+        ZStack {
+            neighbourAmbient
+            Rectangle().fill(.clear)
+                .labGlass("npBackground", scheme: scheme, brand: brand, auto: scheme.background, in: Rectangle())
+        }
+        .ignoresSafeArea()
     }
 
     /// Frosted glass over the albums around this one: previous album's color

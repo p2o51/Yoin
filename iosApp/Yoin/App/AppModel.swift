@@ -1042,21 +1042,18 @@ final class AppModel {
     /// iPad: whether the side panel fits beside the columns (Android: window − panel ≥ 744).
     var padPanelFits: Bool { Self.padPanelFits(window: padWidth, columnOpen: padColumnOpen) }
 
-    /// The rule itself: what is left beside the panel and its inset (PadShell pads it 8 from the edge) is
-    /// one column, or two columns and the handle while a detail column is out. A 1/2 Split View on a 13" (683)
-    /// leaves 315: no panel there, Full instead (Android: "1/2 分屏 Panel 不可用"); an iPad mini keeps it (364).
+    /// The rule itself: what is left beside the panel is one column, or two columns and the handle while a
+    /// detail column is out. A 1/2 Split View on a 13" (683) leaves 323: no panel there, Full instead
+    /// (Android: "1/2 分屏 Panel 不可用"); an iPad mini keeps it (372).
     static func padPanelFits(window: CGFloat, columnOpen: Bool) -> Bool {
-        window - padPanelWidth(window) - padPanelInset >= (columnOpen ? padTwoColumnsMin : padPanelBesideMin)
+        window - padPanelWidth(window) >= (columnOpen ? padTwoColumnsMin : padPanelBesideMin)
     }
-
-    /// The panel's margin from the window's trailing edge (PadShell).
-    static let padPanelInset: CGFloat = 8
 
     /// The side panel's width (Android: clamp(window × 0.5, 360, 420)).
     static func padPanelWidth(_ window: CGFloat) -> CGFloat { min(max(window * 0.5, 360), 420) }
     /// What the panel must leave beside it: one column, or two columns and the slot (744) while a detail
     /// column is open. The column is the 360 the split's own columns never go under (PadColumns), not
-    /// Android's 320: at 315 beside the panel Home's cards broke their text a letter a line (iPad audit
+    /// Android's 320: at 315–323 beside the panel Home's cards broke their text a letter a line (iPad audit
     /// 2026-11-27, 13" Split View 1/2).
     static let padPanelBesideMin: CGFloat = 360
     static let padTwoColumnsMin: CGFloat = 744

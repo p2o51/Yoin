@@ -39,7 +39,7 @@ final class NowPlayingPresentation {
     /// iPad: the side panel's global frame and corner radius. While `fromPanel`, the morph grows out of
     /// the panel (and folds back into it) instead of the pill: Android's Panel ⇄ Full.
     var panelFrame: CGRect = .zero
-    var panelRadius: CGFloat = 28
+    var panelRadius: CGFloat = 0
     var fromPanel = false
 
     /// Global frames of the bar's pill and its cover / title: where the page folds into and its cover
