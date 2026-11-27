@@ -174,6 +174,13 @@ private struct PadDock: View {
         .padding(.horizontal, PadDockMetrics.side)
         .animation(Yoin.spatial, value: showsPlayer)
         .padding(.bottom, PadDockMetrics.bottom)
+        // Two-pane Settings covers the window as a pushed page does (Android: an Activity of its own, no
+        // bar): the dock steps down out of the window instead of floating over its rows and fields, and
+        // comes back up when Settings closes. Moved, not faded: the glass ignores a zero opacity.
+        .offset(y: model.settingsSplitShown ? PadDockMetrics.height + PadDockMetrics.bottom + 24 : 0)
+        .allowsHitTesting(!model.settingsSplitShown)
+        .accessibilityHidden(model.settingsSplitShown)
+        .animation(Yoin.spatial, value: model.settingsSplitShown)
         // Memories (pulled down over Home) takes the whole window, as on the phone: the dock leaves on
         // the pull itself.
         .modifier(MemoriesBarRetreat(presentation: model.memories,
