@@ -387,7 +387,8 @@ struct HomeView: View {
         let rows = HomeGrid.rows(shown, pairs: edit.pairs, twoColumn: true)
         let layout = edit.shown
         let resize = edit.resize
-        let units = rows.map { layout.units(ofRow: $0) }
+        let lyricIntro = HomeGrid.lyricIntroPending
+        let units = rows.map { HomeGrid.shownUnits(layout.units(ofRow: $0), row: $0, lyricIntro: lyricIntro) }
         let heights = rows.enumerated().map { r, row in resize.liveHeight(row) ?? HomeGrid.height(units: units[r]) }
         let liveSpan = rows.lazy.compactMap { resize.liveSpan($0) }.first
         let enabled = layout.shownSections
@@ -403,7 +404,8 @@ struct HomeView: View {
                                     height: heights[r])
                 HomeEditBlock(edit: edit, section: section, index: i, covers: covers(section, feed),
                               count: shown.count,
-                              place: HomeGridPlace.of(section, rows: rows, enabledOrder: enabled, fullWidth: density.content, layout: layout)) {
+                              place: HomeGridPlace.of(section, rows: rows, enabledOrder: enabled, fullWidth: density.content, layout: layout,
+                                                      lyricIntro: lyricIntro)) {
                     sectionView(section, feed, cell)
                 }
             }

@@ -87,10 +87,25 @@ enum HomeGrid {
         return r.count == 2 ? r[0]...r[1] : 1...1
     }
 
-    /// The range a row's handle drags over: [left]'s own, or the overlap with [right].
-    static func rowUnitRange(_ left: HomeSection, _ right: HomeSection?) -> ClosedRange<Int> {
+    /// The range a row's handle drags over: [left]'s own, or the overlap with [right]. One unit while Lyric
+    /// Cards' beta intro stands in the row ([lyricIntro], see `shownUnits`).
+    static func rowUnitRange(_ left: HomeSection, _ right: HomeSection?, lyricIntro: Bool = false) -> ClosedRange<Int> {
+        if lyricIntro && (left == .lyricHighlight || right == .lyricHighlight) { return 1...1 }
         let r = core.rowUnitRange(left: left.id, right: right?.id).map(\.intValue)
         return r.count == 2 ? r[0]...r[1] : 1...1
+    }
+
+    /// A row's units as drawn (iPad round 2, owner 2026-11-27): while Lyric Cards shows only its beta intro (no
+    /// answer yet), the intro takes one grid cell and so does its row, so the half beside it has no hole under it.
+    /// Every section's range starts at one, so its partner always fits. The layout's own count is kept.
+    static func shownUnits(_ units: Int, row: [HomeSection], lyricIntro: Bool) -> Int {
+        lyricIntro && row.contains(.lyricHighlight) ? 1 : units
+    }
+
+    /// Lyric Cards' beta intro is up (not answered, not on): `shownUnits`.
+    @MainActor static var lyricIntroPending: Bool {
+        let store = LyricHighlightStore.shared
+        return !store.introSeen && !store.optedIn
     }
 
     /// The count in [range] whose height is nearest [height].

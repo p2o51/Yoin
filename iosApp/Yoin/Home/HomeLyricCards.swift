@@ -41,14 +41,15 @@ struct HomeLyricCardsSection: View {
     }
 
     /// On the grid (Android LyricUnitSection): the title row, then whole cards a page, one in a half and two in a
-    /// full row, each exactly the box's height under the title row; the intro sized to the box the same way.
+    /// full row, each exactly the box's height under the title row. The intro takes one grid cell and fills it
+    /// (its row is one unit then, HomeGrid.shownUnits; iPad round 2: the half beside it had a hole under it).
     @ViewBuilder
     private func grid(_ cell: HomeCell, units: Int, _ s: CoverScheme) -> some View {
         let height = HomeGrid.content(units: min(max(units, 1), 2))
         if demo == nil, !store.introSeen && !store.optedIn {
             VStack(alignment: .leading, spacing: 0) {
                 HomeGridTitleRow(HomeSection.lyricHighlight.title)
-                intro(s).frame(maxWidth: .infinity, maxHeight: height, alignment: .topLeading)
+                intro(s, inCell: true).frame(maxWidth: .infinity, maxHeight: HomeGrid.content(units: 1), alignment: .topLeading)
             }
         } else {
             let perPage = cell.half ? 1 : 2
@@ -136,38 +137,52 @@ struct HomeLyricCardsSection: View {
     // MARK: Intro
 
     /// The beta's first-use offer: compact, phone-wide on a tablet, the model's state folded into one line.
-    private func intro(_ s: CoverScheme) -> some View {
+    /// [inCell] (two-column Home): one grid cell, filled, its buttons beside the title so the words keep the rest.
+    private func intro(_ s: CoverScheme, inCell: Bool = false) -> some View {
         let status = processor.status ?? processor.checkNow()
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("Beta").homeType(Tokens.type.labelSmall, .semibold).foregroundStyle(s.onPrimaryContainer)
                     .padding(.horizontal, 7).frame(height: 18).background(s.primaryContainer, in: .capsule)
                 Text("You found a beta feature").homeType(Tokens.type.titleSmall, .semibold).foregroundStyle(s.onSurface)
+                    .lineLimit(1)
+                if inCell {
+                    Spacer(minLength: 8)
+                    introButtons(status, s)
+                }
             }
             Text(LabsCopy.introBody + " " + LabsCopy.introStatus(status))
                 .homeType(Tokens.type.bodySmall).foregroundStyle(s.onSurfaceVariant)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Spacer()
-                if status == .unsupported {
-                    introButton(String(localized: "Got it"), prominent: false, scheme: s) {
-                        withAnimation(Yoin.spatial) { store.introSeen = true }
-                    }
-                } else {
-                    introButton(String(localized: "Not now"), prominent: false, scheme: s) {
-                        withAnimation(Yoin.spatial) { store.introSeen = true }
-                    }
-                    introButton(String(localized: "Turn on"), prominent: true, scheme: s) {
-                        withAnimation(Yoin.spatial) { processor.optIn() }
-                    }
+                .lineLimit(inCell ? 5 : nil)
+                .fixedSize(horizontal: false, vertical: !inCell)
+            if !inCell {
+                HStack(spacing: 8) {
+                    Spacer()
+                    introButtons(status, s)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .frame(maxWidth: 560, alignment: .leading)
+        .frame(maxWidth: inCell ? .infinity : 560, maxHeight: inCell ? .infinity : nil, alignment: .topLeading)
         .background(s.surfaceContainerLow, in: .rect(cornerRadius: 24))
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
+    @ViewBuilder
+    private func introButtons(_ status: OnDeviceModelStatus, _ s: CoverScheme) -> some View {
+        if status == .unsupported {
+            introButton(String(localized: "Got it"), prominent: false, scheme: s) {
+                withAnimation(Yoin.spatial) { store.introSeen = true }
+            }
+        } else {
+            introButton(String(localized: "Not now"), prominent: false, scheme: s) {
+                withAnimation(Yoin.spatial) { store.introSeen = true }
+            }
+            introButton(String(localized: "Turn on"), prominent: true, scheme: s) {
+                withAnimation(Yoin.spatial) { processor.optIn() }
+            }
+        }
     }
 
     /// Crisp Material capsule inside the opaque intro card (avoids `.buttonStyle(.glass)` lens blur on cards).
