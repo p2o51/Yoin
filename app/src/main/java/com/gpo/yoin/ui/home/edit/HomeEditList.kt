@@ -36,10 +36,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.util.lerp
+import com.gpo.yoin.ui.experience.smoothstep
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
@@ -59,6 +63,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.cachedBackdropColors
 import com.gpo.yoin.ui.component.handPointer
+import com.gpo.yoin.shared.home.DragItemBand
 import com.gpo.yoin.shared.home.HomeFeedRow
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.titleRes
@@ -67,7 +72,12 @@ import kotlinx.coroutines.Job
 
 // Home edit mode's compact list (owner 2026-11-22): a two-finger pinch in
 // folds the feed into one strip per section (two columns: two half strips
-// per pair, as the feed pairs them), a pinch out unfolds it. The strips are
+// per pair, as the feed pairs them), a pinch out unfolds it. The fold is a
+// morph, not a crossfade (owner 2026-11-27): each block's plate shrinks into
+// its strip from where the block is on screen, top to bottom one after
+// another, while the block's cards sink and fade under it and the strip's
+// covers and title come up inside; the way back runs the same path in
+// reverse (homeListMorph). Reduced motion keeps the plain fade. The strips are
 // reordered by dragging, as the feed's blocks are (HomeDragEngine), and a
 // finger near the top or bottom scrolls the list. Hide works on each strip;
 // the hidden ones and Reset follow under the strips, as in the feed.
@@ -83,8 +93,32 @@ internal object HomeEditListTokens {
     /** Let go this far of the way (or further) and the change finishes; short of it, it springs back. */
     const val PinchCommit = com.gpo.yoin.shared.home.HomeListPinchRules.PinchCommit
 
-    /** The strips grow into place from this scale as the list comes in. */
-    const val EnterScale = .94f
+    /**
+     * The fold's stagger: a block at the bottom of the screen starts this far into the progress after
+     * one at the top (lanes in between, in proportion), so the blocks fold one after another.
+     */
+    const val MorphSpread = .32f
+
+    /** A block's cards are gone by this much of its own morph… */
+    const val MorphFeedOut = .5f
+
+    /** …and sink to this scale on the way. */
+    const val MorphFeedScale = .94f
+
+    /** The strip's plate is fully there by this much of its morph… */
+    const val MorphPlateIn = .22f
+
+    /** …its covers, title and buttons come in from this much… */
+    const val MorphContentIn = .45f
+
+    /** …growing from this scale. */
+    const val MorphContentScale = .9f
+
+    /** The spring's overshoot past the list carries on into the strips' plates, this many times over. */
+    const val MorphOvershootGain = 3f
+
+    /** A strip whose block is off screen rises from this many strip heights below its place. */
+    const val MorphOffscreenRise = .75f
 
     val RowHeight = 64.dp
 
@@ -101,6 +135,120 @@ internal object HomeEditListTokens {
 
 /** The list's progress for a pinch at [scale] begun [fromOn] ([com.gpo.yoin.shared.home.homeListPinchProgress]). Pure. */
 internal fun homeListPinchProgress(fromOn: Boolean, scale: Float): Float = com.gpo.yoin.shared.home.homeListPinchProgress(fromOn, scale)
+
+/**
+ * One block's own fold at the list's [progress] (0 feed … 1 list; the spring may overshoot either end),
+ * the block at [lane] (0 the top of the scroll area … 1 its bottom): it starts
+ * [HomeEditListTokens.MorphSpread] × [lane] in, and runs the rest of the way in step with the others.
+ * 0 = the block, 1 = the strip; past 1 only while the spring overshoots the list. Pure.
+ */
+internal fun homeListMorph(progress: Float, lane: Float): Float {
+    val spread = HomeEditListTokens.MorphSpread
+    val delay = lane.coerceIn(0f, 1f) * spread
+    val own = ((progress - delay) / (1f - spread)).coerceIn(0f, 1f)
+    return own + (progress - 1f).coerceAtLeast(0f) * HomeEditListTokens.MorphOvershootGain
+}
+
+/** Where [top] (px in the feed's Box) falls down the scroll area [area]: 0 its top … 1 its bottom. Pure. */
+internal fun homeListLane(top: Float, area: HomeEditSafeArea): Float {
+    val height = area.bottom - area.top
+    return if (height <= 0f) 0f else ((top - area.top) / height).coerceIn(0f, 1f)
+}
+
+/**
+ * A feed block's own fold (0 the block … 1 gone into its strip) while the list comes or goes, its row's top at
+ * [rowTop] in the feed's Box (null: lane 0); 0 while the list is off or under [reduced] motion. Layer only:
+ * it reads the list's progress only while the list shows, so the blocks' layers stay still otherwise.
+ */
+internal fun HomeDragEngine.feedFold(rowTop: Float?, reduced: Boolean): Float {
+    if (reduced || !list.shown) return 0f
+    val p = list.progress.value
+    val area = host?.scrollArea() ?: return p.coerceIn(0f, 1f)
+    return homeListMorph(p, rowTop?.let { homeListLane(it, area) } ?: 0f).coerceIn(0f, 1f)
+}
+
+/** A strip's plate on its way between its block ([e] 0) and itself ([e] 1), in the strip's own px. */
+@Immutable
+internal data class StripMorph(val e: Float, val left: Float, val top: Float, val right: Float, val bottom: Float) {
+    val centerY: Float get() = (top + bottom) / 2f
+}
+
+/**
+ * Where [rowFirst]'s block is in the feed for the fold: its laid-out band, or, off screen, whether it is
+ * below what the feed shows (true) or above it.
+ */
+private class FeedPlace(val band: DragItemBand?, val below: Boolean)
+
+private fun HomeDragEngine.feedPlace(rowFirst: HomeSection): FeedPlace? {
+    val feed = host ?: return null
+    feed.rowBand(rowFirst)?.let { return FeedPlace(it, below = false) }
+    val order = feed.order()
+    val shown = feed.visibleRows().map { order.indexOf(it.key) }.filter { it >= 0 }
+    val index = order.indexOf(rowFirst)
+    return FeedPlace(null, below = shown.isEmpty() || index > shown.min())
+}
+
+/**
+ * [rowFirst]'s own fold at this frame ([homeListMorph] at its block's lane: a block off screen below the
+ * feed's view folds last, one above it first); 1 while the list rests or is off.
+ */
+private fun HomeDragEngine.stripFold(rowFirst: HomeSection, place: FeedPlace?): Float {
+    if (!list.shown) return 1f
+    val p = list.progress.value
+    if (p == 1f) return 1f
+    val area = host?.scrollArea()
+    val lane = when {
+        place?.band != null && area != null -> homeListLane(place.band.top, area)
+        place?.below == false -> 0f
+        else -> 1f
+    }
+    return homeListMorph(p, lane)
+}
+
+/**
+ * The strips' draw order through the fold: the one still furthest from its place on top, so a strip
+ * travelling up from a block lower on the page passes over the ones already landed rather than under
+ * them. 0 at rest. Placement only.
+ */
+internal fun HomeDragEngine.stripFoldZ(rowFirst: HomeSection): Float {
+    if (!list.shown || list.progress.value == 1f) return 0f
+    return (1f - stripFold(rowFirst, feedPlace(rowFirst))).coerceIn(0f, .99f)
+}
+
+/**
+ * The strip of [rowFirst]'s row ([width] × [height]) at this frame of the fold: its plate from the feed
+ * block's plate (the block's row, grown by [outsetH] / [outsetV]) to its own bounds, by [homeListMorph] at
+ * the block's lane. A block off screen: the strip comes from below (or above) the view. At rest in the
+ * list: its own bounds.
+ */
+internal fun HomeDragEngine.stripMorph(
+    rowFirst: HomeSection,
+    width: Float,
+    height: Float,
+    outsetH: Float,
+    outsetV: Float,
+): StripMorph {
+    val rest = StripMorph(1f, 0f, 0f, width, height)
+    if (!list.shown || list.progress.value == 1f) return rest
+    val own = listHost?.rowBand(rowFirst) ?: return rest
+    val place = feedPlace(rowFirst)
+    val e = stripFold(rowFirst, place)
+    val feed = place?.band
+    val rise = height * HomeEditListTokens.MorphOffscreenRise
+    val fromTop = when {
+        feed != null -> feed.top - own.top - outsetV
+        place?.below == false -> -rise - height
+        else -> rise
+    }
+    val fromBottom = if (feed != null) feed.bottom - own.top + outsetV else fromTop + height
+    return StripMorph(
+        e = e,
+        left = lerp(-outsetH, 0f, e),
+        top = lerp(fromTop, 0f, e),
+        right = lerp(width + outsetH, width, e),
+        bottom = lerp(fromBottom, height, e),
+    )
+}
 
 /** A pinch begun [fromOn] let go at [progress] lands in the list (true) or the feed. Pure. */
 internal fun homeListSettlesOn(fromOn: Boolean, progress: Float): Boolean = com.gpo.yoin.shared.home.homeListSettlesOn(fromOn, progress)
@@ -327,11 +475,9 @@ internal fun HomeEditList(
                 .fillMaxSize()
                 .graphicsLayer {
                     val p = list.progress.value.coerceIn(0f, 1f)
-                    alpha = p
-                    val scale = if (reduced) 1f else HomeEditListTokens.EnterScale + (1f - HomeEditListTokens.EnterScale) * p
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(.5f, 0f)
+                    // Reduced motion: the list only fades. Otherwise each strip morphs out of its block
+                    // (HomeEditListStrip); the header and the tray come in quickly around them.
+                    alpha = if (reduced) p else smoothstep(0f, HomeEditListTokens.MorphPlateIn * 1.5f, p)
                 },
             contentPadding = contentPadding,
             verticalArrangement = Arrangement.spacedBy(HomeEditListTokens.RowGap),
@@ -364,14 +510,22 @@ internal fun HomeEditList(
                                 placementSpec = if (carried) null else placement,
                                 fadeOutSpec = if (dragOn) null else specs.effectsOut,
                             )
-                            // The carried strip over every row, from its lift until it has landed.
-                            .dragZIndex { if (engine.drawsOnTop(row)) 1f else 0f },
+                            // The carried strip over every row, from its lift until it has landed; through
+                            // the fold, the strips still on their way over the ones landed.
+                            .dragZIndex {
+                                when {
+                                    engine.drawsOnTop(row) -> 1f
+                                    reduced -> 0f
+                                    else -> engine.stripFoldZ(row.first)
+                                }
+                            },
                         horizontalArrangement = Arrangement.spacedBy(HomeSpanTokens.ColumnGap),
                     ) {
                         row.sections().forEach { section ->
                             key(section) {
                                 HomeEditListStrip(
                                     section = section,
+                                    rowFirst = row.first,
                                     index = order.indexOf(section),
                                     count = order.size,
                                     deps = deps,
@@ -408,6 +562,7 @@ internal fun HomeEditList(
 @Composable
 private fun HomeEditListStrip(
     section: HomeSection,
+    rowFirst: HomeSection,
     index: Int,
     count: Int,
     deps: HomeEditDeps,
@@ -417,8 +572,12 @@ private fun HomeEditListStrip(
 ) {
     val engine = deps.engine
     val controller = deps.controller
+    val reduced = deps.specs.reduced
     val colors = MaterialTheme.colorScheme
     val plate = colors.surfaceContainerHigh
+    val density = LocalDensity.current
+    val outsetH = { with(density) { HomeEditTokens.PlateOutsetH.toPx() } }
+    val outsetV = { with(density) { HomeEditTokens.PlateOutsetVMax.toPx() } }
     val liftedPlate = colors.surfaceContainerHighest
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
     val height = HomeEditListTokens.RowHeight * fontScale
@@ -446,10 +605,34 @@ private fun HomeEditListStrip(
                 this.shape = shape
                 clip = false
             }
-            .clip(shape)
+            // The plate: at rest the strip's own; through the fold, the block's plate shrinking into it.
             .drawBehind {
                 val tint = if (engine.liftSection == section) engine.liftTint.value.coerceIn(0f, 1f) else 0f
-                drawRect(lerp(plate, liftedPlate, tint))
+                val color = lerp(plate, liftedPlate, tint)
+                val radius = CornerRadius(HomeEditTokens.PlateRadius.toPx())
+                if (reduced) {
+                    drawRoundRect(color, cornerRadius = radius)
+                    return@drawBehind
+                }
+                val m = engine.stripMorph(rowFirst, size.width, size.height, outsetH(), outsetV())
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(m.left, m.top),
+                    size = Size((m.right - m.left).coerceAtLeast(0f), (m.bottom - m.top).coerceAtLeast(0f)),
+                    cornerRadius = radius,
+                    alpha = smoothstep(0f, HomeEditListTokens.MorphPlateIn, m.e),
+                )
+            }
+            // The covers, title and buttons ride in the plate's middle and come up late in the morph.
+            .graphicsLayer {
+                if (reduced) return@graphicsLayer
+                val m = engine.stripMorph(rowFirst, size.width, size.height, outsetH(), outsetV())
+                if (m.e >= 1f && m.top == 0f) return@graphicsLayer
+                translationY = m.centerY - size.height / 2f
+                alpha = smoothstep(HomeEditListTokens.MorphContentIn, 1f, m.e)
+                val scale = lerp(HomeEditListTokens.MorphContentScale, 1f, m.e.coerceAtMost(1f))
+                scaleX = scale
+                scaleY = scale
             }
             .semantics(mergeDescendants = true) {
                 stateDescription = position

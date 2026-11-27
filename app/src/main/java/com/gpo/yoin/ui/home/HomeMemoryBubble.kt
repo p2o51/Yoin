@@ -667,6 +667,16 @@ internal fun Modifier.memoryBubbleTitle(controller: MemoryBubbleController?): Mo
             }
     }
 
+/**
+ * How far the header's greeting has given way to the bubble (0–1), read in
+ * draw: it shares the free span the bubble unrolls into, so it fades as the
+ * title does and comes back as the bubble flies away. 0 with no controller.
+ */
+internal fun MemoryBubbleController?.greetingAway(): Float {
+    if (this == null) return 0f
+    return smoothstep(0f, 0.45f, unroll.value) * (1f - flyAway.value)
+}
+
 /** Put on the header's spacer between the title and Settings: the bubble ends before it does. */
 internal fun Modifier.memoryBubbleFreeSpan(controller: MemoryBubbleController?): Modifier =
     if (controller == null) {

@@ -89,6 +89,7 @@ internal object HomeDragGolden {
         "edge" -> obj(
             "edge" to JsonPrimitive(dragEdgeOf(v.float("y"), v.float("top"), v.float("bottom"), v.float("edgePx"))),
             "speed" to num(dragAutoScrollSpeed(v.float("y"), v.float("top"), v.float("bottom"), v.float("edgePx"), v.float("minPx"), v.float("maxPx"))),
+            "band" to num(dragEdgeBand(v.float("edgePx"), v.float("top"), v.float("bottom"))),
         )
         "edgeGuard" -> obj(
             "holds" to bool(dragEdgeGuardHolds(v.int("startEdge"), v.float("startY"), v.float("y"), v.float("heldMs"), v.float("pushPx"), v.float("dwellMs"))),
@@ -143,6 +144,7 @@ internal object HomeDragGolden {
         "pairLeft" to num(HomeDragRuleTokens.PairLeft),
         "pairRight" to num(HomeDragRuleTokens.PairRight),
         "autoScrollEdge" to num(HomeDragTokens.AutoScrollEdge),
+        "autoScrollEdgeMaxFraction" to num(HomeDragTokens.AutoScrollEdgeMaxFraction),
         "autoScrollMin" to num(HomeDragTokens.AutoScrollMin),
         "autoScrollMax" to num(HomeDragTokens.AutoScrollMax),
         "edgeStartPush" to num(HomeDragTokens.EdgeStartPush),
@@ -160,8 +162,8 @@ internal object HomeDragGolden {
         "owner 2026-11-22): the drop rules (a half's own row ± 16dp only changes sides across 0.45 / 0.55; over " +
         "another full row its top and bottom quarters make a row of its own, its middle's outer 30% pairs; over a " +
         "pair of two others a row of its own by the row's middle; never three across; no pairing while the edge " +
-        "scroll runs), the half-travel swap, the anchor, the edge scroll (72dp bands, 120 → 900dp/s eased by " +
-        "depth²) and its start guard (8dp push or 180ms rest), the exit rule, the layout catch-up check, the span " +
+        "scroll runs), the half-travel swap, the anchor, the edge scroll (96dp bands, never over a quarter of the " +
+        "area, 200 → 1400dp/s eased by depth²; owner 2026-11-27) and its start guard (4dp push or 120ms rest), the exit rule, the layout catch-up check, the span " +
         "handle and the pinch into the list. Generated from :shared Kotlin by HomeDragGoldenTest (androidHostTest); " +
         "do not edit by hand. Lengths are px unless a name says dp; bands are whole px. Floats are rounded to " +
         "1e-4; compare within 1e-4. NaN is written \"NaN\". A row is one id or [left, right]; an arrangement is " +
@@ -403,6 +405,13 @@ internal object HomeDragGoldenFixtures {
         // The tablet at 2x: 72dp bands = 144px, 240 → 1800 px/s.
         listOf(150f, 200f, 293f, 294f, 1900f, 2000f, 2100f).forEach { y ->
             add(v("$y on a 2x tablet 150..2150", "y" to n(y), "top" to n(150f), "bottom" to n(2150f), "edgePx" to n(144f), "minPx" to n(240f), "maxPx" to n(1800f)))
+        }
+        // Today's tokens at 2x: 96dp bands = 192px, 400 → 2800 px/s; a landscape phone's 600px area caps the band at 150.
+        listOf(150f, 250f, 341f, 342f, 2100f).forEach { y ->
+            add(v("$y on a 2x tablet, 96dp bands", "y" to n(y), "top" to n(150f), "bottom" to n(2150f), "edgePx" to n(192f), "minPx" to n(400f), "maxPx" to n(2800f)))
+        }
+        listOf(100f, 200f, 260f, 640f).forEach { y ->
+            add(v("$y on a 2x landscape phone 100..700", "y" to n(y), "top" to n(100f), "bottom" to n(700f), "edgePx" to n(192f), "minPx" to n(400f), "maxPx" to n(2800f)))
         }
         add(v("no band", "y" to n(100f), "top" to n(0f), "bottom" to n(1000f), "edgePx" to n(0f), "minPx" to n(1f), "maxPx" to n(10f)))
         add(v("empty area", "y" to n(100f), "top" to n(500f), "bottom" to n(500f), "edgePx" to n(50f), "minPx" to n(1f), "maxPx" to n(10f)))

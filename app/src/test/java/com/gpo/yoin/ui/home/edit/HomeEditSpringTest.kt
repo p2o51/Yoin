@@ -57,11 +57,12 @@ class HomeEditSpringTest {
     }
 
     @Test
-    fun should_hitFoldMilestones_when_defaultSpatial() {
-        val samples = sample(specs.fold, from = 0f, to = 1f, velocity = 0f, untilMs = 500.0)
-        assertEquals(71.0, firstCrossing(samples, .45f), 1.0)
-        assertEquals(84.0, firstCrossing(samples, .55f), 1.0)
-        assertEquals(214.0, firstCrossing(samples, 1f), 1.0)
+    fun should_hitFoldMilestones_when_slowSpatial() {
+        // The heavier fold (owner 2026-11-27): Expressive slowSpatial, 0.8 / 200.
+        val samples = sample(specs.fold, from = 0f, to = 1f, velocity = 0f, untilMs = 600.0)
+        assertEquals(98.0, firstCrossing(samples, .45f), 1.0)
+        assertEquals(116.0, firstCrossing(samples, .55f), 1.0)
+        assertEquals(295.0, firstCrossing(samples, 1f), 1.0)
         assertEquals(1.0152f, samples.maxOf { it.second }, .0005f)
     }
 
@@ -69,9 +70,9 @@ class HomeEditSpringTest {
     fun should_carryOwnThreshold_when_resolved() {
         val fold = specs.fold as SpringSpec<Float>
         assertEquals(.001f, fold.visibilityThreshold)
-        // Expressive defaultSpatial whatever role the caller runs under.
+        // Expressive slowSpatial whatever role the caller runs under.
         assertEquals(.8f, fold.dampingRatio, 0f)
-        assertEquals(380f, fold.stiffness, 0f)
+        assertEquals(200f, fold.stiffness, 0f)
         assertEquals(.0005f, (specs.stage as SpringSpec<Float>).visibilityThreshold)
         assertEquals(.01f, (specs.kick as SpringSpec<Float>).visibilityThreshold)
         assertEquals(.4f, (specs.settlePx as SpringSpec<Float>).visibilityThreshold)

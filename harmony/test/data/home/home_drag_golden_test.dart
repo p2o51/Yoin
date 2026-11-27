@@ -202,6 +202,7 @@ _Json _outputs(String section, _Json v, Map<String, _Json> layouts) {
       return {
         'edge': dragEdgeOf(y, top, bottom, edge),
         'speed': dragAutoScrollSpeed(y, top, bottom, edge, _f(v['minPx']), _f(v['maxPx'])),
+        'band': dragEdgeBand(edge, top, bottom),
       };
     case 'edgeGuard':
       return {
@@ -412,6 +413,7 @@ void main() {
       'pairLeft': HomeDragRuleTokens.pairLeft,
       'pairRight': HomeDragRuleTokens.pairRight,
       'autoScrollEdge': HomeDragTokens.autoScrollEdge,
+      'autoScrollEdgeMaxFraction': HomeDragTokens.autoScrollEdgeMaxFraction,
       'autoScrollMin': HomeDragTokens.autoScrollMin,
       'autoScrollMax': HomeDragTokens.autoScrollMax,
       'edgeStartPush': HomeDragTokens.edgeStartPush,

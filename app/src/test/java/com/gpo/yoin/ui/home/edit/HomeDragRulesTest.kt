@@ -409,11 +409,20 @@ class HomeDragRulesTest {
 
     @Test
     fun should_useScrollTokens() {
-        assertEquals(72f, HomeDragTokens.AutoScrollEdge.value, 0f)
-        assertEquals(120f, HomeDragTokens.AutoScrollMin.value, 0f)
-        assertEquals(900f, HomeDragTokens.AutoScrollMax.value, 0f)
-        assertEquals(8f, HomeDragTokens.EdgeStartPush.value, 0f)
-        assertEquals(180f, HomeDragTokens.EdgeStartDwellMs, 0f)
+        // Quicker edge scroll (owner 2026-11-27).
+        assertEquals(96f, HomeDragTokens.AutoScrollEdge.value, 0f)
+        assertEquals(.25f, HomeDragTokens.AutoScrollEdgeMaxFraction, 0f)
+        assertEquals(200f, HomeDragTokens.AutoScrollMin.value, 0f)
+        assertEquals(1400f, HomeDragTokens.AutoScrollMax.value, 0f)
+        assertEquals(4f, HomeDragTokens.EdgeStartPush.value, 0f)
+        assertEquals(120f, HomeDragTokens.EdgeStartDwellMs, 0f)
+    }
+
+    @Test
+    fun should_capTheEdgeBandAtAQuarterOfTheArea_when_theWindowIsShort() {
+        // A tablet's 1900px area keeps the 96dp (192px at 2x) band; a landscape phone's 600px caps it at 150.
+        assertEquals(192f, com.gpo.yoin.shared.home.dragEdgeBand(192f, 100f, 2000f), 0f)
+        assertEquals(150f, com.gpo.yoin.shared.home.dragEdgeBand(192f, 100f, 700f), 0f)
     }
 
     @Test

@@ -66,6 +66,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -2107,9 +2108,17 @@ private fun HomeContentHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val titleStyle = MaterialTheme.typography.let { if (compact) it.headlineSmall else it.headlineMedium }
-        // A greeting over "Home" ("Edit Home" over it through P); on a cold
-        // start the Yoin mark blooms here first (HomeGreetingTitle).
+        // One row (owner 2026-11-27): "Home" on the left ("Edit Home" over it through P), the greeting
+        // right-aligned beside the account button; on a cold start the Yoin mark blooms at the title first.
+        val greeting = rememberHomeGreeting()
+        // Spotify's pill stands over the greeting for its 5 s: the greeting steps aside on the effects spring.
+        val spotifyAway by animateFloatAsState(
+            targetValue = if (spotifyElsewhereUp) 1f else 0f,
+            animationSpec = YoinMotion.effectsSpring(),
+            label = "greetingAway",
+        )
         HomeGreetingTitle(
+            greeting = greeting,
             editProgress = editProgress,
             onEnterEdit = onEnterEdit,
             compact = compact,
@@ -2119,13 +2128,19 @@ private fun HomeContentHeader(
                 .padding(end = HomeHeaderTitleBreathing),
         )
         if (bubbleController != null) {
-            // The bubble overlay hangs inside this span; the edit hint ends it.
+            // The bubble overlay hangs inside this span, over the greeting, which gives way as it unrolls.
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .memoryBubbleFreeSpan(bubbleController),
                 contentAlignment = Alignment.CenterEnd,
             ) {
+                HomeGreetingLine(
+                    greeting = greeting,
+                    editProgress = editProgress,
+                    away = { maxOf(bubbleController.greetingAway(), spotifyAway) },
+                    modifier = Modifier.padding(end = HomeGreetingEndGap),
+                )
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
                 HomeSpotifyElsewherePill(
                     elsewhere = spotifyElsewhere,
@@ -2135,24 +2150,34 @@ private fun HomeContentHeader(
                 )
             }
         } else {
-            // The Memories entry takes whatever the title and Settings leave, and
+            // The Memories entry takes what the title, the greeting and Settings leave, and
             // picks the pill form that fits it (HomeMemoryPill's fit rule).
             Box(
                 modifier = Modifier.weight(1f),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                HomeMemoryEntry(
-                    pill = memoryPill,
-                    hintProgress = memoriesHintProgress,
-                    revealProgress = memoryPillReveal,
-                    extractBackdropColors = extractBackdropColors,
-                    onOpenMemoryFocus = onOpenMemoryFocus,
-                    onNavigateToMemories = onNavigateToMemories,
-                    modifier = Modifier
-                        .homeEditExclusion(editTargets, MemoriesEntryTarget) { iconsEnabled }
-                        .homeEditHeaderIcon(editProgress)
-                        .then(iconSemantics),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HomeGreetingLine(
+                        greeting = greeting,
+                        editProgress = editProgress,
+                        away = { spotifyAway },
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .padding(end = HomeGreetingEndGap),
+                    )
+                    HomeMemoryEntry(
+                        pill = memoryPill,
+                        hintProgress = memoriesHintProgress,
+                        revealProgress = memoryPillReveal,
+                        extractBackdropColors = extractBackdropColors,
+                        onOpenMemoryFocus = onOpenMemoryFocus,
+                        onNavigateToMemories = onNavigateToMemories,
+                        modifier = Modifier
+                            .homeEditExclusion(editTargets, MemoriesEntryTarget) { iconsEnabled }
+                            .homeEditHeaderIcon(editProgress)
+                            .then(iconSemantics),
+                    )
+                }
                 HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
                 // Spotify's pill stands over the Memories entry for its 5 s.
                 HomeSpotifyElsewherePill(
@@ -2214,6 +2239,9 @@ private fun HomeContentHeader(
         }
     }
 }
+
+/** Between the greeting's last letter and the account button. */
+private val HomeGreetingEndGap = 8.dp
 
 // The header's controls, as edit-mode exclusions: presses on them stay theirs.
 private const val SettingsTarget = "gear"

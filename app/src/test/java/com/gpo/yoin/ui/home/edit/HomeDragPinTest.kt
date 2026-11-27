@@ -122,6 +122,7 @@ class HomeDragPinTest {
         val c = golden.obj("constants")
         close("rowBuffer", c["rowBuffer"], num(HomeDragRuleTokens.RowBuffer.value))
         close("autoScrollEdge", c["autoScrollEdge"], num(HomeDragTokens.AutoScrollEdge.value))
+        close("autoScrollEdgeMaxFraction", c["autoScrollEdgeMaxFraction"], num(HomeDragTokens.AutoScrollEdgeMaxFraction))
         close("autoScrollMin", c["autoScrollMin"], num(HomeDragTokens.AutoScrollMin.value))
         close("autoScrollMax", c["autoScrollMax"], num(HomeDragTokens.AutoScrollMax.value))
         close("edgeStartPush", c["edgeStartPush"], num(HomeDragTokens.EdgeStartPush.value))

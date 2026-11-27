@@ -336,8 +336,9 @@ internal fun HomeWidgetGridSection(
 /**
  * Jump Back In on the grid: the title row, then [units] rows of covers
  * (U − 44 square, two caption lines under), as many columns as fit
- * ([homeGridColumns]), a signal card two columns wide. Cards past the last
- * row wait for a larger count.
+ * ([homeGridColumns]), and the few signal cards two columns wide that the
+ * shelf's budget allows ([homeGridJbiSeat]: one at most in a half). Cards
+ * past the last row wait for a larger count.
  */
 @Composable
 private fun JbiUnitSection(
@@ -357,8 +358,10 @@ private fun JbiUnitSection(
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val cover = homeGridCoverDp().dp
                 val columns = homeGridColumns(maxWidth.value)
-                val cells = remember(cards, columns, units) {
-                    homeGridPack(cards.map { if (it.expanded) 2 else 1 }, columns, units)
+                val half = LocalHomeColumn.current.half
+                // The shelf's own signal budget, one 1×2 at most in a half, covers around it (HomeGridJbi.kt).
+                val cells = remember(cards, columns, units, half) {
+                    homeGridJbiSeat(cards, columns, units, half)
                 }
                 val coverRequestPx = with(LocalDensity.current) { cover.roundToPx() }
                 HomeGridCells(cells = cells, columns = columns, gap = HomeGridTokens.ColumnGap) { cell ->
