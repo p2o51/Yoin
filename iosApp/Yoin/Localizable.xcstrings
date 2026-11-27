@@ -8118,7 +8118,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "回忆格子"
+            "value": "Memories 格子"
           }
         }
       }
@@ -8128,7 +8128,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "笔回忆"
+            "value": "笔 Memories"
           }
         }
       }
@@ -15804,7 +15804,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的回忆"
+            "value": "你的 Memory"
           }
         }
       }

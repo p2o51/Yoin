@@ -49,7 +49,7 @@
     <string name="library_search_show_all">显示全部</string>
     <string name="library_search_folded">%2$s 另有 %1$d 条不太相关</string>
     <string name="library_search_your_note">你的笔记</string>
-    <string name="library_search_your_memory">你的回忆</string>
+    <string name="library_search_your_memory">你的 Memory</string>
     <string name="library_search_no_memories">没有碰到你写过的东西。</string>
     <string name="library_search_added">已加入资料库</string>
 
