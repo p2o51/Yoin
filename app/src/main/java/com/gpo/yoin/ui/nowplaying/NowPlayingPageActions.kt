@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -23,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
@@ -43,8 +41,10 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
  *   Lyrics / About / Note text tabs ride the end of the top bar, as they are; the 52dp tab row and its 12dp
  *   gap go to the page. Regular phones and tall big phones keep the tab row ([nowPlayingTabsInTopBar]).
  * - The bottom row, on every size: the page's own action fills the row (the lyric tools; Ask, today's tall
- *   pill; Write a note, filled in primary), and one Share button sits at its end, opening the share sheet on
- *   the page shown. It greys out where the page has nothing to share (no lyrics, an empty About, no notes).
+ *   pill; Write a note, filled in primary). About and Note end it with one Share button, opening the share
+ *   sheet on that page; it greys out where the page has nothing to share (an empty About, no notes). The
+ *   lyrics page has no Share key (owner 2026-11-27): its keys end with Select, and picked lines share from
+ *   select mode.
  */
 
 /**
@@ -146,10 +146,6 @@ internal fun PageActionRow(
     share: PageShare,
     showShare: Boolean,
     modifier: Modifier = Modifier,
-    // The lyrics page's Share is its sixth key (the keys' shape and size); elsewhere a round button.
-    keySize: Dp? = null,
-    // The keys have faded all the way out (the lyric tools' idle): the Share key takes no tap either.
-    interactive: Boolean = true,
     lead: @Composable (Modifier) -> Unit,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.Bottom) {
@@ -163,51 +159,42 @@ internal fun PageActionRow(
         ) {
             Row(verticalAlignment = Alignment.Bottom) {
                 Spacer(modifier = Modifier.width(PageShareGap))
-                PageShareButton(share = share, keySize = keySize, interactive = interactive)
+                PageShareButton(share = share)
             }
         }
     }
 }
 
-/** Share as image for the page shown: a round tonal button (or a lyric key), greyed while there is nothing. */
+/** Share as image for the page shown: a round tonal button, greyed while there is nothing. */
 @Composable
 internal fun PageShareButton(
     share: PageShare,
     modifier: Modifier = Modifier,
-    keySize: Dp? = null,
-    interactive: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     val scheme = MaterialTheme.colorScheme
-    val size = keySize ?: PageShareSize
-    val enabled = share.enabled && interactive
     // Lit and greyed on the effects spring: a colour change.
     val container by animateColorAsState(
-        targetValue = when {
-            keySize != null -> scheme.primaryContainer
-            else -> scheme.surfaceContainerHigh.copy(alpha = 0.92f)
-        }.let { if (share.enabled) it else it.copy(alpha = it.alpha * 0.5f) },
+        targetValue = scheme.surfaceContainerHigh.copy(alpha = 0.92f)
+            .let { if (share.enabled) it else it.copy(alpha = it.alpha * 0.5f) },
         animationSpec = YoinMotion.effectsSpring(),
         label = "pageShareContainer",
     )
     val content by animateColorAsState(
-        targetValue = when {
-            keySize != null -> scheme.onPrimaryContainer
-            else -> scheme.onSurface
-        }.let { if (share.enabled) it else it.copy(alpha = 0.38f) },
+        targetValue = scheme.onSurface.let { if (share.enabled) it else it.copy(alpha = 0.38f) },
         animationSpec = YoinMotion.effectsSpring(),
         label = "pageShareContent",
     )
     val interaction = remember { MutableInteractionSource() }
-    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.size(PageShareSize), contentAlignment = Alignment.Center) {
         FilledTonalIconButton(
             onClick = {
                 haptics.performContextClick()
                 share.open()
             },
-            enabled = enabled,
+            enabled = share.enabled,
             interactionSource = interaction,
-            shape = if (keySize != null) RoundedCornerShape(size * 0.31f) else YoinShapeTokens.Full,
+            shape = YoinShapeTokens.Full,
             colors = IconButtonDefaults.filledTonalIconButtonColors(
                 containerColor = container,
                 contentColor = content,
@@ -215,14 +202,14 @@ internal fun PageShareButton(
                 disabledContentColor = content,
             ),
             modifier = Modifier
-                .size(size)
-                .handPointer(enabled = enabled)
+                .size(PageShareSize)
+                .handPointer(enabled = share.enabled)
                 .testTag(PageShareTag),
         ) {
             Icon(
                 imageVector = YoinSymbols.Share,
                 contentDescription = stringResource(R.string.np_share_sheet_title),
-                modifier = Modifier.size(if (keySize != null) 24.dp else 22.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
     }

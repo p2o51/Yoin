@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -46,6 +47,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
@@ -110,6 +112,14 @@ fun RatingSlider(
     // The track's length along its fill axis (height when vertical, width when
     // horizontal). One holder; the axis is selected at the gesture/measure sites.
     var trackDimensionPx by remember { mutableIntStateOf(1) }
+    // A finger on the bar: a short bar shows its number only then (below).
+    var held by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    // Too short for the number to sit clear of the fill (a short window's bar
+    // at a high score printed 8.4 on the fill itself): the number only shows
+    // while the finger sets it.
+    // Not measured yet (1): assume room, so a long bar's number doesn't fade in on open.
+    val labelRoom = trackDimensionPx <= 1 || with(density) { ratingLabelFits(trackDimensionPx.toDp(), isVertical) }
 
     fun snap(fraction: Float): Float = (fraction * 100).roundToInt().coerceIn(0, 100) / 10f
 
@@ -154,6 +164,7 @@ fun RatingSlider(
                     fun along(change: PointerInputChange): Float = if (isVertical) change.position.y else change.position.x
                     if (claimOnDown) {
                         down.consume()
+                        held = true
                         latestOnInteractionChange(true)
                         applyAt(along(down))
                     } else {
@@ -172,11 +183,13 @@ fun RatingSlider(
                                 try {
                                     applyAt(along(up))
                                 } finally {
+                                    held = false
                                     latestOnInteractionChange(false)
                                 }
                             }
                             return@awaitEachGesture
                         }
+                        held = true
                         latestOnInteractionChange(true)
                         applyAt(along(start))
                     }
@@ -194,6 +207,7 @@ fun RatingSlider(
                             change.consume()
                         }
                     } finally {
+                        held = false
                         // A replaced item's pointer coroutine is cancelled after
                         // recomposition: the latest callback already belongs to
                         // the new item and must not receive the old press's commit.
@@ -221,7 +235,7 @@ fun RatingSlider(
         val lastLabel = remember { mutableStateOf("") }
         SideEffect { if (label != null) lastLabel.value = label }
         val labelAlpha by animateFloatAsState(
-            targetValue = if (label != null) 1f else 0f,
+            targetValue = if (label != null && (labelRoom || held)) 1f else 0f,
             animationSpec = YoinMotion.defaultEffectsSpec(),
             label = "ratingLabelAlpha",
         )
@@ -305,6 +319,17 @@ private fun BoxScope.RatingLabel(
         )
     }
 }
+
+/**
+ * Whether a bar [length] long along its fill axis has room for its number at rest: at least
+ * [RatingLabelMinVertical] tall standing, [RatingLabelMinHorizontal] wide lying. Shorter bars show the
+ * number only while a finger is on them (the review's 8.4 printed over the fill, 2026-11-27).
+ */
+internal fun ratingLabelFits(length: Dp, vertical: Boolean): Boolean =
+    length >= if (vertical) RatingLabelMinVertical else RatingLabelMinHorizontal
+
+internal val RatingLabelMinVertical = 160.dp
+internal val RatingLabelMinHorizontal = 120.dp
 
 /**
  * Map a gesture coordinate to a 0..1 fill fraction. Vertical tracks fill from

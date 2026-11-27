@@ -31,15 +31,18 @@ internal fun rememberStageColumnMetrics(
     return remember(transportWidth, fit, castVisible, typography, density) {
         StageColumnMetrics(
             tabText = typography.labelLarge.lineDp(density),
-            transport = playbackControlsHeight(fit.controlSize, transportWidth, typography.labelLarge.lineDp(density)),
+            // The single column: the time labels under the wave, at every width.
+            transport = playbackControlsHeight(
+                fit.controlSize,
+                labelsBeside = false,
+                labelLine = typography.labelLarge.lineDp(density),
+            ),
             hero = typography.titleMedium.lineDp(density) + HeroLineGap + typography.displaySmall.lineDp(density),
             heroOneLine = typography.displaySmall.lineDp(density),
             pills = pillRowHeight(castVisible),
             oneLineContent = typography.bodyLarge.lineDp(density) + LyricLinePads,
             lyric = lyricWindowMetrics(typography.bodyLarge, typography.bodyMedium, density),
             compactTransport = shortFocusControlsHeight(fit.controlSize),
-            labelLine = typography.labelLarge.lineDp(density),
-            labelsInlineMin = PlaybackLabelsInlineMinWidth,
         )
     }
 }
@@ -60,11 +63,8 @@ internal fun rememberDualPaneMetrics(
         val artist = typography.titleMedium.lineDp(density) + WideTitleLineGap
         val titleLine = typography.headlineMedium.lineDp(density)
         DualPaneMetrics(
-            transport = playbackControlsHeight(
-                fit.controlSize,
-                DualPaneStackWidth,
-                typography.labelLarge.lineDp(density),
-            ),
+            // Two columns: the time labels on the wave's two sides.
+            transport = playbackControlsHeight(fit.controlSize, labelsBeside = true),
             titleOneLine = artist + titleLine,
             titleTwoLines = artist + titleLine * 2,
             navBottom = navBottom,

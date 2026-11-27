@@ -46,6 +46,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -206,6 +207,18 @@ private fun ReadyContent(
                 { row -> row.entry?.let { longPressFor(it, row.label)?.invoke() } }
             },
         )
+        // Nothing at all to show (no credits, facts or answers): say so, instead of a blank page that
+        // reads as stuck. Ask below still asks.
+        if (rows.isEmpty() && paragraphs.isEmpty()) {
+            Text(
+                text = stringResource(R.string.detail_scrap_about_empty),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp, vertical = 12.dp)
+                    .testTag(AboutEmptyTag),
+            )
+        }
         // Gemini's review, its answers and the listener's own entries (written in the scrapbook).
         paragraphs.forEachIndexed { i, paragraph ->
             if (i > 0) DashedRule(modifier = Modifier.padding(horizontal = 4.dp))
@@ -241,6 +254,9 @@ private fun SourceReceipt(credits: LyricCredits?, facts: SpineSourceFacts?) {
     }
     AboutReceipt(rows = rows, credits = credits, modifier = Modifier.padding(bottom = 12.dp))
 }
+
+/** The empty About's line (tests find it by this tag). */
+internal const val AboutEmptyTag = "aboutEmpty"
 
 internal fun labelFor(entryKey: String, resources: Resources): String = when (entryKey) {
     SongAboutEntry.CANON_CREATION_TIME -> resources.getString(R.string.np_about_creation_time)

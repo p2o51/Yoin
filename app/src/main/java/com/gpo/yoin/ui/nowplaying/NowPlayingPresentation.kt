@@ -504,9 +504,14 @@ private val EnlargedMaxColumn = 640.dp
 /** The phone column the enlarged one scales from. */
 private val PhoneColumnWidth = 400.dp
 
+/** The rating column on every enlarged column: the phone's own. */
+private val EnlargedRatingColumn = 56.dp
+
 /**
- * Sizes of the enlarged phone column: the rating column and controls grow
- * with the column (tablet 640 → rating 104, controls 60; fold ≈ rating 72).
+ * Sizes of the enlarged phone column: the controls grow with the column
+ * (tablet 640 → 60); the rating column keeps the phone's 56dp at every size
+ * (owner 2026-11-27: a 104dp bar over the 44dp heart read out of proportion,
+ * and a card's insides don't scale with the window).
  */
 @Immutable
 data class NowPlayingEnlargedSpec(
@@ -520,7 +525,7 @@ fun nowPlayingEnlargedSpec(windowWidth: Dp): NowPlayingEnlargedSpec {
     val scale = column / PhoneColumnWidth
     return NowPlayingEnlargedSpec(
         columnWidth = column,
-        ratingColumn = (56.dp + 80.dp * (scale - 1f)).coerceIn(56.dp, 104.dp),
+        ratingColumn = EnlargedRatingColumn,
         controlSize = if (scale >= 1.4f) 60.dp else 56.dp,
     )
 }

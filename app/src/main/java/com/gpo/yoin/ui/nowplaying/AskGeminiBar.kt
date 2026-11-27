@@ -63,6 +63,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
@@ -86,6 +87,9 @@ internal fun AskGeminiBar(
     asked: List<String> = emptyList(),
     // Visible About rows for on-device follow-up question suggestions (empty / unavailable falls back to static).
     aboutEntries: List<SongAboutEntry> = emptyList(),
+    // The open card's height: [AskBarFocusedHeight], or less where the layout
+    // has less room (landscape, over the keyboard).
+    focusedHeight: Dp = AskBarFocusedHeight,
 ) {
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
@@ -142,8 +146,8 @@ internal fun AskGeminiBar(
         // the rest of the screen. Corner radius stays pinned at 28dp —
         // Idle (56dp) is a pill (radius = height/2); Focused (252dp)
         // is a rounded rectangle with the same 28dp radius.
-        AskBarState.Focused -> 252.dp
-        else -> 56.dp
+        AskBarState.Focused -> focusedHeight
+        else -> AskBarRestHeight
     }
     val animatedHeight by animateDpAsState(
         targetValue = targetHeight,
@@ -221,6 +225,10 @@ internal fun AskGeminiBar(
 }
 
 private val AskBarCornerRadius = 28.dp
+
+/** The bar at rest (a pill) and open for typing. */
+internal val AskBarRestHeight = 56.dp
+internal val AskBarFocusedHeight = 252.dp
 
 @Composable
 private fun RestLayout(

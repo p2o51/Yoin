@@ -49,6 +49,15 @@ import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.roundToInt
 
 
+/**
+ * The lyric tools: Sing (where the song can be sung) at the far left, then the connected group Search ·
+ * Translate · Back to the current line · Select, Select at the far right (owner 2026-11-27; the lyrics page
+ * has no Share key of its own — lines are shared from select mode).
+ *
+ * Short of room (the Sing capsule open on a narrow phone, a tight column) the gaps give first, then the
+ * keys narrow — never below [LyricsKeyMinWidth] — then the open capsule; a row that still can't hold every
+ * key at that floor drops the lowest-priority ones ([lyricsVisibleKeys]) rather than squeezing them.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LyricsActionBar(
@@ -63,8 +72,7 @@ internal fun LyricsActionBar(
     modifier: Modifier = Modifier,
     // The lyrics search expands from (and collapses back into) the search key.
     searchBarState: SearchBarState? = null,
-    // 52 in the bottom accessory; smaller when the tools ride the tab row
-    // (16:9 lyrics page, enlarged phone — 断点交接 §3.1 / §3.4).
+    // 52 in the bottom row; smaller in the landscape header.
     iconSize: Dp = 52.dp,
     // False once the auto-hide has faded the keys all the way out: an
     // unseen key takes no tap (LyricToolsIdleState.hidden).
@@ -72,143 +80,197 @@ internal fun LyricsActionBar(
 ) {
     val searchInteraction = remember { MutableInteractionSource() }
     val translateInteraction = remember { MutableInteractionSource() }
-    val selectInteraction = remember { MutableInteractionSource() }
     val recenterInteraction = remember { MutableInteractionSource() }
-    val interactions = listOf(searchInteraction, translateInteraction, selectInteraction, recenterInteraction)
+    val selectInteraction = remember { MutableInteractionSource() }
     val sing = LocalNowPlayingSing.current
-    // Synchronized directly with SingLyricsCapsuleKey's actual expanded state so the 4 left keys
+    val singSupported = sing?.isSupported == true
+    // Synchronized directly with SingLyricsCapsuleKey's actual expanded state so the keys
     // compress on the exact same frame the capsule expands (zero pre-expansion jitter).
     var singCapsuleExpanded by remember { mutableStateOf(sing?.isSupported == true && sing.isActive) }
-    val singExpanded = sing?.isSupported == true && singCapsuleExpanded
+    val singExpanded = singSupported && singCapsuleExpanded
 
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         BoxWithConstraints(modifier = modifier) {
-            val desiredCapsule = if (iconSize >= 50.dp) 124.dp else 108.dp
             val bounded = maxWidth.value.isFinite()
-            // The Sing key (a key, or its open capsule) after the four, and the gaps between them all.
-            val singSlot = when {
-                sing?.isSupported != true -> 0.dp
-                singExpanded -> desiredCapsule
-                else -> iconSize
-            }
-            val gapCount = if (sing?.isSupported == true) 4 else 3
-            val natural = iconSize * 4 + LyricsKeyGap * gapCount + singSlot
-            // Short of room (the open capsule, or the page's Share beside the keys on a narrow phone): the
-            // gaps give first, then the keys narrow.
-            val tightSpace = bounded && maxWidth < natural
-            val targetGap = if (tightSpace) {
-                val extraNeeded = natural - maxWidth
-                (LyricsKeyGap - extraNeeded / (gapCount * 2f)).coerceIn(LyricsKeyMinGap, LyricsKeyGap)
-            } else {
-                LyricsKeyGap
-            }
-            val targetKeyWidth = if (tightSpace) {
-                val roomForKeys = maxWidth - targetGap * gapCount - singSlot
-                (roomForKeys / 4f).coerceIn(LyricsKeyMinWidth, iconSize)
-            } else {
-                iconSize
-            }
+            val keys = lyricsVisibleKeys(
+                maxWidth = if (bounded) maxWidth else Dp.Infinity,
+                iconSize = iconSize,
+                singSupported = singSupported,
+            )
+            val fit = lyricsKeyFit(
+                maxWidth = if (bounded) maxWidth else Dp.Infinity,
+                iconSize = iconSize,
+                keyCount = keys.size,
+                singSupported = singSupported,
+                singExpanded = singExpanded,
+            )
             val keyGap by animateDpAsState(
-                targetValue = targetGap,
+                targetValue = fit.gap,
                 animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
                 label = "lyricsKeyAdaptiveGap",
             )
             val keyWidth by animateDpAsState(
-                targetValue = targetKeyWidth,
+                targetValue = fit.keyWidth,
                 animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
                 label = "lyricsKeyAdaptiveWidth",
             )
-            val maxCapsuleWidth = if (bounded) {
-                (maxWidth - targetKeyWidth * 4 - targetGap * 4).coerceAtLeast(iconSize)
-            } else {
-                Dp.Unspecified
-            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(keyGap),
             ) {
+                if (singSupported) {
+                    SingLyricsCapsuleKey(
+                        sing = sing,
+                        iconSize = iconSize,
+                        maxExpandedWidth = if (bounded) fit.capsuleMax else Dp.Unspecified,
+                        onCapsuleExpandedChange = { singCapsuleExpanded = it },
+                    )
+                }
                 LyricsKeyRow(
-                    interactions = interactions,
+                    interactions = keys.map { key ->
+                        when (key) {
+                            LyricsKey.Search -> searchInteraction
+                            LyricsKey.Translate -> translateInteraction
+                            LyricsKey.Recenter -> recenterInteraction
+                            LyricsKey.Select -> selectInteraction
+                        }
+                    },
                     iconSize = iconSize,
                     keyWidth = keyWidth,
                     keyGap = keyGap,
                 ) {
-                val searchKey: @Composable () -> Unit = {
-                    LyricsActionIcon(
-                        icon = rememberVectorPainter(YoinSymbols.Search),
-                        contentDescription = stringResource(R.string.np_cd_search_lyrics),
-                        interactionSource = searchInteraction,
-                        enabled = interactive && actionInFlight == null,
-                        onClick = onSearchClick,
-                        size = iconSize,
-                    )
-                }
-                if (searchBarState != null) {
-                    // A bare, see-through collapsed SearchBar: the only public way to give
-                    // SearchBarState its collapsed bounds, so the expanded search grows
-                    // out of this key.
-                    SearchBar(
-                        state = searchBarState,
-                        inputField = searchKey,
-                        shape = RoundedCornerShape(iconSize * 0.31f),
-                        colors = SearchBarDefaults.colors(containerColor = Color.Transparent),
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
-                    )
-                } else {
-                    searchKey()
-                }
-                // The translate key stays lit while its own translation runs, so
-                // the 文 ⇄ A orbit is visible (a disabled IconButton drops its
-                // content to 38% alpha); taps are ignored until it finishes.
-                val translating = actionInFlight == LyricsAction.Translate
-                LyricsActionIcon(
-                    icon = rememberTranslateSymbolPainter(translating = translating),
-                    contentDescription = stringResource(R.string.np_cd_translate_lyrics),
-                    interactionSource = translateInteraction,
-                    enabled = interactive && (actionInFlight == null || translating) && canTranslate,
-                    onClick = { if (actionInFlight == null) onTranslateClick() },
-                    size = iconSize,
-                    // Showing / hiding plucks when the lines move (NowPlayingScreen).
-                    tapHaptic = false,
-                )
-                // ✓ = select lines (copy / share as image). Editing the
-                // LRC moved into select mode's own bar; with no lines to
-                // select the ✓ still opens the editor (paste lyrics).
-                LyricsActionIcon(
-                    icon = rememberVectorPainter(YoinSymbols.Check),
-                    contentDescription = if (canSelect) {
-                        stringResource(R.string.np_cd_select_lyrics)
-                    } else {
-                        stringResource(R.string.np_cd_add_lyrics)
-                    },
-                    interactionSource = selectInteraction,
-                    enabled = interactive && actionInFlight == null,
-                    onClick = onSelectClick,
-                    size = iconSize,
-                )
-                LyricsActionIcon(
-                    icon = rememberVectorPainter(YoinSymbols.Recenter),
-                    contentDescription = stringResource(R.string.np_cd_return_current_line),
-                    interactionSource = recenterInteraction,
-                    enabled = interactive && actionInFlight == null && canRecenter,
-                    onClick = onRecenterClick,
-                    size = iconSize,
-                )
-            }
-                if (sing?.isSupported == true) {
-                    SingLyricsCapsuleKey(
-                        sing = sing,
-                        iconSize = iconSize,
-                        maxExpandedWidth = maxCapsuleWidth,
-                        onCapsuleExpandedChange = { singCapsuleExpanded = it },
-                    )
+                    for (key in keys) {
+                        when (key) {
+                            LyricsKey.Search -> {
+                                val searchKey: @Composable () -> Unit = {
+                                    LyricsActionIcon(
+                                        icon = rememberVectorPainter(YoinSymbols.Search),
+                                        contentDescription = stringResource(R.string.np_cd_search_lyrics),
+                                        interactionSource = searchInteraction,
+                                        enabled = interactive && actionInFlight == null,
+                                        onClick = onSearchClick,
+                                        size = iconSize,
+                                    )
+                                }
+                                if (searchBarState != null) {
+                                    // A bare, see-through collapsed SearchBar: the only public way to give
+                                    // SearchBarState its collapsed bounds, so the expanded search grows
+                                    // out of this key.
+                                    SearchBar(
+                                        state = searchBarState,
+                                        inputField = searchKey,
+                                        shape = RoundedCornerShape(iconSize * 0.31f),
+                                        colors = SearchBarDefaults.colors(containerColor = Color.Transparent),
+                                        tonalElevation = 0.dp,
+                                        shadowElevation = 0.dp,
+                                    )
+                                } else {
+                                    searchKey()
+                                }
+                            }
+                            LyricsKey.Translate -> {
+                                // The translate key stays lit while its own translation runs, so
+                                // the 文 ⇄ A orbit is visible (a disabled IconButton drops its
+                                // content to 38% alpha); taps are ignored until it finishes.
+                                val translating = actionInFlight == LyricsAction.Translate
+                                LyricsActionIcon(
+                                    icon = rememberTranslateSymbolPainter(translating = translating),
+                                    contentDescription = stringResource(R.string.np_cd_translate_lyrics),
+                                    interactionSource = translateInteraction,
+                                    enabled = interactive && (actionInFlight == null || translating) && canTranslate,
+                                    onClick = { if (actionInFlight == null) onTranslateClick() },
+                                    size = iconSize,
+                                    // Showing / hiding plucks when the lines move (NowPlayingScreen).
+                                    tapHaptic = false,
+                                )
+                            }
+                            LyricsKey.Recenter -> LyricsActionIcon(
+                                icon = rememberVectorPainter(YoinSymbols.Recenter),
+                                contentDescription = stringResource(R.string.np_cd_return_current_line),
+                                interactionSource = recenterInteraction,
+                                enabled = interactive && actionInFlight == null && canRecenter,
+                                onClick = onRecenterClick,
+                                size = iconSize,
+                            )
+                            // ✓ = select lines (copy / share as image). Editing the
+                            // LRC moved into select mode's own bar; with no lines to
+                            // select the ✓ still opens the editor (paste lyrics).
+                            LyricsKey.Select -> LyricsActionIcon(
+                                icon = rememberVectorPainter(YoinSymbols.Check),
+                                contentDescription = if (canSelect) {
+                                    stringResource(R.string.np_cd_select_lyrics)
+                                } else {
+                                    stringResource(R.string.np_cd_add_lyrics)
+                                },
+                                interactionSource = selectInteraction,
+                                enabled = interactive && actionInFlight == null,
+                                onClick = onSelectClick,
+                                size = iconSize,
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+/** The lyric tools' keys, in their order on the row (Sing, when there, sits before them). */
+internal enum class LyricsKey { Search, Translate, Recenter, Select }
+
+/**
+ * The keys a row [maxWidth] wide shows: all four while each still gets [LyricsKeyMinWidth] (or the
+ * smaller [iconSize]) with the narrowest gaps and the Sing key at its own size; else Back to the current
+ * line goes first, then Translate. Search and Select always stay.
+ */
+internal fun lyricsVisibleKeys(maxWidth: Dp, iconSize: Dp, singSupported: Boolean): List<LyricsKey> {
+    val minKey = minOf(LyricsKeyMinWidth, iconSize)
+    val all = LyricsKey.entries.toList()
+    val dropOrder = listOf(LyricsKey.Recenter, LyricsKey.Translate)
+    var shown = all
+    for (drop in listOf(null) + dropOrder) {
+        if (drop != null) shown = shown - drop
+        val gaps = (shown.size - 1) + if (singSupported) 1 else 0
+        val needed = minKey * shown.size + LyricsKeyMinGap * gaps + if (singSupported) iconSize else 0.dp
+        if (needed <= maxWidth) return shown
+    }
+    return shown
+}
+
+/** How the row spends [maxWidth]: each key's width, the gap, and the most the open Sing capsule may take. */
+internal data class LyricsKeyFit(val keyWidth: Dp, val gap: Dp, val capsuleMax: Dp)
+
+internal fun lyricsKeyFit(
+    maxWidth: Dp,
+    iconSize: Dp,
+    keyCount: Int,
+    singSupported: Boolean,
+    singExpanded: Boolean,
+): LyricsKeyFit {
+    val minKey = minOf(LyricsKeyMinWidth, iconSize)
+    val desiredCapsule = singCapsuleWidth(iconSize)
+    val singSlot = when {
+        !singSupported -> 0.dp
+        singExpanded -> desiredCapsule
+        else -> iconSize
+    }
+    val gapCount = (keyCount - 1).coerceAtLeast(0) + if (singSupported) 1 else 0
+    val natural = iconSize * keyCount + LyricsKeyGap * gapCount + singSlot
+    if (maxWidth >= natural) return LyricsKeyFit(iconSize, LyricsKeyGap, desiredCapsule)
+    // The gaps give first…
+    val extraNeeded = natural - maxWidth
+    val gap = if (gapCount == 0) {
+        LyricsKeyGap
+    } else {
+        (LyricsKeyGap - extraNeeded / (gapCount * 2f)).coerceIn(LyricsKeyMinGap, LyricsKeyGap)
+    }
+    // …then the keys, down to their floor…
+    val roomForKeys = maxWidth - gap * gapCount - singSlot
+    val keyWidth = if (keyCount == 0) iconSize else (roomForKeys / keyCount.toFloat()).coerceIn(minKey, iconSize)
+    // …then the open capsule takes what is left (never less than a key).
+    val capsuleMax = (maxWidth - keyWidth * keyCount - gap * gapCount).coerceIn(iconSize, desiredCapsule)
+    return LyricsKeyFit(keyWidth, gap, capsuleMax)
+}
 
 /**
  * Select mode's keys, in the lyric tools' slot and footprint: leave, copy the
@@ -357,7 +419,9 @@ internal fun lyricsKeyWidths(count: Int, keyPx: Int, press: (Int) -> Float): Int
 
 private val LyricsKeyGap = 8.dp
 private val LyricsKeyMinGap = 4.dp
-private val LyricsKeyMinWidth = 30.dp
+
+/** No lyric key narrows below this (adaptive-principles §6: touch targets never give way). */
+internal val LyricsKeyMinWidth = 44.dp
 
 /** M3 `ButtonGroupDefaults.ExpandedRatio`: how much of its width a pressed key gains. */
 private const val LyricsKeyExpandedRatio = 0.15f

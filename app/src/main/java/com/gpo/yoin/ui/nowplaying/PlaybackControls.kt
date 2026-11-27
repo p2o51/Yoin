@@ -148,6 +148,9 @@ internal fun PlaybackControls(
     // Focus at ease, 0..1: the buttons and the time labels step away; the
     // progress bar stays (owner 2026-11-05 「按键没了也应该显示进度条」).
     atEase: Float = 0f,
+    // The two-column forms (DualPane, landscape, tabletop): the times on the
+    // wave's two sides. The single column: under it.
+    labelsBesideWave: Boolean = false,
 ) {
     val away = atEase.coerceIn(0f, 1f)
     val awayModifier = Modifier.graphicsLayer { alpha = 1f - away }
@@ -476,13 +479,14 @@ internal fun PlaybackControls(
 
                     Spacer(modifier = Modifier.height(TransportRowGap))
 
-                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                        // Below ~360dp the ~96dp of inline time labels would starve the wave
-                        // bar to a sliver (the narrow Fold left pane at ~1:1.5). There, drop
-                        // the labels under the bar so it keeps full width. Compact/Tabletop
-                        // (full width) stay inline exactly as before. The prev button + bar
-                        // live in one Row in both cases — only the labels move.
-                        val labelsInline = maxWidth >= PlaybackLabelsInlineMinWidth || prevToTopRow >= 0.5f
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        // Where the times sit is the layout's call, never a width threshold
+                        // (owner 2026-11-27: a 393 and a 412 phone looked like two players):
+                        // the single column puts them under the wave, the two-column forms
+                        // ([labelsBesideWave]) on its two sides. Short focus keeps them beside:
+                        // the bar has the whole row there. The prev button + bar live in one
+                        // Row in both cases — only the labels move.
+                        val labelsInline = labelsBesideWave || prevToTopRow >= 0.5f
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier
@@ -1020,15 +1024,12 @@ internal fun rememberPlaybackControlsFit(
 }
 
 /**
- * The transport's height in a column [width] wide: two control rows, the
- * gap, and the time-label row when the labels drop below the wave
- * (height budgets size their slot from this, never from a guess).
+ * The transport's height: two control rows, the gap, and — where the time
+ * labels sit under the wave (the single column, [labelsBeside] false) — their
+ * [labelLine] (height budgets size their slot from this, never from a guess).
  */
-internal fun playbackControlsHeight(controlSize: Dp, width: Dp, labelLine: Dp): Dp =
-    controlSize * 2 + TransportRowGap + if (width >= PlaybackLabelsInlineMinWidth) 0.dp else labelLine
-
-/** Below this the inline time labels would starve the wave; they move under it. */
-internal val PlaybackLabelsInlineMinWidth = 360.dp
+internal fun playbackControlsHeight(controlSize: Dp, labelsBeside: Boolean, labelLine: Dp = 0.dp): Dp =
+    controlSize * 2 + TransportRowGap + if (labelsBeside) 0.dp else labelLine
 
 /** The progress bar's own row in short focus (prevToTopRow = 1). */
 internal val ShortFocusProgressRowHeight = 36.dp

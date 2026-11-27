@@ -791,12 +791,9 @@ fun NowPlayingOverlayHost(
                         // Built only where it is used (the enlarged phone): on Wide
                         // a per-frame spec would recompose the player all spring long.
                         enlarged = if (bodyPresentation != NowPlayingPresentation.Enlarged) null else nowPlayingEnlargedSpec(frame.windowWidth).let { spec ->
-                            // Grows in with the container, so the panel → full
-                            // screen change never pops the rating column.
-                            spec.copy(
-                                ratingColumn = 56.dp + (spec.ratingColumn - 56.dp) * fullFraction,
-                                controlSize = if (fullFraction > 0.5f) spec.controlSize else 56.dp,
-                            )
+                            // The controls step up once the container is mostly full
+                            // screen; the rating column is 56dp either way.
+                            spec.copy(controlSize = if (fullFraction > 0.5f) spec.controlSize else 56.dp)
                         },
                         topBarAction = if (panelFamily) {
                             {

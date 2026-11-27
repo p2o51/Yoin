@@ -108,6 +108,9 @@ internal data class NowPlayingSingUi(
 
 internal val LocalNowPlayingSing = staticCompositionLocalOf<NowPlayingSingUi?> { null }
 
+/** The open Sing capsule's width beside lyric keys of [iconSize]. */
+internal fun singCapsuleWidth(iconSize: Dp): Dp = if (iconSize >= 50.dp) 124.dp else 108.dp
+
 /**
  * Yoin 1.5dp rounded-cap stroke microphone icons matching `yoin.mic` proportions on iOS and
  * `docs/icons/svg/` Luminous stroke weight.
@@ -340,7 +343,7 @@ internal fun SingLyricsCapsuleKey(
         }
     }
 
-    val defaultExpandedWidth = if (iconSize >= 50.dp) 124.dp else 108.dp
+    val defaultExpandedWidth = singCapsuleWidth(iconSize)
     val expandedWidth = if (maxExpandedWidth != Dp.Unspecified) {
         maxExpandedWidth.coerceIn(iconSize, defaultExpandedWidth)
     } else {
