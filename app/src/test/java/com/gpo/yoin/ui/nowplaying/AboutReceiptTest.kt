@@ -119,17 +119,6 @@ class AboutReceiptTest {
     }
 
     @Test
-    fun should_putThreeLinesOnAPageThenOneParagraphEach_when_paging() {
-        val rows = (1..7).map { ReceiptRow("l$it", "v$it") }
-        val paragraph = AboutParagraph("About", "Review", row(SongAboutEntry.KIND_CANONICAL, "review", "Review"))
-
-        val pages = aboutCarouselPages(rows, listOf(paragraph))
-
-        assertEquals(listOf(3, 3, 1), pages.filterIsInstance<AboutCarouselPage.Lines>().map { it.rows.size })
-        assertEquals(AboutCarouselPage.Paragraph(paragraph), pages.last())
-    }
-
-    @Test
     fun should_formatLengths_when_overAnHour() {
         assertEquals("1:02:03", formatDuration(3723))
         assertEquals("0:09", formatDuration(9))

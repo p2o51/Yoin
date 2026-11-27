@@ -50,6 +50,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -61,6 +64,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
@@ -586,6 +590,57 @@ fun NowPlayingOverlayHost(
                 dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
             }
         }
+        // Drag-to-dismiss is a single-column affordance. In Expanded/Immersive panes have their own
+        // vertical scroll / IME interactions; letting draggable eat those deltas is what causes Lyrics
+        // scroll to fight dismiss. The two-column player has no bar beneath and closes via explicit
+        // affordances (its top bar + system back), so the drag is gated off there.
+        val dismissDragEnabled = stageMode != NowPlayingStageMode.Expanded && !dualPaneNowPlaying
+        // Letting go of a pull-down, by the drag itself or by a scroll that handed it on (below).
+        val settleDismissDrag: suspend (Float) -> Unit = { velocity ->
+            if (dismissDragPx > 240f || velocity > 800f) {
+                // The exit continues from the dragged pose.
+                predictiveBackProgress = 0f
+                onExpandedChange(false)
+            } else {
+                animate(
+                    initialValue = dismissDragPx,
+                    targetValue = 0f,
+                    animationSpec = dragResetSpec,
+                ) { value, _ ->
+                    dismissDragPx = value
+                }
+            }
+        }
+        // Something that scrolls on the resting player (the collapsed About, unsynced lyrics) keeps its
+        // own drags; once it reaches its top, the rest of a downward pull becomes the pull-down-to-close,
+        // and an upward drag first takes a started pull back (owner 2026-11-27: the scrolling About must
+        // not fight the sheet). Vertical only: the side panel closes sideways.
+        val pullDownEnabled by rememberUpdatedState(dismissDragEnabled && !panelMode)
+        val currentSettleDismissDrag by rememberUpdatedState(settleDismissDrag)
+        val pullDownToClose = remember {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (!pullDownEnabled || source != NestedScrollSource.UserInput) return Offset.Zero
+                    if (available.y >= 0f || dismissDragPx <= 0f) return Offset.Zero
+                    val taken = maxOf(available.y, -dismissDragPx)
+                    dismissDragPx += taken
+                    return Offset(0f, taken)
+                }
+
+                override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                    if (!pullDownEnabled || source != NestedScrollSource.UserInput) return Offset.Zero
+                    if (available.y <= 0f) return Offset.Zero
+                    dismissDragPx += available.y
+                    return Offset(0f, available.y)
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    if (dismissDragPx <= 0f) return Velocity.Zero
+                    currentSettleDismissDrag(available.y)
+                    return available
+                }
+            }
+        }
         // Cast lives in the devices sheet (the Chromecast rows carry the cast
         // status), so the Cast pill opens the same sheet the Devices pill
         // does. That pill's open flag is private to NowPlayingScreen, so the
@@ -635,33 +690,12 @@ fun NowPlayingOverlayHost(
                     .draggable(
                         state = draggableState,
                         orientation = if (panelMode) Orientation.Horizontal else Orientation.Vertical,
-                        // Drag-to-dismiss is a single-column affordance. In
-                        // Expanded/Immersive panes have their own vertical
-                        // scroll / IME interactions; letting draggable eat
-                        // those deltas is what causes Lyrics scroll to fight
-                        // dismiss. The two-column player has no bar beneath
-                        // and closes via explicit affordances (its top bar +
-                        // system back), so the drag is gated off there.
-                        enabled = stageMode != NowPlayingStageMode.Expanded &&
-                            !dualPaneNowPlaying,
+                        enabled = dismissDragEnabled,
                         // RTL mirrors the panel's end edge (vertical drags never reverse).
                         reverseDirection = panelMode && isRtl,
-                        onDragStopped = { velocity ->
-                            if (dismissDragPx > 240f || velocity > 800f) {
-                                // The exit continues from the dragged pose.
-                                predictiveBackProgress = 0f
-                                onExpandedChange(false)
-                            } else {
-                                animate(
-                                    initialValue = dismissDragPx,
-                                    targetValue = 0f,
-                                    animationSpec = dragResetSpec,
-                                ) { value, _ ->
-                                    dismissDragPx = value
-                                }
-                            }
-                        },
-                    ),
+                        onDragStopped = { velocity -> settleDismissDrag(velocity) },
+                    )
+                    .nestedScroll(pullDownToClose),
             ) {
                 // Capture the identity rendered with the bar. Playback can advance
                 // before this composition catches up; a late release still owns

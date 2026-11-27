@@ -15,7 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
@@ -39,7 +44,7 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * Review renders of Now Playing's option B chrome (not a check: skipped unless YOIN_RENDER_OUT names a
  * folder). Each size × theme × language draws the expanded Lyrics, About, empty About, Note and asking
- * pages, plus the resting player, into `<YOIN_RENDER_OUT>/<size>-<theme>-<lang>-<state>.png`.
+ * pages, plus the resting player (on Lyrics and on About), into `<YOIN_RENDER_OUT>/<size>-<theme>-<lang>-<state>.png`.
  *
  * `YOIN_RENDER_OUT=/path ./gradlew :app:testDebugUnitTest --tests '*NowPlayingChromeRenders'`
  *
@@ -92,6 +97,19 @@ class NowPlayingChromeRenders {
 
     @Config(qualifiers = "zh-rCN-w412dp-h915dp-night")
     @Test fun tallDarkZh() = renderAll("tall-412x915", 412, 915, "dark", "zh")
+
+    // A 16:9 phone (PR 2): the one-line column, its spine and its top-bar tabs at rest.
+    @Config(qualifiers = "w360dp-h640dp-notnight")
+    @Test fun shortLightEn() = renderAll("short-360x640", 360, 640, "light", "en")
+
+    @Config(qualifiers = "w360dp-h640dp-night")
+    @Test fun shortDarkEn() = renderAll("short-360x640", 360, 640, "dark", "en")
+
+    @Config(qualifiers = "zh-rCN-w360dp-h640dp-notnight")
+    @Test fun shortLightZh() = renderAll("short-360x640", 360, 640, "light", "zh")
+
+    @Config(qualifiers = "zh-rCN-w360dp-h640dp-night")
+    @Test fun shortDarkZh() = renderAll("short-360x640", 360, 640, "dark", "zh")
 
     @Config(qualifiers = "w800dp-h1280dp-notnight")
     @Test fun tabletLightEn() = renderAll("tablet-800x1280", 800, 1280, "light", "en", tablet = true)
@@ -413,7 +431,7 @@ class NowPlayingChromeRenders {
         opensSpotify = true,
     )
 
-    private enum class Shot { Rest, Lyrics, About, AboutEmpty, Note, AskLoading }
+    private enum class Shot { Rest, RestAbout, Lyrics, About, AboutEmpty, Note, AskLoading }
 
     private fun renderAll(size: String, widthDp: Int, heightDp: Int, theme: String, lang: String, tablet: Boolean = false) {
         val dir = out
@@ -457,9 +475,14 @@ class NowPlayingChromeRenders {
                             } else {
                                 AskBarState.Idle
                             },
-                            stageMode = if (shot == Shot.Rest) NowPlayingStageMode.Compact else NowPlayingStageMode.Expanded,
+                            stageMode = if (shot == Shot.Rest || shot == Shot.RestAbout) {
+                                NowPlayingStageMode.Compact
+                            } else {
+                                NowPlayingStageMode.Expanded
+                            },
                             detailPage = when (shot) {
                                 Shot.Rest, Shot.Lyrics -> NowPlayingDetailPage.Lyrics
+                                Shot.RestAbout -> NowPlayingDetailPage.About
                                 Shot.About, Shot.AboutEmpty, Shot.AskLoading -> NowPlayingDetailPage.About
                                 Shot.Note -> NowPlayingDetailPage.Note
                             },
@@ -482,6 +505,7 @@ class NowPlayingChromeRenders {
             // Let the stage settle (springs) without waiting on the endless indicator.
             rule.mainClock.advanceTimeBy(if (s == Shot.AskLoading) 16L else 3_000L)
             save(dir, "$size-$theme-$lang-${s.fileName()}")
+            if (s == Shot.RestAbout) saveScrolledAbout(dir, "$size-$theme-$lang-rest-about-scrolled")
             if (s == Shot.AskLoading) {
                 // The indicator on its way: the circle has started to morph.
                 rule.mainClock.advanceTimeBy(420L)
@@ -492,6 +516,17 @@ class NowPlayingChromeRenders {
         }
     }
 
+    /** The collapsed About after a finger scrolls it (where it scrolls: not under the one-line lyric). */
+    private fun saveScrolledAbout(dir: File, name: String) {
+        val node = rule.onAllNodesWithTag(CollapsedAboutTag).fetchSemanticsNodes().firstOrNull() ?: return
+        if (SemanticsActions.ScrollBy !in node.config) return
+        rule.onNodeWithTag(CollapsedAboutTag).performTouchInput {
+            swipeUp(startY = bottom - 8f, endY = top + 8f, durationMillis = 400L)
+        }
+        rule.mainClock.advanceTimeBy(2_000L)
+        save(dir, name)
+    }
+
     private fun save(dir: File, name: String) {
         val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
         File(dir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -499,6 +534,7 @@ class NowPlayingChromeRenders {
 
     private fun Shot.fileName(): String = when (this) {
         Shot.Rest -> "rest"
+        Shot.RestAbout -> "rest-about"
         Shot.Lyrics -> "lyrics"
         Shot.About -> "about"
         Shot.AboutEmpty -> "about-empty"

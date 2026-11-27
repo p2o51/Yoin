@@ -1622,9 +1622,10 @@ private fun CompactPlayingContent(
             }
         }
         val lyricOneLine = restPose.lyricFrame == LyricFrame.OneLine
-        // Option B (owner 2026-11-26): on a fat column (the one-line path) or the enlarged phone the
-        // expanded page's tabs ride the top bar's end; the tab row and its gap go to the page.
-        val tabsInTopBar = nowPlayingTabsInTopBar(lyricOneLine, enlarged = enlarged != null)
+        // Height alone decides (owner 2026-11-27): a short window (the one-line path) carries the tabs at
+        // the top bar's end, at rest and expanded; everywhere else, the enlarged phone included, the
+        // expanded page keeps the big tab row.
+        val tabsInTopBar = nowPlayingTabsInTopBar(lyricOneLine)
         val expandedTabRow = if (tabsInTopBar) 0.dp else ExpandedTabRowHeight
         val expandedTabGap = if (tabsInTopBar) 0.dp else ExpandedTabGap
         // In focus the lyric slot keeps its list where four lines still fit
@@ -1690,49 +1691,16 @@ private fun CompactPlayingContent(
         // Rest ⇄ focus by immersive, then ⇄ the Expanded layout by detail.
         fun stage(rest: Dp, focus: Dp, expanded: Dp): Dp =
             lerpDp(lerpDp(rest, focus, immersiveProgress), expanded, detailProgress)
-        // Short focus (owner 2026-10-30): where the regular focus can't grow the
-        // cover (Fold outer screen, 16:9), a tap still focuses it — the heart and
-        // rating bar fold away, PREVIOUS glides up into the top transport row and
-        // the progress bar takes its own row; the freed height goes to the cover,
-        // centred. The current lyric line stays, as in every focus. The title and
-        // artist stay too, as in every focus (owner 2026-11-03 "标题和歌手不动";
-        // 2026-11-04 they had vanished on the Fold 8 outer screen).
-        // Where the regular focus IS offered on a short window, the cover stays
-        // its size, centred, and the freed height goes to the lyrics (owner
-        // 2026-11-05; compactFocusProgress above).
-        var shortFocus by remember { mutableStateOf(false) }
-        val shortFocusHaptics = rememberYoinHaptics()
-        val shortArrangement = shortFocus
-        val shortFocusProgress by animateFloatAsState(
-            targetValue = if (shortArrangement) 1f else 0f,
-            animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
-            label = "npShortFocus",
-        )
-        // The same compact transport height the budget sized the focus with.
-        val shortFocusControls = metrics.compactTransport ?: shortFocusControlsHeight(stageControlSize)
-        val shortFocusFreed = (restPose.controls - shortFocusControls).coerceAtLeast(0.dp)
-        // Where the regular focus is offered, the budget already sized it for
-        // the compact transport and three lyric lines: take its cover as is.
-        val shortFocusCover = if (focusOffered) {
-            focusPose.cover
-        } else {
-            minOf(restPose.cover + shortFocusFreed, stageWidth - horizontalPadding * 2)
-        }
-        val shortFocusAvailable = !focusOffered && shortFocusCover - restPose.cover >= ShortFocusMinGrowth
-        LaunchedEffect(shortFocusAvailable, stageMode) {
-            if (!shortFocusAvailable || stageMode != NowPlayingStageMode.Compact) shortFocus = false
-        }
-        val visibleCoverHeight = lerpDp(
-            lerpDp(restPose.cover, focusPose.cover, immersiveProgress),
-            shortFocusCover,
-            shortFocusProgress,
-        )
-        val coverRowHeight = lerpDp(stage(restPose.cover, focusPose.cover, 0.dp), shortFocusCover, shortFocusProgress)
+        // Focus is the shared stage's Immersive, offered where the budget says the cover grows
+        // (focusOffered); elsewhere the cover is a plain image. There is no private short-window
+        // focus any more (owner 2026-11-27): the short window's focus is the budget's compactFocus.
+        val visibleCoverHeight = lerpDp(restPose.cover, focusPose.cover, immersiveProgress)
+        val coverRowHeight = stage(restPose.cover, focusPose.cover, 0.dp)
         val coverRowAlpha = compactProgress
         val topBarHeight = stage(restPose.topBar, focusPose.topBar, ExpandedTopBarHeight)
         val tabHeight = stage(restPose.tabs, focusPose.tabs, expandedTabRow)
         val tabSpacerHeight = stage(restPose.tabGap, focusPose.tabGap, expandedTabGap)
-        val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress, shortFocusProgress)
+        val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress)
         val ratingGap = lerpDp(YoinTokens.NowPlaying.RATING_GAP.dp, 0.dp, ratingRetreatProgress)
         // A height-capped cover (Fold outer, 16:9) leaves a band between it and the
         // rating bar: the spine (书脊, NowPlayingSpine) reads the song there, one
@@ -1807,9 +1775,7 @@ private fun CompactPlayingContent(
             label = "nowPlayingBottomAccessoryHeight",
         )
         val bottomAccessoryHeight = stage(restPose.accessory, focusPose.accessory, expandedAccessoryHeight)
-        val controlsHeight =
-            lerpDp(stage(restPose.controls, focusPose.controls, 0.dp), shortFocusControls, shortFocusProgress) -
-                heroLift
+        val controlsHeight = stage(restPose.controls, focusPose.controls, 0.dp) - heroLift
         val coverSpacerHeight = stage(restPose.coverGap, focusPose.coverGap, ExpandedCoverGap)
         // The title keeps its resting slot in Expanded — unless the Note
         // composer owns the bottom edge (keyboard up).
@@ -1871,6 +1837,21 @@ private fun CompactPlayingContent(
         val onSelectTab: (NowPlayingDetailPage) -> Unit = { page ->
             pagerScope.launch { pagerState.settleToPage(page.ordinal) }
         }
+        // The top bar's tabs (short windows). At rest they open the page they name; the one line under
+        // the cover is the lyrics, so Lyrics reads as the chosen one until the page has expanded.
+        val topBarTabsSelected = if (stageMode == NowPlayingStageMode.Expanded || detailProgress > 0.5f) {
+            tabsSelected
+        } else {
+            NowPlayingDetailPage.Lyrics
+        }
+        val onSelectTopBarTab: (NowPlayingDetailPage) -> Unit = { page ->
+            if (stageMode == NowPlayingStageMode.Expanded) {
+                onSelectTab(page)
+            } else {
+                onDetailPageChange(page)
+                onStageModeChange(NowPlayingStageMode.Expanded)
+            }
+        }
         val aboutBusy = aboutUiState is AboutUiState.Loading &&
             rememberAboutHasSourceRows(state.lyricCredits, state.spineFacts)
         val pageShare = rememberPageShares(state, aboutUiState, notesState)
@@ -1911,10 +1892,19 @@ private fun CompactPlayingContent(
                 onPlaylistClick = navigationActions.onPlaylistClick,
                 trailingAction = topBarAction,
                 endTabs = if (tabsInTopBar) {
-                    { CompactTextTabs(selected = tabsSelected, onSelect = onSelectTab, aboutBusy = aboutBusy) }
+                    {
+                        CompactTextTabs(
+                            selected = topBarTabsSelected,
+                            onSelect = onSelectTopBarTab,
+                            aboutBusy = aboutBusy,
+                        )
+                    }
                 } else {
                     null
                 },
+                // The one-line column has no tab row at rest: its tabs stay up here, so About and Note
+                // are one tap away there too (owner 2026-11-27).
+                endTabsAtRest = tabsInTopBar,
                 // Clean focus: the bar steps up and away; its slot keeps only
                 // a little air above the grown cover (owner 2026-11-03). The
                 // row keeps its touch height and the slot clips it.
@@ -1976,7 +1966,7 @@ private fun CompactPlayingContent(
                                     .fillMaxHeight(),
                                 // Focus centres the cover in its column.
                                 contentAlignment = BiasAlignment(
-                                    horizontalBias = -1f + maxOf(shortFocusProgress, immersiveProgress),
+                                    horizontalBias = -1f + immersiveProgress,
                                     verticalBias = -1f,
                                 ),
                             ) {
@@ -2004,6 +1994,7 @@ private fun CompactPlayingContent(
                                         items = spineItems,
                                         songKey = state.songId,
                                         length = restPose.cover,
+                                        thickness = spineBand,
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
                                             .width(spineBand)
@@ -2052,16 +2043,12 @@ private fun CompactPlayingContent(
                                                         onStageModeChange(NowPlayingStageMode.Immersive)
                                                     }
                                                 }
-                                            } else if (shortFocusAvailable) {
-                                                {
-                                                    if (!shortFocus) shortFocusHaptics.performConfirm()
-                                                    shortFocus = !shortFocus
-                                                }
                                             } else {
                                                 null
                                             },
                                         )
-                                        .reportFocusCover(),
+                                        .reportFocusCover()
+                                        .testTag(StageCoverTag),
                                 )
                             }
 
@@ -2080,7 +2067,7 @@ private fun CompactPlayingContent(
                                         .fillMaxHeight()
                                         .graphicsLayer {
                                             // Focus breaks it into dots instead (below).
-                                            alpha = (1f - maxOf(detailProgress, shortFocusProgress)).coerceIn(0f, 1f)
+                                            alpha = (1f - detailProgress).coerceIn(0f, 1f)
                                             translationX = 72.dp.toPx() * ratingRetreatProgress
                                         }
                                         .dotDissolve { immersiveProgress },
@@ -2274,6 +2261,9 @@ private fun CompactPlayingContent(
                                         null
                                     },
                                     endOverflow = horizontalPadding,
+                                    // Only the resting page the eye is on scrolls: not under the
+                                    // expanded page, nor under the one-line lyric.
+                                    aboutScrollEnabled = stageMode == NowPlayingStageMode.Compact && !lyricOneLine,
                                     // Progress read in the layer, not captured: the
                                     // modifier stays the same across reshape frames,
                                     // so the hidden compact page can skip them.
@@ -2402,7 +2392,7 @@ private fun CompactPlayingContent(
                             onSetPlayMode = playbackActions.onSetPlayMode,
                             controlSize = stageControlSize,
                             live = stageControlsLive,
-                            prevToTopRow = maxOf(shortFocusProgress, compactFocusProgress),
+                            prevToTopRow = compactFocusProgress,
                             atEase = focusIdleShown,
                             modifier = Modifier
                                 // At ease, the first tap on the hidden
@@ -3924,6 +3914,7 @@ private fun LandscapePlayingContent(
                             lyricScale = 1f + (LandscapeFocusLyricScale - 1f) * focus,
                             upNext = if (inFocus) state.upNextLyrics else null,
                             endOverflow = LyricsRowInset,
+                            aboutScrollEnabled = stageMode == NowPlayingStageMode.Compact,
                             modifier = pageModifier.graphicsLayer {
                                 alpha = resolvedStageProgress.compact
                                 translationY = 12.dp.toPx() * resolvedStageProgress.detail
@@ -4902,9 +4893,11 @@ internal fun StageTopBar(
     // the "playing from" slot beside the docked cover (0 → 1, read at draw
     // time). Null = never.
     trackTitleFraction: (() -> Float)? = null,
-    // Fat and enlarged columns (option B): the expanded page's text tabs at the bar's end, arriving with
-    // the docked cover. Null: the tabs keep their row under the bar.
+    // Short windows (option B): the text tabs at the bar's end. Null: the tabs keep their row under the bar.
     endTabs: (@Composable () -> Unit)? = null,
+    // The tabs stay in the bar at rest too (the one-line column's way to About and Note, owner 2026-11-27);
+    // false: they arrive with the docked cover as the page expands.
+    endTabsAtRest: Boolean = false,
 ) {
     val dockProgress = detailProgress
     val dockCoverAlpha = if (dockProgress >= 1f - HiddenLayerVisibilityThreshold) 1f else 0f
@@ -5009,13 +5002,17 @@ internal fun StageTopBar(
                 }
             }
         }
-        // Composed only while the page is (being) expanded: invisible tabs must not take taps.
-        if (endTabs != null && dockProgress > HiddenLayerVisibilityThreshold) {
+        // Composed only while shown: invisible tabs must not take taps.
+        if (endTabs != null && (endTabsAtRest || dockProgress > HiddenLayerVisibilityThreshold)) {
             Spacer(modifier = Modifier.width(12.dp))
             Box(
-                modifier = Modifier.graphicsLayer {
-                    alpha = dockProgress
-                    translationY = 8.dp.toPx() * (1f - dockProgress)
+                modifier = if (endTabsAtRest) {
+                    Modifier
+                } else {
+                    Modifier.graphicsLayer {
+                        alpha = dockProgress
+                        translationY = 8.dp.toPx() * (1f - dockProgress)
+                    }
                 },
             ) {
                 endTabs()
@@ -5282,6 +5279,8 @@ private fun CompactDetailPage(
     listCoveredShown: () -> Float = { 0f },
     // Focus: sung lines kept above the current one (LyricsDisplay.focusLinesAbove).
     focusLinesAbove: Int = 1,
+    // The collapsed About scrolls under the finger only while it is the page on screen.
+    aboutScrollEnabled: Boolean = false,
 ) {
     val insetModifier = modifier.padding(horizontal = pageInset)
     when (page) {
@@ -5336,6 +5335,7 @@ private fun CompactDetailPage(
             credits = state.lyricCredits,
             facts = state.spineFacts,
             songKey = "${state.songTitle}\u0000${state.artist}\u0000${state.albumName}",
+            scrollEnabled = aboutScrollEnabled,
             modifier = insetModifier,
         )
         NowPlayingDetailPage.Note -> {
@@ -6476,11 +6476,11 @@ private fun PlayingFromLabel(
     }
 }
 
-/** Short focus is offered only where folding the rest away grows the cover by at least this. */
-private val ShortFocusMinGrowth = 24.dp
-
 /** The spine shows only in a band at least this wide. */
 private val SpineMinWidth = 24.dp
+
+/** Test tag of the single column's cover. */
+internal const val StageCoverTag = "np_stage_cover"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

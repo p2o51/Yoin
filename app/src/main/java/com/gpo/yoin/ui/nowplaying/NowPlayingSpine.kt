@@ -8,6 +8,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.MaterialTheme
@@ -29,10 +30,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
@@ -249,15 +254,24 @@ private val SpineFadeEdge = 20.dp
  * The spine itself: [items] one at a time, laid out [length] long (the cover's
  * side) and turned a quarter round so they read bottom to top. [songKey]
  * restarts it at the first fact on a new song.
+ *
+ * [thickness] is the band's width. Where it holds two lines, a fact longer than
+ * the spine takes two and stands still — the label over the value where each
+ * fits its line, else wrapped where it must — its head clear of the bottom fade (owner 2026-11-27: the head of 「创作时间」 sank into the fade
+ * while the line panned on a 475 × 751 phone). Only a fact two lines can't hold,
+ * or a band too thin for two, pans along its one line as before.
  */
 @Composable
 internal fun NowPlayingSpine(
     items: List<SpineItem>,
     songKey: String,
     length: Dp,
+    thickness: Dp,
     modifier: Modifier = Modifier,
 ) {
     if (items.isEmpty()) return
+    val lineHeight = with(LocalDensity.current) { MaterialTheme.typography.labelLarge.lineHeight.toDp() }
+    val twoLineRoom = thickness >= lineHeight * 2 + SpineTwoLineAir
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     var index by remember(songKey) { mutableIntStateOf(0) }
     val current = index.mod(items.size)
@@ -324,6 +338,7 @@ internal fun NowPlayingSpine(
                 item = frame.item,
                 length = length,
                 pan = !reduced,
+                twoLineRoom = twoLineRoom,
                 onPanMs = { if (frame.index == current) panMs = it },
             )
         }
@@ -332,11 +347,96 @@ internal fun NowPlayingSpine(
 
 private data class SpineFrame(val songKey: String, val index: Int, val item: SpineItem)
 
-/** One fact: the label quiet, the value in the line's ink; pans along the band when it is longer. */
+/** How a fact sits on the spine. */
+internal enum class SpineFit {
+    /** One line, whole. */
+    OneLine,
+
+    /** Two lines, whole: the label on the first, the value on the second (each fits its line). */
+    LabelOverValue,
+
+    /** Two lines, whole: longer than the spine, wrapping where it must. */
+    TwoLines,
+
+    /** One line that pans: two lines can't hold it, or the band is too thin for two. */
+    Pan,
+}
+
+/**
+ * How a fact [oneLineWidth] wide on one line sits on a spine [usable] long whose band does or doesn't have
+ * [twoLineRoom]: whole on one line; else, where the band holds two, the label over the value
+ * ([labelOverValueFits]: each fits its line) or wrapped where it must ([twoLinesFit]); else it pans.
+ */
+internal fun spineFit(
+    oneLineWidth: Float,
+    usable: Float,
+    twoLineRoom: Boolean,
+    twoLinesFit: Boolean,
+    labelOverValueFits: Boolean = false,
+): SpineFit = when {
+    oneLineWidth <= usable -> SpineFit.OneLine
+    twoLineRoom && labelOverValueFits -> SpineFit.LabelOverValue
+    twoLineRoom && twoLinesFit -> SpineFit.TwoLines
+    else -> SpineFit.Pan
+}
+
+/**
+ * One fact: the label quiet, the value in the line's ink. Inside the band's end fades; a longer fact wraps
+ * onto a second line where the band holds two, else pans along its one line.
+ */
 @Composable
-private fun SpineLine(item: SpineItem, length: Dp, pan: Boolean, onPanMs: (Long) -> Unit) {
+private fun SpineLine(item: SpineItem, length: Dp, pan: Boolean, twoLineRoom: Boolean, onPanMs: (Long) -> Unit) {
     val density = LocalDensity.current
     val lengthPx = with(density) { (length - SpineFadeEdge * 2).toPx() }
+    val ink = MaterialTheme.colorScheme.onSurfaceVariant
+    fun fact(separator: String) = buildAnnotatedString {
+        if (item.label.isNotEmpty()) {
+            withStyle(SpanStyle(color = ink.copy(alpha = 0.6f), fontWeight = FontWeight.Normal)) {
+                append(item.label)
+            }
+            append(separator)
+        }
+        append(item.value)
+    }
+    val text = fact("  ")
+    val labelOverValue = fact("\n")
+    val style = MaterialTheme.typography.labelLarge
+    val measurer = rememberTextMeasurer()
+    val usablePx = lengthPx.coerceAtLeast(0f)
+    val fit = remember(text, style, usablePx, twoLineRoom, measurer) {
+        val oneLine = measurer.measure(text, style, softWrap = false, maxLines = 1)
+        fun fitsTwo(candidate: AnnotatedString) = twoLineRoom && usablePx > 0f &&
+            !measurer.measure(
+                candidate,
+                style,
+                maxLines = 2,
+                constraints = Constraints(maxWidth = usablePx.toInt()),
+            ).hasVisualOverflow
+        spineFit(
+            oneLineWidth = oneLine.size.width.toFloat(),
+            usable = usablePx,
+            twoLineRoom = twoLineRoom,
+            twoLinesFit = fitsTwo(text),
+            labelOverValueFits = item.label.isNotEmpty() && fitsTwo(labelOverValue),
+        )
+    }
+    if (fit == SpineFit.LabelOverValue || fit == SpineFit.TwoLines) {
+        LaunchedEffect(item) { onPanMs(0L) }
+        Box(
+            modifier = Modifier
+                .requiredWidth(length)
+                .padding(horizontal = SpineFadeEdge),
+        ) {
+            Text(
+                text = if (fit == SpineFit.LabelOverValue) labelOverValue else text,
+                style = style,
+                color = ink,
+                maxLines = 2,
+                modifier = Modifier.testTag(SpineTextTag),
+            )
+        }
+        return
+    }
     var overflowPx by remember(item) { mutableStateOf(0f) }
     val offset = remember(item) { Animatable(0f) }
     LaunchedEffect(item, overflowPx, pan) {
@@ -350,18 +450,9 @@ private fun SpineLine(item: SpineItem, length: Dp, pan: Boolean, onPanMs: (Long)
         delay(SpinePanDelayMs)
         offset.animateTo(-overflowPx, tween(ms.toInt(), easing = LinearEasing))
     }
-    val ink = MaterialTheme.colorScheme.onSurfaceVariant
     Text(
-        text = buildAnnotatedString {
-            if (item.label.isNotEmpty()) {
-                withStyle(SpanStyle(color = ink.copy(alpha = 0.6f), fontWeight = FontWeight.Normal)) {
-                    append(item.label)
-                }
-                append("  ")
-            }
-            append(item.value)
-        },
-        style = MaterialTheme.typography.labelLarge,
+        text = text,
+        style = style,
         color = ink,
         maxLines = 1,
         softWrap = false,
@@ -369,9 +460,16 @@ private fun SpineLine(item: SpineItem, length: Dp, pan: Boolean, onPanMs: (Long)
             .requiredWidth(length)
             .wrapContentWidth(Alignment.Start, unbounded = true)
             .onSizeChanged { overflowPx = (it.width - lengthPx).coerceAtLeast(0f) }
-            .graphicsLayer { translationX = with(density) { SpineFadeEdge.toPx() } + offset.value },
+            .graphicsLayer { translationX = with(density) { SpineFadeEdge.toPx() } + offset.value }
+            .testTag(SpineTextTag),
     )
 }
+
+/** Test tag of the spine's text. */
+internal const val SpineTextTag = "np_spine_text"
+
+/** A band holds two lines when it is two label lines and this much wider. */
+private val SpineTwoLineAir = 4.dp
 
 /** Labels from resources, remembered per configuration. */
 @Composable

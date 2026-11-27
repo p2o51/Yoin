@@ -4,31 +4,31 @@ import com.gpo.yoin.ui.theme.YoinContainerShapes
 import androidx.compose.ui.draw.clip
 import com.gpo.yoin.ui.component.handPointer
 import android.content.res.Resources
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.testTag
+import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -40,7 +40,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onLongClick
@@ -54,11 +53,8 @@ import com.gpo.yoin.data.model.LyricCredit
 import com.gpo.yoin.data.model.LyricCreditRole
 import com.gpo.yoin.data.model.LyricCredits
 import com.gpo.yoin.ui.component.ThinkingDots
-import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlinx.coroutines.delay
 
 /*
  * Now Playing's About, reorganised (owner 2026-11-05): the short facts read like a receipt, one line each
@@ -431,93 +427,68 @@ private fun Modifier.longPressable(label: String, onLongPress: (() -> Unit)?): M
 private val ReceiptLabelWidth = 96.dp
 
 // ---------------------------------------------------------------------------
-// The collapsed carousel.
+// The collapsed About.
 // ---------------------------------------------------------------------------
 
-/** One page of the collapsed About: a few receipt lines, or one paragraph. */
-@Immutable
-internal sealed interface AboutCarouselPage {
-    data class Lines(val rows: List<ReceiptRow>) : AboutCarouselPage
-    data class Paragraph(val paragraph: AboutParagraph) : AboutCarouselPage
-}
-
-internal fun aboutCarouselPages(rows: List<ReceiptRow>, paragraphs: List<AboutParagraph>): List<AboutCarouselPage> =
-    rows.chunked(CarouselLinesPerPage).map(AboutCarouselPage::Lines) +
-        paragraphs.map(AboutCarouselPage::Paragraph)
-
-private const val CarouselLinesPerPage = 3
-private const val CarouselDwellMs = 7_000L
+/** Test tag of the collapsed About's scrolling column. */
+internal const val CollapsedAboutTag = "np_collapsed_about"
 
 /**
- * The collapsed About: [pages] one at a time, turning on their own. No page indicator, and it takes no
- * tap of its own: a tap falls through to the pager page, which expands About (owner 2026-11-06).
- * [songKey] starts it over on a new song.
+ * The collapsed About (owner 2026-11-27, replacing the 7-second carousel: "reading it is tiring, I have to
+ * wait"): the receipt lines and then the paragraphs, one column the finger scrolls directly. Content that
+ * fits sits centred in the window; content that doesn't starts at the top, and each end fades only while
+ * there is more beyond it. [scrollEnabled] is off wherever the page is not the one on screen (expanded
+ * over it, or under the one-line lyric), so a hidden page never takes a drag.
+ *
+ * It takes no tap of its own: a tap falls through to the pager page, which expands About (owner
+ * 2026-11-06). A drag that reaches its top edge hands on to the player's pull-down-to-close through nested
+ * scroll (NowPlayingOverlayHost); sideways drags stay the pager's. [songKey] starts it at the top on a new
+ * song.
  */
 @Composable
-internal fun AboutCarousel(
-    pages: List<AboutCarouselPage>,
+internal fun CollapsedAboutList(
+    rows: List<ReceiptRow>,
+    paragraphs: List<AboutParagraph>,
     songKey: String,
     modifier: Modifier = Modifier,
+    scrollEnabled: Boolean = true,
 ) {
-    if (pages.isEmpty()) return
-    var index by remember(songKey) { mutableIntStateOf(0) }
-    val current = index.mod(pages.size)
-    LaunchedEffect(songKey, current, pages.size) {
-        if (pages.size < 2) return@LaunchedEffect
-        delay(CarouselDwellMs)
-        index += 1
-    }
-    Box(modifier = modifier) {
-        AnimatedContent(
-            targetState = current,
-            transitionSpec = {
-                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-            },
-            modifier = Modifier.fillMaxSize(),
-            label = "aboutCarousel",
-        ) { shown ->
-            // A page taller than the window (a long credits line) starts at
-            // the top and fades out downward instead of being cut at both
-            // ends (owner 2026-11-16); a page that fits stays centred.
-            var boxHeight by remember { mutableIntStateOf(0) }
-            var pageHeight by remember { mutableIntStateOf(0) }
-            val overflows = boxHeight > 0 && pageHeight > boxHeight
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .onSizeChanged { boxHeight = it.height }
-                    .then(if (overflows) Modifier.edgeFade(bottom = CarouselOverflowFade) else Modifier),
-                contentAlignment = if (overflows) Alignment.TopStart else Alignment.CenterStart,
-            ) {
-                val pageModifier = Modifier
-                    .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                    .onSizeChanged { pageHeight = it.height }
-                when (val page = pages.getOrNull(shown)) {
-                    is AboutCarouselPage.Lines -> Column(modifier = pageModifier) {
-                        page.rows.forEachIndexed { i, row ->
-                            if (i > 0) DashedRule()
-                            ReceiptLine(label = row.label, value = row.value)
-                        }
-                    }
-                    is AboutCarouselPage.Paragraph -> Column(modifier = pageModifier) {
-                        Text(
-                            text = page.paragraph.label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = markdownBoldAnnotatedString(page.paragraph.text),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 6,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 6.dp),
-                        )
-                    }
-                    null -> Unit
+    if (rows.isEmpty() && paragraphs.isEmpty()) return
+    val scroll = remember(songKey) { ScrollState(initial = 0) }
+    Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalEdgeFadeOnScroll(
+                    state = scroll,
+                    top = CollapsedAboutFade,
+                    bottom = CollapsedAboutFade,
+                    maxFraction = 0.25f,
+                )
+                .verticalScroll(scroll, enabled = scrollEnabled)
+                .testTag(CollapsedAboutTag),
+        ) {
+            rows.forEachIndexed { i, row ->
+                if (i > 0) DashedRule()
+                ReceiptLine(label = row.label, value = row.value)
+            }
+            paragraphs.forEachIndexed { i, paragraph ->
+                Column(modifier = Modifier.padding(top = if (i == 0 && rows.isEmpty()) 0.dp else 12.dp)) {
+                    Text(
+                        text = paragraph.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = markdownBoldAnnotatedString(paragraph.text),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                 }
             }
+            // The last line clears the bottom fade once scrolled to the end.
+            Spacer(modifier = Modifier.height(4.dp))
         }
     }
 }
@@ -536,5 +507,5 @@ internal fun rememberAboutHasSourceRows(credits: LyricCredits?, facts: SpineSour
     }
 }
 
-/** Bottom fade of a compact About page taller than its window. */
-private val CarouselOverflowFade = 40.dp
+/** The collapsed About's edge fades (only while there is more beyond the edge). */
+private val CollapsedAboutFade = 24.dp

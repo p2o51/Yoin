@@ -38,8 +38,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Now Playing's chrome, option B (owner 2026-11-26): which columns carry the expanded page's tabs in the
- * top bar, and the bottom row — the page's action filling it, Share at its end, greyed where the page has
+ * Now Playing's chrome, option B (owner 2026-11-26; height alone since 2026-11-27): which columns carry the
+ * tabs in the top bar, and the bottom row — the page's action filling it, Share at its end, greyed where the page has
  * nothing to share.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -67,7 +67,7 @@ class NowPlayingChromeTest {
     /** The rule as the player reads it for a phone column of [width] × [height] (bars already off). */
     private fun phoneTabsUp(width: Dp, height: Dp): Boolean {
         val budget = resolveStageColumnBudget(width, height, column())
-        return nowPlayingTabsInTopBar(budget.rest.lyricFrame == LyricFrame.OneLine, enlarged = false)
+        return nowPlayingTabsInTopBar(budget.rest.lyricFrame == LyricFrame.OneLine)
     }
 
     @Test
@@ -87,14 +87,13 @@ class NowPlayingChromeTest {
     }
 
     @Test
-    fun should_putTheTabsInTheTopBar_when_theEnlargedPhoneOfATablet800x1280() {
+    fun should_keepTheTabRow_when_theEnlargedPhoneOfATablet800x1280() {
         val spec = nowPlayingEnlargedSpec(800.dp)
         val budget = resolveStageColumnBudget(800.dp, 1280.dp - 48.dp - 20.dp, column(transport = 124.dp), enlarged = spec)
-        // A tablet keeps its lyric list at rest — the enlarged column alone moves the tabs up.
+        // A tablet keeps its lyric list at rest, and height alone decides (owner 2026-11-27): the big tab row.
         assertEquals(LyricFrame.List, budget.rest.lyricFrame)
-        assertTrue(nowPlayingTabsInTopBar(lyricOneLine = false, enlarged = true))
-        assertTrue(nowPlayingTabsInTopBar(lyricOneLine = true, enlarged = false))
-        assertFalse(nowPlayingTabsInTopBar(lyricOneLine = false, enlarged = false))
+        assertFalse(nowPlayingTabsInTopBar(budget.rest.lyricFrame == LyricFrame.OneLine))
+        assertTrue(nowPlayingTabsInTopBar(lyricOneLine = true))
     }
 
     // ── What each page can share ──────────────────────────────────────────
