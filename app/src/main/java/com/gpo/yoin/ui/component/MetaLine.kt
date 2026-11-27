@@ -14,6 +14,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
@@ -50,8 +51,82 @@ internal fun metaLineVisibleCount(groupWidths: List<Int>, gapPx: Int, maxWidth: 
     return count
 }
 
+/**
+ * What a [MetaLine] does with groups that do not all fit.
+ *
+ * - [DropTrailing]: whole groups drop from the end ("12 tracks  44 min" loses the minutes). The
+ *   first group never drops: wider than the line, it ends in an ellipsis, so the line is never empty.
+ * - [Share]: for a pair of names (a song row's artist and album). Text groups share the width and
+ *   each ends in an ellipsis: the first gets up to [ShareLeadWeight] of it, a later group what the
+ *   ones before leave over. A later group squeezed under [MetaShareMinWidth] drops instead of
+ *   showing a lone "…". Counts ([MetaGroup.Stat]) and kinds keep their width.
+ */
+enum class MetaOverflow { DropTrailing, Share }
+
 private val MetaGroupGap = 12.dp
 private val MetaInnerGap = 4.dp
+
+/** In [MetaOverflow.Share], the narrowest a later group is drawn before it drops. */
+internal val MetaShareMinWidth = 40.dp
+
+/** The first text group's share of a [MetaOverflow.Share] line when every group is too long: 3 : 2. */
+private const val ShareLeadWeight = 3
+private const val ShareTrailWeight = 2
+
+/**
+ * The widths a [MetaOverflow.Share] line gives its groups, in px; 0 = dropped. Every group fits
+ * at its [natural] width when it can. Otherwise the [fixed] groups keep theirs and the others
+ * split the rest by weight (the first text group 3, each later one 2): one shorter than its share
+ * keeps its natural width and hands the difference to the others (water-filling), so a short
+ * album beside a long artist name shows whole and the artist takes the rest. A later group left
+ * under [minSharePx] (or 0) drops from the end and the line is shared again. The first group
+ * never drops; it is cut to the line when it is all that fits.
+ */
+internal fun metaLineShareWidths(
+    natural: List<Int>,
+    fixed: List<Boolean>,
+    gapPx: Int,
+    maxWidth: Int,
+    minSharePx: Int,
+): List<Int> {
+    if (natural.isEmpty()) return emptyList()
+    if (maxWidth <= 0) return List(natural.size) { 0 }
+    var count = natural.size
+    while (true) {
+        val widths = shareAmong(natural.take(count), fixed.take(count), gapPx, maxWidth)
+        val starved = (1 until count).any { i -> widths[i] < minOf(minSharePx, natural[i]) || widths[i] <= 0 }
+        if (!starved || count == 1) {
+            return widths.map { it.coerceAtMost(maxWidth) } + List(natural.size - count) { 0 }
+        }
+        count--
+    }
+}
+
+private fun shareAmong(natural: List<Int>, fixed: List<Boolean>, gapPx: Int, maxWidth: Int): List<Int> {
+    val total = natural.sum() + gapPx * (natural.size - 1)
+    if (total <= maxWidth) return natural
+    val widths = natural.toMutableList()
+    var room = maxWidth - gapPx * (natural.size - 1) - natural.indices.filter { fixed[it] }.sumOf { natural[it] }
+    val firstShared = natural.indices.firstOrNull { !fixed[it] }
+    val open = natural.indices.filter { !fixed[it] }.toMutableList()
+    fun weight(i: Int) = if (i == firstShared) ShareLeadWeight else ShareTrailWeight
+    // Water-filling: whoever needs less than its share takes only what it needs.
+    while (open.isNotEmpty()) {
+        val weights = open.sumOf(::weight)
+        val satisfied = open.filter { i -> natural[i].toLong() * weights <= room.coerceAtLeast(0).toLong() * weight(i) }
+        if (satisfied.isEmpty()) {
+            val share = room.coerceAtLeast(0)
+            open.forEach { i -> widths[i] = (share.toLong() * weight(i) / weights).toInt() }
+            break
+        }
+        satisfied.forEach { i ->
+            widths[i] = natural[i]
+            room -= natural[i]
+        }
+        open.removeAll(satisfied)
+    }
+    return widths
+}
 
 @Composable
 fun MetaLine(
@@ -62,6 +137,7 @@ fun MetaLine(
     // The line's ink. Unspecified = the theme's onSurface; a coloured card
     // (Activities) passes its own content colour so the line matches its text.
     color: Color = Color.Unspecified,
+    overflow: MetaOverflow = MetaOverflow.DropTrailing,
 ) {
     val gap = MetaGroupGap
     val ink = color.takeOrElse { MaterialTheme.colorScheme.onSurface }
@@ -74,13 +150,43 @@ fun MetaLine(
         },
     ) { measurables, constraints ->
         val gapPx = gap.roundToPx()
-        // Every group is measured at its natural width, then the ones that fit are placed. Not intrinsics:
-        // asking for a group's intrinsic width and then not measuring it (a dropped group) left the
-        // ticket's line re-measuring without end when the page's width changed under Now Playing (ANR).
-        val natural = Constraints(maxHeight = constraints.maxHeight)
-        val measured = measurables.map { it.measure(natural) }
-        val count = metaLineVisibleCount(measured.map(Placeable::width), gapPx, constraints.maxWidth)
-        val placeables = measured.take(count)
+        val placeables = when (overflow) {
+            MetaOverflow.DropTrailing -> {
+                // Every group is measured once at its natural width, then the ones that fit are placed. Not
+                // intrinsics: asking for a group's intrinsic width and then not measuring it (a dropped group)
+                // left the ticket's line re-measuring without end when the page's width changed under Now
+                // Playing (ANR). The first group alone is held to the line, so a name wider than it ends in an
+                // ellipsis instead of leaving the line empty (it can't be any wider than the line anyway).
+                val natural = Constraints(maxHeight = constraints.maxHeight)
+                val measured = measurables.mapIndexed { i, measurable ->
+                    measurable.measure(if (i == 0) natural.copy(maxWidth = constraints.maxWidth) else natural)
+                }
+                val count = metaLineVisibleCount(measured.map(Placeable::width), gapPx, constraints.maxWidth)
+                measured.take(count)
+            }
+            MetaOverflow.Share -> {
+                // Intrinsic widths first, then every group is measured exactly once (a dropped one at 0 wide,
+                // and not placed), so no group is ever asked for its width and left unmeasured (see above).
+                val natural = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
+                val widths = if (constraints.hasBoundedWidth) {
+                    metaLineShareWidths(
+                        natural = natural,
+                        fixed = groups.map { it !is MetaGroup.Plain },
+                        gapPx = gapPx,
+                        maxWidth = constraints.maxWidth,
+                        minSharePx = MetaShareMinWidth.roundToPx(),
+                    )
+                } else {
+                    natural
+                }
+                measurables.mapIndexedNotNull { i, measurable ->
+                    val placeable = measurable.measure(
+                        Constraints(maxWidth = widths[i].coerceAtLeast(0), maxHeight = constraints.maxHeight),
+                    )
+                    placeable.takeIf { widths[i] > 0 }
+                }
+            }
+        }
         val width = placeables.fold(0) { acc, placeable ->
             if (acc == 0) placeable.width else acc + gapPx + placeable.width
         }
@@ -173,6 +279,7 @@ private fun MetaGroupText(
                     color = ink.copy(alpha = ink.alpha * 0.6f),
                     maxLines = maxLines,
                     softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.alignByBaseline(),
                 )
             }
@@ -183,6 +290,8 @@ private fun MetaGroupText(
             color = if (group.muted) ink.copy(alpha = ink.alpha * 0.6f) else ink,
             maxLines = maxLines,
             softWrap = false,
+            // Only shows when the line holds the group narrower than its text (MetaOverflow).
+            overflow = TextOverflow.Ellipsis,
             modifier = modifier,
         )
         // The line's own size (a fixed labelSmall read a size smaller than the
@@ -198,6 +307,8 @@ private fun MetaGroupText(
             },
             maxLines = maxLines,
             softWrap = false,
+            // Only shows when the line holds the group narrower than its text (MetaOverflow).
+            overflow = TextOverflow.Ellipsis,
             modifier = modifier,
         )
     }
@@ -227,6 +338,20 @@ private fun MetaLineNarrowPreview() {
                 MetaGroup.Plain("Artist"),
                 MetaGroup.Plain("A very long album title", muted = true),
             ),
+        )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 180, name = "Shares a long artist and album")
+@Composable
+private fun MetaLineSharePreview() {
+    YoinTheme {
+        MetaLine(
+            groups = listOf(
+                MetaGroup.Plain("Kendrick Lamar, SZA, Travis Scott & Future"),
+                MetaGroup.Plain("Black Panther: The Album (Music From and Inspired By)", muted = true),
+            ),
+            overflow = MetaOverflow.Share,
         )
     }
 }

@@ -70,6 +70,7 @@ import com.gpo.yoin.shared.notes.NoteMention
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaOverflow
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -231,10 +232,10 @@ internal fun MentionRow(row: MentionCandidate, query: String, highlighted: Boole
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // Artist, then the album muted: the app's meta line (groups drop from the end when short).
+            // Artist, then the album muted, as a song row has them: long names share the line and ellipsize.
             val meta = listOfNotNull(row.artist?.let { MetaGroup.Plain(it) }, row.album?.let { MetaGroup.Plain(it, muted = true) })
             if (meta.isNotEmpty()) {
-                MetaLine(groups = meta, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MetaLine(groups = meta, color = MaterialTheme.colorScheme.onSurfaceVariant, overflow = MetaOverflow.Share)
             }
         }
     }

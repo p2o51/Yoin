@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaOverflow
 import com.gpo.yoin.ui.component.MetaLine
 import java.time.LocalDate
 import java.time.ZoneId
@@ -41,7 +42,7 @@ internal fun MemoryEntry.supportParts(albumLabel: String): MemorySupportParts {
     return MemorySupportParts(artist = artist, year = explicitYear ?: parsedYear)
 }
 
-/** Artist at full emphasis, year at 60%. A group that does not fit is dropped from the end. */
+/** Artist at full emphasis, year at 60%. A long artist ellipsizes and leaves the year its room. */
 @Composable
 internal fun MemoryArtistYearLine(
     parts: MemorySupportParts,
@@ -55,7 +56,13 @@ internal fun MemoryArtistYearLine(
     }
     if (groups.isEmpty()) return
     // Same ink the line had as one Text; the year steps back from it.
-    MetaLine(groups = groups, modifier = modifier, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    MetaLine(
+        groups = groups,
+        modifier = modifier,
+        style = style,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        overflow = MetaOverflow.Share,
+    )
 }
 
 /** App-language date for Memories chrome. This year drops the year, matching the old "Oct 3" / "Nov 8, 2025" split. */

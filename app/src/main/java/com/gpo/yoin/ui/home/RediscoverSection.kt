@@ -59,6 +59,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaOverflow
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
@@ -659,7 +660,7 @@ private fun RediscoverSongLine(line: RediscoverSongSubtitle, color: Color) {
         line.album?.let { add(MetaGroup.Plain(it, muted = true)) }
     }
     if (groups.isEmpty()) return
-    MetaLine(groups = groups, style = MaterialTheme.typography.bodyMedium, color = color)
+    MetaLine(groups = groups, style = MaterialTheme.typography.bodyMedium, color = color, overflow = MetaOverflow.Share)
 }
 
 /** The journal's track-note rail down the snippet's leading edge (draw only). */

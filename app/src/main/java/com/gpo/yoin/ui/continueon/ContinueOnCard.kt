@@ -44,6 +44,7 @@ import com.gpo.yoin.player.continueon.ContinueOnCursor
 import com.gpo.yoin.player.continueon.ContinueOnPrompt
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaOverflow
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
@@ -161,6 +162,7 @@ private fun CardBody(
                                     album?.let { MetaGroup.Plain(it, muted = true) },
                                 ),
                                 style = MaterialTheme.typography.bodyMedium,
+                                overflow = MetaOverflow.Share,
                             )
                         }
                         MetaLine(
