@@ -55,6 +55,12 @@ final class TextInputFocus {
         return isTextInputResponder(currentFirstResponder())
     }
 
+    /// The field with the keyboard holds marked text: an input method (pinyin, kana) is composing.
+    static func currentResponderIsComposing() -> Bool {
+        let responder = shared.testResponderProvider?() ?? currentFirstResponder()
+        return (responder as? UITextInput)?.markedTextRange != nil
+    }
+
     /// Walks up the responder chain from `responder` to check whether it is or sits inside a
     /// `UITextField`, `UITextView`, `UISearchBar`, or `UITextInput` control.
     static func isTextInputResponder(_ responder: AnyObject?) -> Bool {
