@@ -138,6 +138,8 @@ data class Album(
     val recordLabels: List<SubsonicRecordLabel> = emptyList(),
     /** OpenSubsonic: "explicit", "clean", or "" when the tags don't say (Navidrome: ITUNESADVISORY). */
     val explicitStatus: String? = null,
+    /** OpenSubsonic: every credited album artist (ArtistID3), with ids; absent on older servers. */
+    val artists: List<ArtistRef> = emptyList(),
 )
 
 /** OpenSubsonic RecordLabel: just its name. */

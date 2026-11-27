@@ -113,6 +113,7 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.StagedReveal
 import com.gpo.yoin.ui.component.YoinDropdownMenu
+import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.rememberStagedReveal
 import com.gpo.yoin.ui.component.seamDissolveViewport
@@ -195,6 +196,8 @@ fun AlbumDetailScreen(
     // The ▾ rows after Shuffle play (Play next, Add to queue, …): the host builds them.
     menu: DetailMenu = DetailMenu(),
     onOpenArtist: (() -> Unit)? = null,
+    // The header's artist name: opens the artist page with this id (Content.artistLinks). Null keeps it plain.
+    onOpenArtistPage: ((artistId: String) -> Unit)? = null,
     isPlaying: Boolean = false,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
@@ -322,6 +325,7 @@ fun AlbumDetailScreen(
                                     onRestoreMemoryTitle = onRestoreMemoryTitle,
                                     onScrapEdit = onScrapEdit,
                                     scrapFeeds = scrapFeeds,
+                                    onOpenArtistPage = onOpenArtistPage,
                                 )
                         }
                     }
@@ -412,6 +416,7 @@ private fun AlbumDetailContent(
     onRestoreMemoryTitle: () -> Unit,
     onScrapEdit: (ScrapEdit) -> Unit,
     scrapFeeds: ScrapSheetFeeds,
+    onOpenArtistPage: ((artistId: String) -> Unit)? = null,
 ) {
     // Material color roles seeded from the album's OWN cover (MCU
     // SchemeExpressive) — not raw Palette swatches, which read "off" used as
@@ -802,6 +807,8 @@ private fun AlbumDetailContent(
                     albumExplicit = content.albumExplicit,
                     releaseType = content.releaseType,
                     artistName = content.artistName,
+                    artistLinks = content.artistLinks,
+                    onArtistClick = onOpenArtistPage,
                     releaseDate = albumHeaderDate(content.releaseDate, content.year),
                     titleColor = titleColor,
                     accentText = accentText,
@@ -1051,6 +1058,9 @@ private fun AlbumTopHeader(
     onTitleRowPlaced: (androidx.compose.ui.layout.LayoutCoordinates) -> Unit = {},
     // The bar's white twin: drawn only, never touched (the real header sits below it).
     visualOnly: Boolean = false,
+    // The artist name's pages (Content.artistLinks): one opens at a tap, several drop a chooser.
+    artistLinks: List<AlbumArtistLink> = emptyList(),
+    onArtistClick: ((artistId: String) -> Unit)? = null,
 ) {
     val dotsInactive = if (visualOnly) {
         Color.White.copy(alpha = 0.4f)
@@ -1112,20 +1122,47 @@ private fun AlbumTopHeader(
                         )
                     }
                 }
-                DetailMetaLine(
-                    groups = buildList {
-                        if (artistName.isNotBlank()) add(MetaGroup.Plain(artistName))
-                        add(
-                            MetaGroup.Kind(
-                                releaseKindLabel(releaseType)
-                                    ?: stringResource(R.string.detail_album_kind),
-                                accent = true,
-                            ),
-                        )
-                        if (releaseDate != null) add(MetaGroup.Plain(releaseDate))
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                // The artist name is a link (owner 2026-11-27; iOS has had it all along): straight to the
+                // page for one artist, a chooser under the line for several ("JAY-Z & Kanye West").
+                var artistChooser by remember { mutableStateOf(false) }
+                val openArtist: (() -> Unit)? = when {
+                    visualOnly || onArtistClick == null || artistLinks.isEmpty() -> null
+                    artistLinks.size == 1 -> { { onArtistClick(artistLinks.single().id) } }
+                    else -> { { artistChooser = true } }
+                }
+                val goToArtist = stringResource(R.string.detail_album_go_to_artist)
+                Box {
+                    DetailMetaLine(
+                        groups = buildList {
+                            if (artistName.isNotBlank()) {
+                                add(MetaGroup.Plain(artistName, onClick = openArtist, onClickLabel = goToArtist))
+                            }
+                            add(
+                                MetaGroup.Kind(
+                                    releaseKindLabel(releaseType)
+                                        ?: stringResource(R.string.detail_album_kind),
+                                    accent = true,
+                                ),
+                            )
+                            if (releaseDate != null) add(MetaGroup.Plain(releaseDate))
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    if (onArtistClick != null && artistLinks.size > 1) {
+                        YoinDropdownMenu(expanded = artistChooser, onDismissRequest = { artistChooser = false }) {
+                            artistLinks.forEach { link ->
+                                YoinDropdownMenuItem(
+                                    text = link.name,
+                                    onClick = {
+                                        artistChooser = false
+                                        onArtistClick(link.id)
+                                    },
+                                    leadingIcon = { Icon(YoinSymbols.Artist, contentDescription = null) },
+                                )
+                            }
+                        }
+                    }
+                }
             }
             if (pageCount > 1 && dotsInTitleRow) {
                 // Before the stamp's room, so the dots slide aside as the bar forms.
@@ -1291,7 +1328,7 @@ private fun AlbumOverviewPage(
         // during the reshape settle. 1 = hero, 0 = track list; expand 0→1.
         val expand = 1f - revealState.fraction
 
-        // The hero slot: the cover's square plus the 56dp band behind it. The cover
+        // The hero slot: the cover's square, 4dp above it and 28dp below. The cover
         // and the two blocks are drawn by the bar layer above the pager
         // (AlbumSpectrumLayer / AlbumFlyingCover); here the slot only makes room
         // for them, and closes as they fly into the bar, so the list docks
@@ -1300,7 +1337,7 @@ private fun AlbumOverviewPage(
             maxW * YoinTokens.Detail.ALBUM_COVER_WIDTH_FRACTION.toFloat(),
             YoinTokens.Detail.ALBUM_COVER_MAX.dp,
         )
-        val slotHeight = lerp(heroCoverSide + 56.dp, 0.dp, expand.coerceIn(0f, 1f))
+        val slotHeight = lerp(albumHeroSlotDp(heroCoverSide.value).dp, 0.dp, expand.coerceIn(0f, 1f))
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -1868,13 +1905,17 @@ private fun AlbumWideOverview(
                 .width(AlbumWideIdentityWidth)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 24.dp, bottom = 120.dp),
+                // The cover's top level with the track list's first row, 4dp under the
+                // header: the page dots clear it by as much as the meta line clears them
+                // (owner 2026-11-27; it sat 44dp down, three times the gap above the dots).
+                .padding(top = AlbumTrackListTopPadding, bottom = 120.dp),
         ) {
             // No hugging blocks on tablets (owner 2026-11-14): they only peeked
-            // out round the cover. The box keeps its size, so nothing moves.
+            // out round the cover. The box keeps its width and the 20dp under the
+            // cover, so the meta under it stays where it was against the cover.
             Box(
-                modifier = Modifier.size(AlbumWideCoverSide + 40.dp),
-                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(width = AlbumWideCoverSide + 40.dp, height = AlbumWideCoverSide + 20.dp),
+                contentAlignment = Alignment.TopCenter,
             ) {
                 ExpressiveMediaArtwork(
                     model = content.coverArtUrl,

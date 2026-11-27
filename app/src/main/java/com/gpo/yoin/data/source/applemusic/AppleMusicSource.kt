@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.source.applemusic
 
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.ArtistCredit
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
@@ -1013,7 +1014,22 @@ class AppleMusicSource(
                 contentRating = ContentRating.fromAppleMusic(a.text("contentRating"))
                     ?: ContentRating.fromAppleMusic(catalog?.attributes()?.text("contentRating")),
                 releaseType = appleReleaseType(a, catalog?.attributes()),
+                artistCredits = appleArtistCredits(resource),
             )
+        }
+
+        /**
+         * Every artist of the album's `artists` relationship that came with its name (the album reads
+         * include it), when there are several: "JAY-Z & Kanye West" is two pages. A lone artist is the
+         * album's [Album.artistId] already.
+         */
+        internal fun appleArtistCredits(resource: JsonObject): List<ArtistCredit> {
+            val artists = resource.related("artists").filter { it.text("id") != null }
+            if (artists.size < 2) return emptyList()
+            return artists.mapNotNull { artist ->
+                val name = artist.attributes().text("name")?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+                ArtistCredit(name, artist.mediaId())
+            }.takeIf { it.size > 1 }.orEmpty()
         }
 
         /**

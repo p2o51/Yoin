@@ -21,6 +21,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.albumArtistLinks
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
@@ -247,6 +248,10 @@ class AlbumDetailViewModel(
                 // The visit row feeds Home's activity and the widgets, not this page:
                 // Content doesn't wait on the Room insert.
                 launch { repository.recordAlbumVisit(album) }
+                // The album's own artist page, or the one its tracks agree on (Apple Music can leave it off).
+                val artistLinks = albumArtistLinks(album).mapNotNull { credit ->
+                    credit.id?.let { AlbumArtistLink(name = credit.name, id = it.toString()) }
+                }
                 _uiState.value = AlbumDetailUiState.Content(
                     albumId = album.id.toString(),
                     albumName = album.name,
@@ -254,7 +259,8 @@ class AlbumDetailViewModel(
                     albumExplicit = album.isExplicit,
                     releaseType = album.releaseType,
                     artistName = album.artist.orEmpty(),
-                    artistId = album.artistId?.toString(),
+                    artistId = artistLinks.firstOrNull()?.id,
+                    artistLinks = artistLinks,
                     coverArtId = CoverRef.toStorageKey(album.coverArt),
                     coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it, com.gpo.yoin.data.model.CoverSizes.heroPx) },
                     year = album.year,

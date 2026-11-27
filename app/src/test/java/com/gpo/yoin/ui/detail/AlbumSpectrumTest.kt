@@ -145,7 +145,22 @@ class AlbumSpectrumTest {
         val g = geometry(AlbumBarLayout.Compact)
         assertEquals(300f, g.cover.width, 0.01f)
         assertEquals((412f - 300f) / 2f, g.cover.left, 0.01f)
-        assertEquals(112f + 28f, g.cover.top, 0.01f)
+        // 4dp under the header: with the dots' cell and the header's padding, the dots clear the
+        // cover by ≈16dp, as the meta line clears them (owner 2026-11-27).
+        assertEquals(112f + 4f, g.cover.top, 0.01f)
+    }
+
+    @Test
+    fun should_keepTheButterflyBandCentredOnTheCover_when_theCoverMovesUp() {
+        val g = geometry(AlbumBarLayout.Compact)
+        val band = g.butterflyFrom
+        assertEquals(300f + 56f, band.height, 0.01f)
+        assertEquals(g.cover.top - 28f, band.top, 0.01f)
+    }
+
+    @Test
+    fun should_giveTheCompactHeroSlotFourAboveAndTwentyEightBelow() {
+        assertEquals(4f + 300f + 28f, albumHeroSlotDp(300f), 0.01f)
     }
 
     @Test

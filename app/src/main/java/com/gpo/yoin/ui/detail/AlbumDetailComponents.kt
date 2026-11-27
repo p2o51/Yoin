@@ -122,6 +122,7 @@ import com.gpo.yoin.ui.notes.editor.EchoGuard
 import com.gpo.yoin.ui.notes.editor.NoteEditorDisplay
 import com.gpo.yoin.ui.notes.editor.NoteEditorState
 import com.gpo.yoin.ui.notes.editor.NoteMarkupField
+import com.gpo.yoin.ui.component.durationMetaGroup
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.ratingBloom
@@ -392,23 +393,15 @@ internal fun AlbumDiscHeading(disc: Int, modifier: Modifier = Modifier) {
     )
 }
 
-/** Hours and leftover minutes as separate stats. Zero leftover minutes are omitted. */
+/** The total length as one group: "1h 16min" / "1 小时 16 分钟" (zero leftover minutes are omitted). */
 @Composable
-private fun totalDurationGroups(seconds: Int): List<MetaGroup> {
-    val totalMinutes = seconds / 60
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    val hourUnit = stringResource(R.string.detail_unit_hour)
-    val minuteUnit = stringResource(R.string.detail_unit_minute)
-    return buildList {
-        if (hours > 0) {
-            add(MetaGroup.Stat(hours.toString(), hourUnit))
-            if (minutes > 0) add(MetaGroup.Stat(minutes.toString(), minuteUnit))
-        } else {
-            add(MetaGroup.Stat(minutes.toString(), minuteUnit))
-        }
-    }
-}
+private fun totalDurationGroups(seconds: Int): List<MetaGroup> = listOf(
+    durationMetaGroup(
+        seconds = seconds,
+        hourUnit = stringResource(R.string.detail_unit_hour),
+        minuteUnit = stringResource(R.string.detail_unit_minute),
+    ),
+)
 
 // ---------------------------------------------------------------------------
 // Flowing hero titles. Adjacent titles alternate tone. A space is the break.

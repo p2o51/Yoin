@@ -22,7 +22,13 @@ sealed interface AlbumDetailUiState {
         /** What kind of release this is, as the service says; the header names it (Album when unknown). */
         val releaseType: ReleaseType? = null,
         val artistName: String,
+        /** The first of [artistLinks]: the bar's Go to artist. */
         val artistId: String?,
+        /**
+         * The artist pages the header's artist name opens ([com.gpo.yoin.data.model.albumArtistLinks]):
+         * one opens at a tap, several offer a choice. Empty: the name is plain text.
+         */
+        val artistLinks: List<AlbumArtistLink> = emptyList(),
         val coverArtId: String?,
         val coverArtUrl: String?,
         val year: Int?,
@@ -93,6 +99,9 @@ enum class AlbumScoreKind { UserRating, Average, None }
 
 /** Queue actions have no destination when the album contains no playable row. */
 internal fun AlbumDetailUiState.Content.hasQueueableSongs(): Boolean = songs.any { !it.isUnavailable }
+
+/** One artist page the album header's artist name opens: its [name] in the chooser and its `provider:rawId`. */
+data class AlbumArtistLink(val name: String, val id: String)
 
 data class AlbumScore(
     val kind: AlbumScoreKind,

@@ -2,6 +2,7 @@ package com.gpo.yoin.data.source.spotify
 
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.ArtistCredit
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.ContentRating
@@ -67,6 +68,7 @@ internal fun SpotifyAlbumObject.toAlbum(
     recordLabels = listOfNotNull(label?.trim()?.takeIf(String::isNotEmpty)),
     releaseType = spotifyReleaseType(albumType, totalTracks),
     contentRating = contentRating(tracksOverride),
+    artistCredits = artists.toArtistCredits(),
     tracks = tracksOverride.map { track ->
         track.toTrack(
             savedTrackIds = savedTrackIds,
@@ -113,7 +115,16 @@ internal fun SpotifySimplifiedAlbumObject.toAlbum(
     releaseType = spotifyReleaseType(albumType, totalTracks),
     releaseDate = releaseDate(),
     contentRating = contentRating,
+    artistCredits = artists.toArtistCredits(),
 )
+
+/** Every credited artist with its page; empty for a lone artist ([Album.artist] / [Album.artistId] say it). */
+internal fun List<SpotifySimplifiedArtistObject>.toArtistCredits(): List<ArtistCredit> =
+    if (size < 2) {
+        emptyList()
+    } else {
+        filter { it.name.isNotBlank() }.map { ArtistCredit(it.name, it.id.takeIf(String::isNotBlank)?.let(MediaId::spotify)) }
+    }
 
 /**
  * Spotify `album_type` → [ReleaseType]. Spotify files EPs under "single"; its
