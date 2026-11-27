@@ -106,6 +106,7 @@ import com.gpo.yoin.symbols.rememberEqualizerSymbolPainter
 import com.gpo.yoin.ui.component.FavoriteGlyph
 import com.gpo.yoin.ui.component.FavoriteGlyphIcon
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaOverflow
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.ScoreEmblemAwardMode
@@ -322,10 +323,11 @@ internal fun DetailMetaLine(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodySmall,
     color: Color = Color.Unspecified,
+    overflow: MetaOverflow = MetaOverflow.DropTrailing,
 ) {
     Layout(
         modifier = modifier,
-        content = { MetaLine(groups = groups, style = style, color = color) },
+        content = { MetaLine(groups = groups, style = style, color = color, overflow = overflow) },
     ) { measurables, constraints ->
         val child = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
         layout(

@@ -77,6 +77,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -107,6 +108,7 @@ import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaOverflow
 import com.gpo.yoin.ui.component.StagedReveal
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
@@ -1466,6 +1468,9 @@ internal fun PlaylistTrackList(
     }
 }
 
+/** The playlist row's artist-and-album line, for tests. */
+internal const val PlaylistTrackCreditTag = "playlist_track_credit"
+
 @Composable
 private fun PlaylistTrackCredit(artist: String, album: String) {
     val groups = buildList {
@@ -1473,7 +1478,13 @@ private fun PlaylistTrackCredit(artist: String, album: String) {
         if (album.isNotBlank()) add(MetaGroup.Plain(album, muted = artist.isNotBlank()))
     }
     if (groups.isEmpty()) return
-    DetailMetaLine(groups = groups, style = MaterialTheme.typography.bodySmall)
+    // Artist and album share the row: each ellipsizes, neither drops the other (Galaxy S25 report).
+    DetailMetaLine(
+        groups = groups,
+        style = MaterialTheme.typography.bodySmall,
+        overflow = MetaOverflow.Share,
+        modifier = Modifier.testTag(PlaylistTrackCreditTag),
+    )
 }
 
 /**
@@ -1496,7 +1507,7 @@ internal data class PlaylistRowMarks(
  * song with a note wears the album row's note marker after its title.
  */
 @Composable
-private fun PlaylistTrackRow(
+internal fun PlaylistTrackRow(
     song: PlaylistSong,
     hasNote: Boolean,
     accent: () -> Color,
