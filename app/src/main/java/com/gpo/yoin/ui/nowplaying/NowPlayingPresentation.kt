@@ -188,11 +188,13 @@ fun nowPlayingPanelWidth(windowWidth: Dp): Dp = (windowWidth * 0.5f).coerceIn(Pa
 private val LandscapeMinWidth = 560.dp
 
 /**
- * The content beside the panel must keep at least a phone column. A host
+ * The content beside the panel must keep at least a phone column: 360, the
+ * shell's own column floor (iPad round 2, owner 2026-11-27: the same line as
+ * iPad, where 320 left Home's cards a letter a line beside the panel). A host
  * that lays out more than one column beside the panel (the Wide shell with
  * its detail column open) passes its own, larger floor.
  */
-val NowPlayingPanelMinContentWidth = 320.dp
+val NowPlayingPanelMinContentWidth = 360.dp
 private val PanelMinWidth = 360.dp
 private val PanelMaxWidth = 420.dp
 
