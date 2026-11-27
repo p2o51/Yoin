@@ -34,14 +34,7 @@ protocol LyricHighlightModel: Sendable {
 struct AppleOnDeviceLyricModel: LyricHighlightModel {
     var name: String { "apple-on-device" }
 
-    func status() -> OnDeviceModelStatus {
-        switch SystemLanguageModel.default.availability {
-        case .available: return .available
-        case .unavailable(.appleIntelligenceNotEnabled): return .notEnabled
-        case .unavailable(.modelNotReady): return .notReady
-        case .unavailable: return .unsupported
-        }
-    }
+    func status() -> OnDeviceModelStatus { .current() }
 
     func answer(_ prompt: String) async -> OnDeviceAnswer {
         let session = LanguageModelSession(instructions: LyricHighlightPrompt.instructions)
@@ -63,7 +56,8 @@ struct AppleOnDeviceLyricModel: LyricHighlightModel {
 
 /// Picks lyric cards with the on-device model, a few songs at a time, only while Yoin is in front (Android
 /// LyricHighlightProcessor): the song playing first, then the selector's queue. Nothing runs on Low Power
-/// Mode, a warm device, or a low battery that isn't charging; the budget caps the day.
+/// Mode, a warm device, or a low battery that isn't charging; the budget caps the day. Each visit first makes
+/// today's Home greetings if they're due (Android runDailyGreetings), with the same guards and budget.
 @MainActor
 @Observable
 final class LyricHighlightProcessor {
@@ -71,16 +65,22 @@ final class LyricHighlightProcessor {
 
     private(set) var status: OnDeviceModelStatus?
     @ObservationIgnored let model: any LyricHighlightModel
+    /// Home's greetings (and nothing else here) ask this one.
+    @ObservationIgnored let textModel: any OnDeviceTextModel
     @ObservationIgnored private let store: LyricHighlightStore
+    @ObservationIgnored private let greetings: HomeGreetingStore
     @ObservationIgnored private var visit: Task<Void, Never>?
 
     static let startDelay: Duration = .seconds(10)
     static let retryUnusableAfterMs: Int64 = 30 * LyricHighlightSelector.dayMs
     static let minBattery: Float = 0.3
 
-    init(model: any LyricHighlightModel, store: LyricHighlightStore? = nil) {
+    init(model: any LyricHighlightModel, textModel: any OnDeviceTextModel = AppleOnDeviceTextModel(),
+         store: LyricHighlightStore? = nil, greetings: HomeGreetingStore? = nil) {
         self.model = model
+        self.textModel = textModel
         self.store = store ?? .shared
+        self.greetings = greetings ?? .shared
     }
 
     /// Asks the system again (Labs opening, its "Check again"); costs no inference.
@@ -94,7 +94,7 @@ final class LyricHighlightProcessor {
     /// Yoin came to the front: a visit after the start delay. Yoin going to the background stops it.
     func appBecameActive(_ app: AppModel = .shared) {
         checkNow()
-        guard visit == nil, store.optedIn, status == .available else { return }
+        guard visit == nil, store.optedIn || store.greetingsEnabled, status == .available else { return }
         visit = Task { [weak self] in
             try? await Task.sleep(for: Self.startDelay)
             await self?.runVisit(app)
@@ -107,11 +107,31 @@ final class LyricHighlightProcessor {
         visit = nil
     }
 
-    /// The intro's "Turn on" and Labs' switch: on starts a visit now; off stops the model at once.
+    /// Labs' Lyric Cards switch: on starts a visit now; off stops the model at once (unless the greetings
+    /// still want it, Android setOptedIn).
     func setOptedIn(_ on: Bool) {
         store.optedIn = on
         store.introSeen = true
-        if on { appBecameActive() } else { appResignedActive() }
+        if on { appBecameActive() } else if !store.greetingsEnabled { appResignedActive() }
+    }
+
+    /// The Lyric Cards intro's "Turn on" (Android optIn): the cards on, and the greeting and suggested-question
+    /// switches with them unless the listener has set those already.
+    func optIn() {
+        if !store.hasSet(LyricHighlightStore.greetingsKey) { store.greetingsEnabled = true }
+        if !store.hasSet(LyricHighlightStore.followUpsKey) { store.aboutFollowUpsEnabled = true }
+        setOptedIn(true)
+    }
+
+    /// Labs' Home greeting switch: on starts a visit now; off stops one that only the greetings wanted.
+    func setGreetingsEnabled(_ on: Bool) {
+        store.greetingsEnabled = on
+        if on { appBecameActive() } else if !store.optedIn { appResignedActive() }
+    }
+
+    /// Labs' Suggested questions switch (read by AboutFollowUpGenerator when Ask opens).
+    func setAboutFollowUpsEnabled(_ on: Bool) {
+        store.aboutFollowUpsEnabled = on
     }
 
     private func deviceIsRelaxed() -> Bool {
@@ -139,6 +159,11 @@ final class LyricHighlightProcessor {
     private func runVisit(_ app: AppModel) async {
         let lib = app.store
         guard lib.isReal, let account = app.profiles.active.flatMap(MemoryLedgerSource.account(of:)) else { return }
+        // Today's 3-slot Home greetings once a day, before the lyric queue, so the next launch opens with them.
+        if store.greetingsEnabled, let profileId = app.profiles.active?.id {
+            guard await runDailyGreetings(profileId: profileId, account: account) else { return }
+        }
+        guard store.optedIn else { return }
         var done = 0
         for entry in await queue(app, account: account) {
             guard !Task.isCancelled, done < LyricHighlightBudget.perVisitLimit, deviceIsRelaxed() else { break }
@@ -156,6 +181,30 @@ final class LyricHighlightProcessor {
     }
 
     private enum Outcome { case picked, unusable, skipped, stop }
+
+    /// Android runDailyGreetings: false stops the visit (warm device, low battery, the budget spent, the model
+    /// busy). A language the model doesn't write leaves Home on its static greeting and the visit carries on.
+    func runDailyGreetings(profileId: String, account: LedgerAccount) async -> Bool {
+        guard greetings.needsGeneration(profileId: profileId),
+              textModel.supportsLanguage(OnDeviceLanguage.app) else { return true }
+        guard deviceIsRelaxed() else { return false }
+        let now = Self.nowMs
+        guard store.budget.allows(now: now, today: Self.today(now)) else { return false }
+        let cues = HomeGreetingCues.load(account: account, now: now)
+        let outcome = await greetings.generateIfNeeded(profileId: profileId, cues: cues, model: textModel)
+        guard !Task.isCancelled else { return false }
+        switch outcome {
+        case .generated, .unusable:
+            store.budget = store.budget.afterSuccess(today: Self.today(Self.nowMs))
+            try? await Task.sleep(for: .milliseconds(LyricHighlightBudget.gapMs))
+            return !Task.isCancelled
+        case .busy:
+            store.budget = store.budget.afterBusy(now: Self.nowMs, today: Self.today(Self.nowMs))
+            return false
+        case .alreadyReady, .failed:
+            return true
+        }
+    }
 
     /// The song playing now, then the selector's mix of heavy rotation, rediscover and fresh.
     private func queue(_ app: AppModel, account: LedgerAccount) async -> [Entry] {

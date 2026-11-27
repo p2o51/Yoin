@@ -50,12 +50,24 @@ final class LyricHighlightStore {
     var budget: LyricHighlightBudget {
         didSet { if let d = try? JSONEncoder().encode(budget) { defaults.set(d, forKey: "lyricHighlightBudget") } }
     }
+    /// Labs' Home greeting switch (Android greetingsEnabled): never set, it starts as the Lyric Cards opt-in.
+    var greetingsEnabled: Bool { didSet { defaults.set(greetingsEnabled, forKey: Self.greetingsKey) } }
+    /// Labs' Suggested questions switch (Android aboutFollowUpsEnabled), likewise.
+    var aboutFollowUpsEnabled: Bool { didSet { defaults.set(aboutFollowUpsEnabled, forKey: Self.followUpsKey) } }
+    nonisolated static let greetingsKey = "onDeviceGreetingsEnabled"
+    nonisolated static let followUpsKey = "onDeviceAboutFollowUpsEnabled"
+    /// Whether the listener has ever set the switch (Android's `prefs.contains`).
+    func hasSet(_ key: String) -> Bool { defaults.object(forKey: key) != nil }
 
     init(fileURL: URL?, defaults: UserDefaults = .standard) {
         self.fileURL = fileURL
         self.defaults = defaults
         optedIn = defaults.bool(forKey: "lyricHighlightOptedIn")
         introSeen = defaults.bool(forKey: "lyricHighlightIntroSeen")
+        let opted = defaults.bool(forKey: "lyricHighlightOptedIn")
+        greetingsEnabled = defaults.object(forKey: Self.greetingsKey) != nil ? defaults.bool(forKey: Self.greetingsKey) : opted
+        aboutFollowUpsEnabled = defaults.object(forKey: Self.followUpsKey) != nil
+            ? defaults.bool(forKey: Self.followUpsKey) : opted
         budget = defaults.data(forKey: "lyricHighlightBudget").flatMap { try? JSONDecoder().decode(LyricHighlightBudget.self, from: $0) } ?? .init()
         if let fileURL, let data = try? Data(contentsOf: fileURL),
            let saved = try? JSONDecoder().decode([LyricHighlightRow].self, from: data) {

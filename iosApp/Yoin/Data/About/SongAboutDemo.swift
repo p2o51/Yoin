@@ -19,19 +19,25 @@ enum SongAboutDemo {
         let title = track.title, artist = track.artist ?? album.artist, albumTitle = album.title
         let store = SongAboutStore.shared
         let language = GeminiSettings.normalizeLanguage(GeminiSettings.shared.targetLanguage)
+        // The app in Chinese gets the rows in Chinese, so the on-device follow-ups (which must be Chinese there)
+        // have Chinese notes to read.
+        let zh = (Bundle.main.preferredLocalizations.first ?? "en").hasPrefix("zh")
         store.saveCanonical(title: title, artist: artist, album: albumTitle, values: [
-            .init(key: SongAboutStore.Canon.creationTime, answer: "Spring 2019"),
-            .init(key: SongAboutStore.Canon.creationLocation, answer: "A rented room in Shimokitazawa"),
+            .init(key: SongAboutStore.Canon.creationTime, answer: zh ? "2019 年春" : "Spring 2019"),
+            .init(key: SongAboutStore.Canon.creationLocation, answer: zh ? "下北泽一间租来的小屋" : "A rented room in Shimokitazawa"),
             .init(key: SongAboutStore.Canon.lyricist, answer: "Mina Asahi"),
             .init(key: SongAboutStore.Canon.composer, answer: "Mina Asahi, Ren Kudo"),
             .init(key: SongAboutStore.Canon.producer, answer: "Ren Kudo"),
-            .init(key: SongAboutStore.Canon.review, answer: "Written on the last train home; the piano was recorded **in one take** at night."),
+            .init(key: SongAboutStore.Canon.review, answer: zh
+                ? "写于回家的末班电车上；钢琴是在夜里**一遍录成**的。"
+                : "Written on the last train home; the piano was recorded **in one take** at night."),
         ], language: language, now: Date(timeIntervalSinceNow: -3600))
         store.saveAsk(title: title, artist: artist, album: albumTitle, question: "Who plays the piano?",
-                      reply: .init(title: "The piano", answer: "Ren Kudo, on an upright borrowed from a friend."),
+                      reply: .init(title: zh ? "钢琴" : "The piano",
+                                   answer: zh ? "Ren Kudo，弹的是向朋友借来的立式钢琴。" : "Ren Kudo, on an upright borrowed from a friend."),
                       language: language, now: Date(timeIntervalSinceNow: -1800))
-        store.writeOwn(title: title, artist: artist, album: albumTitle, heading: "Where I first heard it",
-                       text: "On the radio in a taxi, raining.")
+        store.writeOwn(title: title, artist: artist, album: albumTitle, heading: zh ? "第一次听到" : "Where I first heard it",
+                       text: zh ? "下雨天，出租车的电台里。" : "On the radio in a taxi, raining.")
         let k = SongAboutStore.key(title: title, artist: artist, album: albumTitle)
         key = k
         let ask = SongAboutStore.Entry.Ref(song: k, kind: SongAboutStore.Kind.ask, entryKey: "who plays the piano?")
