@@ -1057,6 +1057,15 @@ final class AppModel {
     /// 2026-11-27, 13" Split View 1/2).
     static let padPanelBesideMin: CGFloat = 360
     static let padTwoColumnsMin: CGFloat = 744
+    /// iPad: the path when the window crosses 840 with an album picked into the column. Narrowing, the album
+    /// leads the one stack (what was pushed on it in the column stays on top); widening, it goes back to
+    /// being the column's root.
+    static func padPath(_ path: [Route], selection: Album?, wide: Bool) -> [Route] {
+        guard let album = selection else { return path }
+        if wide { return path.first == .album(album) ? Array(path.dropFirst()) : path }
+        return path.first == .album(album) ? path : [.album(album)] + path
+    }
+
     /// iPad: a detail column is out (the window is Wide and a page is open in it).
     var padColumnOpen: Bool { padWidth >= 840 && (padSelection != nil || !path.isEmpty) }
     /// iPad: the side panel grows into Full Now Playing.

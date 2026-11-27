@@ -34,3 +34,29 @@ final class PadPanelFitTests: XCTestCase {
         XCTAssertFalse(AppModel.padPanelFits(window: 719, columnOpen: false))
     }
 }
+
+/// iPad: the album in the detail column across the 840 line (AppModel.padPath).
+@MainActor
+final class PadPathAcross840Tests: XCTestCase {
+    private let album = MockLibrary.allAlbums[0]
+
+    func test_should_pushTheColumnsAlbum_when_theWindowNarrows() {
+        XCTAssertEqual(AppModel.padPath([], selection: album, wide: false), [.album(album)])
+        let artist = Route.artist(ArtistRef("Mina Asahi"))
+        XCTAssertEqual(AppModel.padPath([artist], selection: album, wide: false), [.album(album), artist])
+    }
+
+    func test_should_putItBackInTheColumn_when_theWindowWidens() {
+        XCTAssertEqual(AppModel.padPath([.album(album)], selection: album, wide: true), [])
+    }
+
+    func test_should_leaveThePath_when_nothingIsPicked() {
+        XCTAssertEqual(AppModel.padPath([.settings], selection: nil, wide: false), [.settings])
+        XCTAssertEqual(AppModel.padPath([.settings], selection: nil, wide: true), [.settings])
+    }
+
+    func test_should_roundTrip_when_turnedThereAndBack() {
+        let narrow = AppModel.padPath([.labs], selection: album, wide: false)
+        XCTAssertEqual(AppModel.padPath(narrow, selection: album, wide: true), [.labs])
+    }
+}

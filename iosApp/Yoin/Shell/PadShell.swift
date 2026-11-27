@@ -266,7 +266,19 @@ private struct PadColumns: View {
                 }
             }
         }
-        .onChange(of: model.padWidth >= 840, initial: true) { _, now in wide = now }
+        .onChange(of: model.padWidth >= 840, initial: true) { old, now in
+            wide = now
+            // Turning across 840 (an 11" rotated, Split View, Stage Manager): the album in the column is pushed
+            // in the one stack, and back into the column on the way back, instead of vanishing under the shell.
+            guard active, old != now else { return }
+            let next = AppModel.padPath(model.path, selection: model.padSelection, wide: now)
+            if next != model.path { model.path = next }
+        }
+        .onChange(of: model.path) { _, path in
+            // One stack: the album picked into it was popped, so it is no longer the column's to bring back.
+            guard active, !wide, let album = model.padSelection, !path.contains(.album(album)) else { return }
+            model.padSelection = nil
+        }
         .onChange(of: model.padSelection) { _, _ in
             // A new album in the column replaces whatever was pushed on it.
             guard active, wide else { return }
