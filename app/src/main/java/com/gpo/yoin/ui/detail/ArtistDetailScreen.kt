@@ -70,6 +70,7 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaOverflow
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.formatTrackDuration
@@ -865,6 +866,7 @@ private fun ArtistPlayedMeta(album: String, duration: String?) {
     DetailMetaLine(
         groups = groups,
         style = MaterialTheme.typography.bodySmall.withTabularFigures(),
+        overflow = MetaOverflow.Share,
     )
 }
 
