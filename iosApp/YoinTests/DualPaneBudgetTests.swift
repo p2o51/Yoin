@@ -7,46 +7,63 @@ final class DualPaneBudgetTests: XCTestCase {
         .init(transport: 136, titleOneLine: 24 + 2 + 36, titleTwoLines: 24 + 2 + 72, navBottom: navBottom)
     }
 
-    func test_should_measureStackAt312AndKeepCoverLarge_when_owner1130x753() {
-        let b = DualPaneBudget.resolve(rowWidth: 1082, contentHeight: 708, barHeight: 48, metrics: dual())
-        // Two lines would leave the cover no room to focus: one line it is.
-        XCTAssertEqual(b.titleForm, .oneLine)
-        XCTAssertGreaterThanOrEqual(b.rest.cover, 290)
-        XCTAssertEqual(b.rest.ratingSide, DualPaneBudget.ratingSide)
-        XCTAssertEqual(b.rest.slot, b.rest.cover + DualPaneBudget.ratingSide, accuracy: 0.001)
-        let focus = try! XCTUnwrap(b.focus)
-        XCTAssertGreaterThanOrEqual(focus.cover, b.rest.cover + 40)
-        XCTAssertEqual(focus.slot, max(DualPaneBudget.stackWidth, focus.cover))
-        // The title stays in focus, exactly as it rests; only the rating retreats.
-        XCTAssertEqual(focus.title, b.rest.title)
-        XCTAssertEqual(focus.ratingSide, 0)
+    /// 13" landscape: 1376 × 1032, 24 status bar, 20 home indicator; 1376 − 2 × 24 frame.
+    private func pad13() -> DualPaneBudget.Result {
+        let m = DualPaneBudget.metrics(controlSize: 56, rowGap: 4, labelLine: 20, artistLine: 24,
+                                       titleLine: 36, navBottom: 20)
+        return DualPaneBudget.resolve(rowWidth: 1328, contentHeight: 1008, metrics: m)
     }
 
-    func test_should_reach312WithTwoLineTitle_when_tallWindow() {
-        let b = DualPaneBudget.resolve(rowWidth: 1392, contentHeight: 876, barHeight: 48, metrics: dual())
+    func test_should_centreA1220RowSplit44To56_when_iPad13Landscape() {
+        let b = pad13()
+        XCTAssertEqual(b.contentWidth, DualPaneBudget.contentMaxWidth)
+        XCTAssertEqual(b.contentInset, 54)
+        XCTAssertEqual(b.rest.leftColumn, 526)
+        XCTAssertEqual(b.rest.rightColumn, 1220 - 24 - 526)
+        XCTAssertEqual(b.rest.leftColumn / (b.rest.leftColumn + b.rest.rightColumn), 0.44, accuracy: 0.01)
+    }
+
+    func test_should_growCoverTo400To460WithTitleAndTransportUnderIt_when_iPad13Landscape() {
+        let b = pad13()
         XCTAssertEqual(b.titleForm, .twoLines)
-        XCTAssertEqual(b.rest.cover, 312)
-        XCTAssertEqual(b.frameTop, 16)
+        XCTAssertEqual(b.rest.cover, 458)
+        XCTAssertEqual(b.rest.slot, b.rest.cover + DualPaneBudget.ratingSide)
+        XCTAssertLessThanOrEqual(b.rest.slot, b.rest.leftColumn)
+        // Cover, title and transport are one block, no hole: it fits the row with air above and below.
+        XCTAssertEqual(b.rest.block, 458 + 20 + 98 + 12 + 116)
+        XCTAssertLessThan(b.rest.block, b.rowHeight)
+        let focus = try! XCTUnwrap(b.focus)
+        XCTAssertEqual(focus.ratingSide, 0)
+        XCTAssertEqual(focus.title, b.rest.title)
+        XCTAssertGreaterThanOrEqual(focus.cover, b.rest.cover + 40)
+        XCTAssertLessThanOrEqual(focus.block, b.rowHeight)
+        XCTAssertGreaterThanOrEqual(focus.rightColumn, DualPaneBudget.rightColumnMin)
+    }
+
+    func test_should_keepCoverIn400To460_when_iPad11Landscape() {
+        // 1210 × 834: the content is the window less its frame (narrower than 1220).
+        let m = DualPaneBudget.metrics(controlSize: 56, rowGap: 4, labelLine: 20, artistLine: 24,
+                                       titleLine: 36, navBottom: 20)
+        let b = DualPaneBudget.resolve(rowWidth: 1162, contentHeight: 810, metrics: m)
+        XCTAssertEqual(b.contentInset, 0)
+        XCTAssertEqual(b.titleForm, .twoLines)
+        XCTAssertGreaterThanOrEqual(b.rest.cover, 400)
+        XCTAssertLessThanOrEqual(b.rest.cover, 460)
+        XCTAssertLessThanOrEqual(b.rest.block, b.rowHeight)
+    }
+
+    func test_should_takeOneLineTitle_when_shortStageManagerWindow() {
+        let b = DualPaneBudget.resolve(rowWidth: 852, contentHeight: 496, barHeight: 48, metrics: dual(navBottom: 20))
+        XCTAssertEqual(b.titleForm, .oneLine)
+        XCTAssertGreaterThanOrEqual(b.rest.cover, DualPaneBudget.coverMin)
+        XCTAssertLessThanOrEqual(b.rest.block, b.rowHeight)
     }
 
     func test_should_foldTitleIntoTopBar_when_veryShort() {
         let b = DualPaneBudget.resolve(rowWidth: 852, contentHeight: 420, barHeight: 48, metrics: dual())
         XCTAssertEqual(b.titleForm, .topBar)
-        // A small cover still keeps the controls at the measuring width.
-        XCTAssertEqual(b.rest.slot, DualPaneBudget.stackWidth)
-    }
-
-    func test_should_growCoverHalfAgainInFocus_when_iPad13Landscape() {
-        // 1376 × 1032: 24 status bar, 20 home indicator; 1376 − 2 × 24 frame.
-        let m = DualPaneBudget.metrics(controlSize: 56, rowGap: 4, labelLine: 20, artistLine: 24,
-                                       titleLine: 36, navBottom: 20)
-        XCTAssertEqual(m.transport, 136)
-        let b = DualPaneBudget.resolve(rowWidth: 1328, contentHeight: 1008, metrics: m)
-        XCTAssertEqual(b.titleForm, .twoLines)
-        XCTAssertEqual(b.rest.cover, 312)
-        XCTAssertEqual(b.rest.slot, 380)
-        XCTAssertEqual(b.focus?.cover, 468)
-        XCTAssertEqual(b.focus?.coverToTransport, 8)
+        XCTAssertEqual(b.rest.title, 0)
+        XCTAssertLessThanOrEqual(b.rest.block, b.rowHeight)
     }
 
     func test_should_notOfferFocus_when_coverCannotGrowEnough() {
@@ -68,11 +85,14 @@ final class DualPaneBudgetTests: XCTestCase {
 
     func test_should_pickWideOrEnlarged_when_windowSizeChanges() {
         XCTAssertEqual(NowPlayingPadFrame.resolve(width: 1376, height: 1032), .wide)
-        XCTAssertEqual(NowPlayingPadFrame.resolve(width: 1032, height: 1376), .wide)
+        // Option B2 (owner 2026-11-27): a portrait window is the enlarged poster, 13" included.
+        XCTAssertEqual(NowPlayingPadFrame.resolve(width: 1032, height: 1376), .enlarged)
+        XCTAssertEqual(NowPlayingPadFrame.resolve(width: 946, height: 1032), .enlarged)
         XCTAssertEqual(NowPlayingPadFrame.resolve(width: 834, height: 1210), .enlarged)
         XCTAssertEqual(NowPlayingPadFrame.resolve(width: 1210, height: 834), .wide)
         XCTAssertEqual(NowPlayingPadFrame.resolve(width: 900, height: 470), .enlarged)
-        XCTAssertEqual(NowPlayingPadFrame.enlargedColumnWidth(windowWidth: 800), 640)
+        XCTAssertEqual(NowPlayingPadFrame.enlargedColumnWidth(windowWidth: 800), 584)
+        XCTAssertEqual(NowPlayingPadFrame.enlargedColumnWidth(windowWidth: 1032), 584)
         XCTAssertEqual(NowPlayingPadFrame.enlargedColumnWidth(windowWidth: 690), 530)
         XCTAssertEqual(NowPlayingPadFrame.enlargedColumnWidth(windowWidth: 400), 360)
         XCTAssertEqual(NowPlayingPadFrame.enlargedRatingColumn(column: 640), 104)

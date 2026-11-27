@@ -150,6 +150,9 @@ struct ExpandedLyricsList: View {
     /// line prints through fine dots; the current line is solid, the next
     /// two stay readable.
     var halftone: Bool = false
+    /// The lines' size and their translations' (the phone's 24 / 16; iPad's two columns 28 / 18, option A).
+    var lineSize: CGFloat = 24
+    var translationSize: CGFloat = 16
     /// Two columns (Android LyricsFullscreenPane): the seat is read again from
     /// the window once it holds still after a resize — focus folds the tools
     /// away and the page grows — and the line glides to it.
@@ -498,14 +501,14 @@ struct ExpandedLyricsList: View {
         let ink = lit ? scheme.primary : scheme.onSurfaceVariant
         return VStack(alignment: .leading, spacing: 2) {
             Text(track.title)
-                .font(lit ? YoinFont.rounded(24, semibold: true, script: script)
-                      : .gsf(24, .medium, script: script))
+                .font(lit ? YoinFont.rounded(lineSize, semibold: true, script: script)
+                      : .gsf(lineSize, .medium, script: script))
                 .tracking(0)
                 .contentTransition(.identity)
                 .animation(Yoin.effects) { $0.foregroundStyle(ink) }
             if !track.artist.isEmpty {
                 Text(track.artist)
-                    .font(.gsf(16, lit ? .medium : .regular, script: script))
+                    .font(.gsf(translationSize, lit ? .medium : .regular, script: script))
                     .tracking(0)
                     .contentTransition(.identity)
                     .animation(Yoin.effects) { $0.foregroundStyle(ink.opacity(lit ? 0.82 : 0.7)) }
@@ -544,15 +547,15 @@ struct ExpandedLyricsList: View {
         // static and variable CTFonts and drops CJK glyph runs mid-transition on iOS.
         VStack(alignment: .leading, spacing: 0) {
             Text(text.isEmpty ? " " : text)
-                .font(emphasized ? YoinFont.rounded(24, semibold: true, script: lyricScript)
-                      : .gsf(24, .medium, script: lyricScript))
+                .font(emphasized ? YoinFont.rounded(lineSize, semibold: true, script: lyricScript)
+                      : .gsf(lineSize, .medium, script: lyricScript))
                 .tracking(0)
                 .lineSpacing(4)
                 .contentTransition(.identity)
                 .animation(Yoin.effects) { $0.foregroundStyle(ink) }
             if let translation, !translation.isEmpty {
                 Text(translation)
-                    .font(.gsf(16, emphasized ? .medium : .regular, script: translationScript))
+                    .font(.gsf(translationSize, emphasized ? .medium : .regular, script: translationScript))
                     .tracking(0)
                     .contentTransition(.identity)
                     .animation(Yoin.effects) { $0.foregroundStyle(ink.opacity(emphasized ? 0.82 : 0.7)) }
