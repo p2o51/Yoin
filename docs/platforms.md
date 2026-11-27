@@ -2,7 +2,7 @@
 
 Yoin runs natively across **four operating systems** — **Android**, **iOS & iPadOS**, **macOS** (iPad-on-Mac multiplatform), and **HarmonyOS** — backed by three music providers (**Subsonic / OpenSubsonic**, **Spotify**, and **Apple Music**).
 
-> **Branch Note:** All four platforms — `app/` (Android `0.6.4`, build `36`), `harmony/` (HarmonyOS), `shared/` (KMP), and `iosApp/` (`0.6.4`, build `39`), are unified on `main`. Native `YoinMac` is **frozen**; macOS ships via the iPadOS multiplatform target ("Designed for iPad", `Platform.current.isMac`).
+> **Branch Note:** All four platforms — `app/` (Android `0.6.4`, build `36`), `harmony/` (HarmonyOS), `shared/` (KMP), and `iosApp/` (`0.6.4`, build `40`), are unified on `main`. Native `YoinMac` is **frozen**; macOS ships via the iPadOS multiplatform target ("Designed for iPad", `Platform.current.isMac`).
 
 ---
 
