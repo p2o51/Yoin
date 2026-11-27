@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.highlight
 
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.shared.ondevice.AboutFollowUpPrompt
 import java.util.Locale
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -110,7 +111,7 @@ class AboutFollowUpGenerator(
 
     companion object {
         private const val CACHE_SIZE = 32
-        private const val TEMPERATURE = 0.45f
-        private const val TOP_K = 24
+        private const val TEMPERATURE = AboutFollowUpPrompt.TEMPERATURE
+        private const val TOP_K = AboutFollowUpPrompt.TOP_K
     }
 }

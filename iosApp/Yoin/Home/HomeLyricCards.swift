@@ -158,7 +158,7 @@ struct HomeLyricCardsSection: View {
                         withAnimation(Yoin.spatial) { store.introSeen = true }
                     }
                     introButton(String(localized: "Turn on"), prominent: true, scheme: s) {
-                        withAnimation(Yoin.spatial) { processor.setOptedIn(true) }
+                        withAnimation(Yoin.spatial) { processor.optIn() }
                     }
                 }
             }

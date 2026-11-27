@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.highlight
 
+import com.gpo.yoin.shared.ondevice.HomeGreetingPrompt
 import java.time.DayOfWeek
 import java.time.Month
 import org.junit.Assert.assertEquals

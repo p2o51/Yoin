@@ -478,6 +478,9 @@ enum NowPlayingStageLaunch {
 
     static var focusDemo: Bool { UserDefaults.standard.bool(forKey: "npFocusDemo") }
 
+    /// `-npAsk YES`: open the Ask field once the page is up (screenshots of the quick questions).
+    static var ask: Bool { UserDefaults.standard.bool(forKey: "npAsk") }
+
     /// `-npShortFocus YES`: Android's short focus (where the regular focus
     /// isn't offered, e.g. `-screen np-short`).
     static var shortFocus: Bool { UserDefaults.standard.bool(forKey: "npShortFocus") }

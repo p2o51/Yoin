@@ -95,6 +95,8 @@ struct NowPlayingView: View, Equatable {
     @State private var composerFocused = false
     /// The Ask Gemini bar's question (Android `AskGeminiBar` draft) and its field.
     @State private var askDraft = ""
+    /// Apple Intelligence's follow-up questions for the About on show (Android nanoFollowUps); empty until made.
+    @State private var aiFollowUps: [String] = []
     @FocusState private var askFieldFocused: Bool
     /// The page's geometry before the keyboard came up (see `page`).
     @State private var frozenGeometry: PageGeometry?
@@ -557,6 +559,17 @@ struct NowPlayingView: View, Equatable {
             guard tab == NowPlayingDetailPage.about.rawValue, let t = engineTrack else { return }
             await data.loadAbout(t, client: model.session.client)
         }
+        // The on-device follow-ups for the About on show, made in the background while the page is open, so
+        // they're there by the time Ask opens (Android AskGeminiBar's LaunchedEffect). Never shown as an error.
+        .task(id: followUpKey) {
+            guard followUpKey != nil, let rows = aboutRows else { aiFollowUps = []; return }
+            let asked = QuickPrompts.asked(in: rows)
+            let generator = AboutFollowUpGenerator.shared
+            aiFollowUps = generator.peekCached(rows, asked: asked) ?? []
+            let made = await generator.suggest(rows, asked: asked)
+            guard !Task.isCancelled else { return }
+            withAnimation(Yoin.spatial) { aiFollowUps = made }
+        }
         #if DEBUG
         .task { await NowPlayingDebugQueue.startIfRequested(model) }
         .task {
@@ -567,6 +580,11 @@ struct NowPlayingView: View, Equatable {
             try? await Task.sleep(for: .seconds(4))
             if let page = NowPlayingStageLaunch.page { withAnimation(Yoin.spatial) { tab = page.rawValue } }
             if let s = NowPlayingStageLaunch.stage { withAnimation(Yoin.stageSettle) { stage = s } }
+            // `-npAsk YES`: the Ask field open over About, its quick questions showing.
+            if NowPlayingStageLaunch.ask {
+                try? await Task.sleep(for: .seconds(1))
+                startAsking()
+            }
             // `-npFocusDemo YES`: the cover tap, in and out, for recordings.
             if NowPlayingStageLaunch.focusDemo {
                 for _ in 0..<4 {
@@ -1869,11 +1887,30 @@ struct NowPlayingView: View, Equatable {
         Task { @MainActor in askFieldFocused = true }
     }
 
-    /// The quick questions the Ask field offers: those not asked about the song on show yet (Android
+    /// The About rows on show, for the quick questions and the on-device follow-ups.
+    private var aboutRows: [SongAboutStore.Entry]? {
+        if let t = engineTrack { return about.store.entries(AboutSong(t).key) }
+        #if DEBUG
+        // `-aboutDemo rows` (screenshots): the mock song's demo rows.
+        if demo == nil, let rows = SongAboutDemo.rows() { return rows }
+        #endif
+        return nil
+    }
+
+    /// The quick questions the Ask field offers: the on-device follow-ups first, then the static ones, less
+    /// those asked about the song on show already (Android AboutFollowUpPrompt.mergeWithFallback over
     /// `quickPromptsFor(askedQuestions())`).
     private var askPrompts: [String] {
-        guard let t = engineTrack else { return [] }
-        return QuickPrompts.remaining(asked: QuickPrompts.asked(in: about.store.entries(AboutSong(t).key)))
+        guard let rows = aboutRows else { return [] }
+        let asked = QuickPrompts.asked(in: rows)
+        return YoinOnDeviceAi.shared.mergeFollowUps(suggested: aiFollowUps,
+                                                    fallback: QuickPrompts.remaining(asked: asked), asked: asked)
+    }
+
+    /// What the follow-ups are made from while About is the page on show (nil: nothing to ask about).
+    private var followUpKey: String? {
+        guard tab == NowPlayingDetailPage.about.rawValue, let rows = aboutRows else { return nil }
+        return AboutFollowUpGenerator.shared.key(rows, asked: QuickPrompts.asked(in: rows))
     }
 
     /// The open Ask bar over the page's foot, above the keyboard. A tap

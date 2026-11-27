@@ -123,6 +123,16 @@ struct LabsView: View {
     private let store = LyricHighlightStore.shared
     @Environment(\.openURL) private var openURL
 
+    private var greetingsBinding: Binding<Bool> {
+        Binding(get: { store.greetingsEnabled },
+                set: { on in withAnimation(Yoin.effects) { processor.setGreetingsEnabled(on) } })
+    }
+
+    private var followUpsBinding: Binding<Bool> {
+        Binding(get: { store.aboutFollowUpsEnabled },
+                set: { on in withAnimation(Yoin.effects) { processor.setAboutFollowUpsEnabled(on) } })
+    }
+
     var body: some View {
         SettingsPage(title: "Yoin Labs") { app, row in
             LabsBody(status: processor.status,
@@ -130,6 +140,7 @@ struct LabsView: View {
                                       set: { on in withAnimation(Yoin.effects) { processor.setOptedIn(on) } }),
                      solidSurfaces: Binding(get: { GlassLab.shared.solidSurfaces },
                                             set: { on in withAnimation(Yoin.effects) { GlassLab.shared.solidSurfaces = on } }),
+                     greetings: greetingsBinding, followUps: followUpsBinding,
                      app: app, row: row,
                      onOpenSettings: {
                          if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
@@ -149,11 +160,22 @@ struct LabsSection: View {
     private let store = LyricHighlightStore.shared
     @Environment(\.openURL) private var openURL
 
+    private var greetingsBinding: Binding<Bool> {
+        Binding(get: { store.greetingsEnabled },
+                set: { on in withAnimation(Yoin.effects) { processor.setGreetingsEnabled(on) } })
+    }
+
+    private var followUpsBinding: Binding<Bool> {
+        Binding(get: { store.aboutFollowUpsEnabled },
+                set: { on in withAnimation(Yoin.effects) { processor.setAboutFollowUpsEnabled(on) } })
+    }
+
     var body: some View {
         LabsBody(status: processor.status,
                  optedIn: Binding(get: { store.optedIn },
                                   set: { on in withAnimation(Yoin.effects) { processor.setOptedIn(on) } }),
                  solidSurfaces: nil,
+                 greetings: greetingsBinding, followUps: followUpsBinding,
                  showIntro: false,
                  app: app, row: row,
                  onOpenSettings: {
@@ -171,6 +193,9 @@ struct LabsBody: View {
     @Binding var optedIn: Bool
     /// The Solid Surfaces switch; nil leaves it out (shown on Appearance, or omitted in the tip demo).
     var solidSurfaces: Binding<Bool>? = nil
+    /// Android's Home greeting and Suggested questions switches; nil leaves them out (the tip page's demo).
+    var greetings: Binding<Bool>? = nil
+    var followUps: Binding<Bool>? = nil
     var showIntro = true
     var showSingModel = true
     var app: CoverScheme
@@ -187,9 +212,12 @@ struct LabsBody: View {
                 .padding(.horizontal, 8)
         }
         section(String(localized: "Experimental features")) {
-            let count = 2 + (showSingModel ? 1 : 0) + (solidSurfaces == nil ? 0 : 1)
+            let count = 2 + (showSingModel ? 1 : 0) + (greetings == nil ? 0 : 1) + (followUps == nil ? 0 : 1)
+                + (solidSurfaces == nil ? 0 : 1)
             let lyricsIndex = showSingModel ? 2 : 1
-            let solidIndex = lyricsIndex + 1
+            let greetingsIndex = lyricsIndex + 1
+            let followUpsIndex = greetingsIndex + (greetings == nil ? 0 : 1)
+            let solidIndex = followUpsIndex + (followUps == nil ? 0 : 1)
             VStack(spacing: 2) {
                 modelSegment
                     .background(row, in: CloudSyncView.segment(0, count))
@@ -200,6 +228,16 @@ struct LabsBody: View {
                 }
                 lyricsSegment
                     .background(row, in: CloudSyncView.segment(lyricsIndex, count))
+                if let greetings {
+                    onDeviceSwitch(greetings, title: String(localized: "Home greeting"),
+                                   detail: String(localized: "Generate greetings based on recent activity"))
+                        .background(row, in: CloudSyncView.segment(greetingsIndex, count))
+                }
+                if let followUps {
+                    onDeviceSwitch(followUps, title: String(localized: "Suggested questions"),
+                                   detail: String(localized: "Follow-up questions from About"))
+                        .background(row, in: CloudSyncView.segment(followUpsIndex, count))
+                }
                 if let solidSurfaces {
                     solidSurfacesSegment(solidSurfaces)
                         .background(row, in: CloudSyncView.segment(solidIndex, count))
@@ -309,6 +347,20 @@ struct LabsBody: View {
                     .yoinRole(Tokens.type.bodySmall).foregroundStyle(app.onSurfaceVariant)
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Android's greeting / follow-up rows: the model's switch, off (and greyed) where it can't run.
+    private func onDeviceSwitch(_ binding: Binding<Bool>, title: String, detail: String) -> some View {
+        Toggle(isOn: binding) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).yoinRole(Tokens.type.bodyLarge).foregroundStyle(app.onSurface)
+                Text(detail).yoinRole(Tokens.type.bodyMedium).foregroundStyle(app.onSurfaceVariant)
+            }
+        }
+        .tint(app.primary)
+        .disabled(status == .unsupported)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
