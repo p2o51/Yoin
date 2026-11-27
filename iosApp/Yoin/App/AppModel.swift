@@ -1040,16 +1040,32 @@ final class AppModel {
     }
 
     /// iPad: whether the side panel fits beside the columns (Android: window − panel ≥ 744).
-    var padPanelFits: Bool {
-        padWidth - Self.padPanelWidth(padWidth) >= (padColumnOpen ? Self.padTwoColumnsMin : Self.padPanelBesideMin)
+    var padPanelFits: Bool { Self.padPanelFits(window: padWidth, columnOpen: padColumnOpen) }
+
+    /// The rule itself: what is left beside the panel is one column, or two columns and the handle while a
+    /// detail column is out. A 1/2 Split View on a 13" (683) leaves 323: no panel there, Full instead
+    /// (Android: "1/2 分屏 Panel 不可用"); an iPad mini keeps it (372).
+    static func padPanelFits(window: CGFloat, columnOpen: Bool) -> Bool {
+        window - padPanelWidth(window) >= (columnOpen ? padTwoColumnsMin : padPanelBesideMin)
     }
 
     /// The side panel's width (Android: clamp(window × 0.5, 360, 420)).
     static func padPanelWidth(_ window: CGFloat) -> CGFloat { min(max(window * 0.5, 360), 420) }
-    /// What the panel must leave beside it (Android NowPlayingPresentation): one phone column (320), or
-    /// two columns and the slot (744) while a detail column is open.
-    static let padPanelBesideMin: CGFloat = 320
+    /// What the panel must leave beside it: one column, or two columns and the slot (744) while a detail
+    /// column is open. The column is the 360 the split's own columns never go under (PadColumns), not
+    /// Android's 320: at 315–323 beside the panel Home's cards broke their text a letter a line (iPad audit
+    /// 2026-11-27, 13" Split View 1/2).
+    static let padPanelBesideMin: CGFloat = 360
     static let padTwoColumnsMin: CGFloat = 744
+    /// iPad: the path when the window crosses 840 with an album picked into the column. Narrowing, the album
+    /// leads the one stack (what was pushed on it in the column stays on top); widening, it goes back to
+    /// being the column's root.
+    static func padPath(_ path: [Route], selection: Album?, wide: Bool) -> [Route] {
+        guard let album = selection else { return path }
+        if wide { return path.first == .album(album) ? Array(path.dropFirst()) : path }
+        return path.first == .album(album) ? path : [.album(album)] + path
+    }
+
     /// iPad: a detail column is out (the window is Wide and a page is open in it).
     var padColumnOpen: Bool { padWidth >= 840 && (padSelection != nil || !path.isEmpty) }
     /// iPad: the side panel grows into Full Now Playing.

@@ -16,7 +16,7 @@ struct PadShell: View {
 
     var body: some View {
         GeometryReader { geo in
-            let panelWidth = min(max(geo.size.width * 0.5, 360), 420)
+            let panelWidth = AppModel.padPanelWidth(geo.size.width)
             HStack(spacing: 0) {
                 // One tab of a TabView with its bar hidden: the tab hosts the places on its own (a
                 // NavigationStack under the shell's recede layers, with no TabView between, never pushed).
@@ -50,11 +50,15 @@ struct PadShell: View {
                     // Inside the shell's plane: it recedes with the shell.
                     NowPlayingView(npNamespace: npNS, panel: true)
                         .frame(width: panelWidth)
-                        .clipShape(.rect(cornerRadius: 28))
-                        .padding([.vertical, .trailing], 8)
+                        // Full bleed to the window's top, bottom and trailing edges (no inset card): its
+                        // room's colours run behind the status bar and the home indicator as Full's do, with a
+                        // hairline where it meets the columns.
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(Yoin.outline.opacity(0.35)).frame(width: 0.5).ignoresSafeArea()
+                        }
                         // Where Full grows out of when the panel goes Full (and folds back into).
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global).insetBy(dx: 0, dy: 0) } action: { r in
-                            model.np.panelFrame = r.inset(by: UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 8))
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
+                            model.np.panelFrame = r
                         }
                         // Android OverlayPlayerVisibility: in and out by its own width, no fade, on the
                         // spring the columns give way on.
@@ -92,6 +96,12 @@ struct PadShell: View {
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { model.padWidth = $0 }
+        // The window narrowed under the open panel (a rotation, Split View, a Stage Manager drag): where it no
+        // longer fits beside what is open, Now Playing goes Full, as Android's frame turns Panel into Full for
+        // that window; closing Full brings the panel back once it fits again. Never three squeezed columns.
+        .onChange(of: model.padWidth) { _, _ in
+            if model.npPanel, !model.npExpanded, !model.padPanelFits { model.npPanelToFull() }
+        }
         // A column opening beside the panel where the two columns no longer fit: the page stays visible and
         // the panel steps away (Android: "the page is always visible").
         .onChange(of: model.padColumnOpen) { _, open in
@@ -168,6 +178,13 @@ private struct PadDock: View {
         .padding(.horizontal, PadDockMetrics.side)
         .animation(Yoin.spatial, value: showsPlayer)
         .padding(.bottom, PadDockMetrics.bottom)
+        // Two-pane Settings covers the window as a pushed page does (Android: an Activity of its own, no
+        // bar): the dock steps down out of the window instead of floating over its rows and fields, and
+        // comes back up when Settings closes. Moved, not faded: the glass ignores a zero opacity.
+        .offset(y: model.settingsSplitShown ? PadDockMetrics.height + PadDockMetrics.bottom + 24 : 0)
+        .allowsHitTesting(!model.settingsSplitShown)
+        .accessibilityHidden(model.settingsSplitShown)
+        .animation(Yoin.spatial, value: model.settingsSplitShown)
         // Memories (pulled down over Home) takes the whole window, as on the phone: the dock leaves on
         // the pull itself.
         .modifier(MemoriesBarRetreat(presentation: model.memories,
@@ -249,7 +266,19 @@ private struct PadColumns: View {
                 }
             }
         }
-        .onChange(of: model.padWidth >= 840, initial: true) { _, now in wide = now }
+        .onChange(of: model.padWidth >= 840, initial: true) { old, now in
+            wide = now
+            // Turning across 840 (an 11" rotated, Split View, Stage Manager): the album in the column is pushed
+            // in the one stack, and back into the column on the way back, instead of vanishing under the shell.
+            guard active, old != now else { return }
+            let next = AppModel.padPath(model.path, selection: model.padSelection, wide: now)
+            if next != model.path { model.path = next }
+        }
+        .onChange(of: model.path) { _, path in
+            // One stack: the album picked into it was popped, so it is no longer the column's to bring back.
+            guard active, !wide, let album = model.padSelection, !path.contains(.album(album)) else { return }
+            model.padSelection = nil
+        }
         .onChange(of: model.padSelection) { _, _ in
             // A new album in the column replaces whatever was pushed on it.
             guard active, wide else { return }
