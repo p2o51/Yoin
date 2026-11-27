@@ -102,6 +102,24 @@ struct NowPlayingView: View, Equatable {
     @State private var frozenGeometry: PageGeometry?
     @State private var keyboardHeight: CGFloat = 0
     @State private var spotifyDevicesOpen = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// iPad round 2: where Queue and Devices pop over from (nil: their sheets). Two columns: the top bar's icons;
+    /// the resting single column (the enlarged player, the side panel): the pills.
+    private var popoverHost: NowPlayingPopoverHost? {
+        guard demo == nil, AnchoredPopover.enabled(isPad: model.isPad, horizontal: horizontalSizeClass) else { return nil }
+        return wide ? .topBar : stage == .compact ? .pills : nil
+    }
+    private var queuePopover: some View {
+        QueueSheet()
+            .frame(width: AnchoredPopover.queueSize.width, height: AnchoredPopover.queueSize.height)
+            .ySolidSheet(scheme.surfaceContainerLow)
+    }
+    @ViewBuilder private var devicesPopover: some View {
+        if let spotify = model.store.spotify {
+            SpotifyDevicesSheet(spotify: spotify, scope: model.store.spotifyAccount?.scope, scheme: scheme)
+                .frame(width: AnchoredPopover.devicesSize.width, height: AnchoredPopover.devicesSize.height)
+        }
+    }
     private var spotifySong: Bool { engineTrack?.provider == SpotifyMapping.provider && model.store.spotify != nil }
     /// The expanded Lyrics page (Android NowPlayingScreen's lyricsAutoScroll /
     /// lyricsRecenterTick and LyricsSelectionState): following the playhead,
@@ -449,15 +467,15 @@ struct NowPlayingView: View, Equatable {
         // Gemini preset: dim the page under the Queue sheet so its controls
         // don't bleed through the sheet glass (0 in the other presets).
         .overlay {
-            Color.black.opacity(model.queueSheetOpen ? lab.extra("sheetPresenterDim") : 0)
+            Color.black.opacity(model.queueSheetOpen && popoverHost == nil ? lab.extra("sheetPresenterDim") : 0)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .animation(Yoin.effects, value: model.queueSheetOpen)
         }
-        .sheet(isPresented: $spotifyDevicesOpen) {
+        .sheet(isPresented: Binding(get: { spotifyDevicesOpen && popoverHost == nil }, set: { spotifyDevicesOpen = $0 })) {
             if let spotify = model.store.spotify { SpotifyDevicesSheet(spotify: spotify, scope: model.store.spotifyAccount?.scope, scheme: scheme).reportsSheetRise() }
         }
-        .sheet(isPresented: Binding(get: { model.queueSheetOpen }, set: { model.queueSheetOpen = $0 })) {
+        .sheet(isPresented: Binding(get: { model.queueSheetOpen && popoverHost == nil }, set: { model.queueSheetOpen = $0 })) {
             QueueSheet().reportsSheetRise().ySolidSheet(scheme.surfaceContainerLow)
         }
         // Every sheet NP presents reports its rise, so the page recedes under
@@ -3022,6 +3040,8 @@ struct NowPlayingView: View, Equatable {
                 pill("queue", String(localized: "Queue"), shape: AnyShape(Capsule()), dropsToQueue: demo == nil) {
                     if demo == nil { model.queueSheetOpen = true }
                 }
+                .anchoredPopover(isPresented: model.queueSheetOpen && popoverHost == .pills, enabled: demo == nil,
+                                 arrowEdge: .bottom, onDismiss: { model.queueSheetOpen = false }) { queuePopover }
                 // Yoin as the remote of another Spotify device: the pill names it.
                 pill("devices", demo?.deviceName
                         ?? (spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices") : String(localized: "Devices")),
@@ -3046,6 +3066,8 @@ struct NowPlayingView: View, Equatable {
                         }
                     }
                     .glowAnchor(.devices, glow)
+                    .anchoredPopover(isPresented: spotifyDevicesOpen && popoverHost == .pills, enabled: demo == nil,
+                                     arrowEdge: .bottom, onDismiss: { spotifyDevicesOpen = false }) { devicesPopover }
                 pill("note", String(localized: "Write"), shape: AnyShape(Capsule())) { startWriting() }
                     .glowAnchor(.write, glow)
                     .demoTarget("write")
@@ -4149,6 +4171,8 @@ extension NowPlayingView {
         HStack(spacing: 4) {
             wideIcon("queue", label: String(localized: "Queue")) { model.queueSheetOpen = true }
                 .yoinDropTarget(in: Circle(), ink: scheme.onSurfaceVariant) { YoinDrag.queue($0, model: model) }
+                .anchoredPopover(isPresented: model.queueSheetOpen && popoverHost == .topBar, enabled: true,
+                                 onDismiss: { model.queueSheetOpen = false }) { queuePopover }
             wideIcon("devices", label: spotifySong ? SpotifyPlayingDevice.shared.name ?? String(localized: "Devices")
                                                    : String(localized: "Devices")) {
                 if spotifySong { spotifyDevicesOpen = true } else { airPlay.present() }
@@ -4162,6 +4186,8 @@ extension NowPlayingView {
                         .contentShape(.circle)
                 }
             }
+            .anchoredPopover(isPresented: spotifyDevicesOpen && popoverHost == .topBar, enabled: true,
+                             onDismiss: { spotifyDevicesOpen = false }) { devicesPopover }
             wideIcon("note", label: String(localized: "Write")) { startWriting() }
         }
     }

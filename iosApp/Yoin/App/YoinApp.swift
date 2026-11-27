@@ -104,6 +104,8 @@ struct RootView: View {
         // The header avatar's short tap: the account card (Home/AccountSwitcherCard.swift).
         .overlay { AccountSwitcherLayer().environment(model).font(.gsf(17)) }
         .background(GlassLabGestureInstaller())
+        // Where a touch went down: the song sheet pops over from it on iPad (Theme/AnchoredPopover.swift).
+        .background(LastTouchInstaller())
         .background(SlowMotionInstaller())
         .background(LyricsPrefetchHost(model: model))
         // The first-run landing / Welcome guide: above the shell (bar included), like Android's

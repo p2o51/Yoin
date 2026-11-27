@@ -57,6 +57,8 @@ struct QueueSheet: View {
         }) { target in
             TrackMenuSheet(track: target.entry, context: target.context)
                 .environment(model)
+                // A sheet of its own, even over the queue's popover.
+                .environment(\.inPopover, false)
                 .reportsSheetRise()
                 .ySolidSheet()
         }
