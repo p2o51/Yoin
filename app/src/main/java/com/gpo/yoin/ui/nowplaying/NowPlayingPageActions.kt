@@ -36,10 +36,12 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 /*
  * Now Playing's chrome, option B (owner 2026-11-26, prototype np-chrome-options):
  *
- * - Where the column is fat — the short-window path that folds the lyrics to one line (a 16:10 phone,
- *   height / width ≲ 1.9) — or enlarged (Medium: a tablet or a fold in portrait), the expanded page's
- *   Lyrics / About / Note text tabs ride the end of the top bar, as they are; the 52dp tab row and its 12dp
- *   gap go to the page. Regular phones and tall big phones keep the tab row ([nowPlayingTabsInTopBar]).
+ * - Where the window is short — the height budget folds the resting lyrics to one line (a 16:9 phone, a
+ *   16:10 phone like 475 × 751) — the Lyrics / About / Note text tabs ride the end of the top bar, at rest
+ *   and expanded alike (at rest they are the one-line column's way to About and Note), and the 52dp tab
+ *   row and its 12dp gap go to the page. Everywhere else, the tablet's enlarged column included, the
+ *   expanded page keeps the big 52dp tab row (owner 2026-11-27: "height is ample, use the big pills — more
+ *   expressive"). The rule reads height alone ([nowPlayingTabsInTopBar]).
  * - The bottom row, on every size: the page's own action fills the row (the lyric tools; Ask, today's tall
  *   pill; Write a note, filled in primary). About and Note end it with one Share button, opening the share
  *   sheet on that page; it greys out where the page has nothing to share (an empty About, no notes). The
@@ -48,10 +50,11 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
  */
 
 /**
- * Whether the expanded page's tabs ride the top bar's end: the column folds its resting lyrics to one line
- * ([lyricOneLine], the 16:9 / 16:10 gate of the height budget) or is the enlarged phone ([enlarged]).
+ * Whether the tabs ride the top bar's end: only where the height budget folds the resting lyrics to one line
+ * ([lyricOneLine], the short-window gate). A height rule alone — the enlarged column of a tablet in portrait
+ * keeps the big tab row like any tall phone (owner 2026-11-27).
  */
-internal fun nowPlayingTabsInTopBar(lyricOneLine: Boolean, enlarged: Boolean): Boolean = lyricOneLine || enlarged
+internal fun nowPlayingTabsInTopBar(lyricOneLine: Boolean): Boolean = lyricOneLine
 
 /** The share sheet's tab for a Now Playing page. */
 internal fun NowPlayingDetailPage.shareTab(): ShareTab = when (this) {

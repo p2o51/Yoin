@@ -25,10 +25,9 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.LyricCredits
-import com.gpo.yoin.ui.nowplaying.AboutCarousel
 import com.gpo.yoin.ui.nowplaying.AboutUiState
+import com.gpo.yoin.ui.nowplaying.CollapsedAboutList
 import com.gpo.yoin.ui.nowplaying.SpineSourceFacts
-import com.gpo.yoin.ui.nowplaying.aboutCarouselPages
 import com.gpo.yoin.ui.nowplaying.aboutParagraphs
 import com.gpo.yoin.ui.nowplaying.aboutReceiptRows
 import com.gpo.yoin.ui.nowplaying.resourceAboutLabels
@@ -38,9 +37,9 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
- * Compact About used inside `NowPlayingScreen`'s middle pager (owner 2026-11-05): a carousel of the
- * fullscreen About's receipt lines (a few at a time) and its paragraphs, turning on its own; a tap
- * expands About (owner 2026-11-06). Gemini's state (loading, no key, an error) sits under it, or alone when there is nothing
+ * Compact About used inside `NowPlayingScreen`'s middle pager: the fullscreen About's receipt lines and
+ * its paragraphs in one column the finger scrolls (owner 2026-11-27, replacing the carousel that turned
+ * every 7 seconds); a tap expands About (owner 2026-11-06). Gemini's state (loading, no key, an error) sits under it, or alone when there is nothing
  * to show yet. Editing / asking happens in the fullscreen About pane; this surface is read-only.
  */
 @Composable
@@ -52,28 +51,30 @@ fun SongInfoDisplay(
     credits: LyricCredits? = null,
     /** What the Subsonic server says about the song; null on other providers. */
     facts: SpineSourceFacts? = null,
-    /** Starts the carousel over on a new song. */
+    /** Starts the list at the top on a new song. */
     songKey: String = "",
+    /** Off where the page is not the one on screen, so a hidden page never takes a drag. */
+    scrollEnabled: Boolean = true,
 ) {
     val resources = LocalContext.current.resources
     val entries = (aboutUiState as? AboutUiState.Ready)?.entries.orEmpty()
     val reviewLabel = stringResource(R.string.np_about_review)
-    val pages = remember(entries, credits, facts, resources, reviewLabel) {
-        aboutCarouselPages(
-            rows = aboutReceiptRows(entries, credits, facts, resourceAboutLabels(resources)),
-            paragraphs = aboutParagraphs(entries, reviewLabel),
-        )
+    val rows = remember(entries, credits, facts, resources) {
+        aboutReceiptRows(entries, credits, facts, resourceAboutLabels(resources))
     }
-    if (pages.isEmpty()) {
+    val paragraphs = remember(entries, reviewLabel) { aboutParagraphs(entries, reviewLabel) }
+    if (rows.isEmpty() && paragraphs.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
             AboutStatus(aboutUiState, onRetry)
         }
         return
     }
     Column(modifier = modifier.fillMaxSize()) {
-        AboutCarousel(
-            pages = pages,
+        CollapsedAboutList(
+            rows = rows,
+            paragraphs = paragraphs,
             songKey = songKey,
+            scrollEnabled = scrollEnabled,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
