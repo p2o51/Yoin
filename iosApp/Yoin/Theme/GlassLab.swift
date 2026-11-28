@@ -654,10 +654,14 @@ extension View {
         let active = d > 0.001
         let k = sheet ? "sheetRecede" : "recede"
         let maxBlur = lab.extra(k + "Blur")
-        let rawBlur: CGFloat = active && !lab.solidSurfaces ? maxBlur * d : 0
+        // On iPad's 5.6M-pixel canvas, live full-window Gaussian blur over Liquid Glass triggers
+        // 40-110ms per-frame RenderBox shared-surface stalls during Now Playing & sheet transitions.
+        // Keep the depth scale, rounded-corner cutout, and dim cue without the full-screen CAFilter blur.
+        let allowBlur = !lab.solidSurfaces && UIDevice.current.userInterfaceIdiom != .pad
+        let rawBlur: CGFloat = active && allowBlur ? maxBlur * d : 0
         // Quantize intermediate blur steps (0.5pt) while preserving exact 0 at rest and exact
-        // `maxBlur` at full depth, avoiding 60x/s CAFilter Gaussian kernel rebuilds over Liquid Glass.
-        let blurRadius: CGFloat = !active ? 0 : d >= 0.99 ? maxBlur : (rawBlur * 2).rounded() / 2
+        // `maxBlur` at full depth, avoiding 120Hz CAFilter Gaussian kernel rebuilds over Liquid Glass.
+        let blurRadius: CGFloat = !active || !allowBlur ? 0 : d >= 0.99 ? maxBlur : (rawBlur * 2).rounded() / 2
         let scale: CGFloat = active ? 1 - lab.extra(k + "Scale") * d : 1
         let insets = WindowInsets.current
         // Hosted in a full-screen frame (the layer still lays out in the same
@@ -665,26 +669,25 @@ extension View {
         // layer's own frame stops at the safe area, so any blur cut the
         // status-bar band off. Keep overlay/background structure invariant across
         // `active` so crossing 0.001 at open/close never inserts or removes subtrees.
+        // Instead of attaching a permanent custom-CGPath `.clipShape` (which forces an
+        // always-on full-window CAShapeLayer offscreen mask at depth == 0), draw the
+        // rounded-corner cutout frame as an even-odd surface overlay ONLY while `active`.
         return Color.clear
             .ignoresSafeArea()
             .overlay { self }
-            // Blur inside the corner clip, so the plane's silhouette stays crisp.
+            // Blur inside the corner cutout, so the plane's silhouette stays crisp.
             .blur(radius: blurRadius)
-            // The world behind keeps the display's corners as it steps back,
-            // and gives up the status-bar and home-indicator bands (the look
-            // behind a sheet) by the same depth: they slide away with what
-            // rises over it. Note `Color.clear.ignoresSafeArea().overlay { self }`
-            // still has a safe-area layout rect, so the clip shape expands out into
-            // the safe-area margins (`insets * (1 - d)`, or unbounded bleed at rest)
-            // instead of chopping off edge-to-edge top/bottom washes at `d == 0`.
-            .clipShape(
-                FullBleedRecedeClipShape(
-                    topOutset: active ? insets.top * (1 - d) : max(insets.top, 200),
-                    bottomOutset: active ? insets.bottom * (1 - d) : max(insets.bottom, 200),
-                    horizontalOutset: active ? 0 : max(insets.left + insets.right, 100),
-                    cornerRadius: active ? 44 : 0
-                )
-            )
+            .overlay {
+                if active {
+                    FullBleedRecedeFrameCutout(
+                        topOutset: insets.top * (1 - d),
+                        bottomOutset: insets.bottom * (1 - d),
+                        cornerRadius: 44
+                    )
+                    .fill(Yoin.surface, style: FillStyle(eoFill: true))
+                    .allowsHitTesting(false)
+                }
+            }
             // Drawn scaled, laid out as is. A layout scale (scaleEffect) moved
             // the layer off the screen's edges, and then nothing in it could
             // reach under the status bar (ignoresSafeArea): Now Playing's dark
@@ -1026,23 +1029,25 @@ private enum WindowInsets {
     }
 }
 
-/// Clip shape for `labRecede` that expands out from the safe-area layout rect into the
-/// window's safe-area margins (`topOutset` / `bottomOutset`), preserving full edge-to-edge
-/// bleed at rest while rounding the receding plane's corners as depth grows.
-private struct FullBleedRecedeClipShape: Shape {
+/// Even-odd frame cutout for `labRecede` drawn ONLY while `active == true`: paints the
+/// outer safe-area margins and 4 rounded corners in `Yoin.surface` without attaching an
+/// always-on full-window `CAShapeLayer` mask at rest (`depth == 0`).
+private struct FullBleedRecedeFrameCutout: Shape {
     var topOutset: CGFloat
     var bottomOutset: CGFloat
-    var horizontalOutset: CGFloat
     var cornerRadius: CGFloat
 
     func path(in rect: CGRect) -> Path {
-        let r = CGRect(
-            x: rect.minX - horizontalOutset,
+        let outer = rect.insetBy(dx: -300, dy: -300)
+        let inner = CGRect(
+            x: rect.minX,
             y: rect.minY - topOutset,
-            width: rect.width + horizontalOutset * 2,
+            width: rect.width,
             height: rect.height + topOutset + bottomOutset
         )
-        return Path(roundedRect: r, cornerRadius: cornerRadius, style: .continuous)
+        var p = Path(outer)
+        p.addPath(Path(roundedRect: inner, cornerRadius: cornerRadius, style: .continuous))
+        return p
     }
 }
 

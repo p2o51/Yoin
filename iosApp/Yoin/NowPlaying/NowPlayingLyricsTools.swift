@@ -132,6 +132,27 @@ private struct LyricKeyPress: ButtonStyle {
 
 // MARK: - Expanded lyrics list (Android LyricsFullscreenPane)
 
+/// Leaf observer that reads the 4 Hz playback position and only writes `active`
+/// when the active lyric line index actually changes, isolating `ExpandedLyricsList`
+/// from 4×/sec full-list rebuilds.
+private struct ActiveLyricLineWatcher: View {
+    @Environment(AppModel.self) private var model
+    var loaded: NowPlayingData.LoadedLyrics
+    @Binding var active: Int
+
+    var body: some View {
+        let sec = model.player.currentTrack != nil
+            ? model.player.progress.positionSec
+            : Double(model.mockPlayback.positionSec)
+        let index = loaded.activeIndex(positionSec: sec)
+        Color.clear
+            .allowsHitTesting(false)
+            .onChange(of: index, initial: true) { _, now in
+                if now != active { active = now }
+            }
+    }
+}
+
 struct ExpandedLyricsList: View {
     var lines: [String]
     var times: [Int64]
@@ -163,11 +184,12 @@ struct ExpandedLyricsList: View {
     @Environment(AppModel.self) private var model
 
     var synced: Bool { loaded.synced }
-    /// The playhead's line (-1 = before the first line, or unsynced), as PlaybackPosition reads it.
-    private var active: Int {
-        let sec = model.player.currentTrack != nil ? model.player.progress.positionSec : Double(model.mockPlayback.positionSec)
-        return loaded.activeIndex(positionSec: sec)
-    }
+    /// The playhead's active line (-1 = before the first line, or unsynced).
+    /// Updated by `ActiveLyricLineWatcher` only when the line index actually changes so
+    /// the 4 Hz playback position tick never rebuilds the entire lyric list 4×/sec.
+    @State private var active: Int = -1
+    @State private var cachedLyricScript: YoinCJKScript? = nil
+    @State private var cachedTranslationScript: YoinCJKScript? = nil
 
     /// Where the list is right now (a box, so scrolling doesn't re-render the rows).
     @State private var offset = OffsetBox()
@@ -197,8 +219,8 @@ struct ExpandedLyricsList: View {
     @State private var position = ScrollPosition(idType: Int.self)
 
     var body: some View {
-        let lyricScript = YoinCJKScript.detect(forLines: lines)
-        let translationScript = YoinCJKScript.detect(forLines: translations.compactMap { $0 })
+        let lyricScript = cachedLyricScript ?? YoinCJKScript.detect(forLines: lines)
+        let translationScript = cachedTranslationScript ?? YoinCJKScript.detect(forLines: translations.compactMap { $0 })
         VStack(alignment: .leading, spacing: 0) {
             if selecting {
                 // Select mode's caption, in its own band above the list.
@@ -252,12 +274,21 @@ struct ExpandedLyricsList: View {
                     }
                 }
                 .mask(NowPlayingAboutView.fade(top: Self.fadeTop, bottom: Self.fadeBottom))
-                .onAppear { seat(animated: false) }
-                .onChange(of: lines) { _, _ in
+                .background { ActiveLyricLineWatcher(loaded: loaded, active: $active) }
+                .onAppear {
+                    cachedLyricScript = YoinCJKScript.detect(forLines: lines)
+                    cachedTranslationScript = YoinCJKScript.detect(forLines: translations.compactMap { $0 })
+                    seat(animated: false)
+                }
+                .onChange(of: lines) { _, newLines in
+                    cachedLyricScript = YoinCJKScript.detect(forLines: newLines)
                     offset.rows.removeAll(keepingCapacity: true)
                     seat(animated: false)
                 }
-                .onChange(of: translations) { _, _ in reseatForTranslations() }
+                .onChange(of: translations) { _, newTranslations in
+                    cachedTranslationScript = YoinCJKScript.detect(forLines: newTranslations.compactMap { $0 })
+                    reseatForTranslations()
+                }
                 .onChange(of: active) { _, line in
                     seat(animated: true)
                     onActiveLine?(line)

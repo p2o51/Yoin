@@ -16,6 +16,8 @@ struct MarqueeText: View {
     /// 2026-11-26 option B: the release's EP / Single and its version, `AlbumVersionTag`s in [tagScheme]).
     var tags: [String] = []
     var tagScheme: CoverScheme? = nil
+    /// Pauses the timeline while the view is obscured (e.g. pill under Full Now Playing or a sheet).
+    var paused: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var box: CGFloat = 0
     @State private var natural: CGFloat = 0
@@ -34,8 +36,8 @@ struct MarqueeText: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { natural = $0 }
             }
             .overlay(alignment: .leading) {
-                if overflow && !reduceMotion {
-                    TimelineView(.animation(minimumInterval: 1 / 60)) { ctx in
+                if overflow && !reduceMotion && !paused {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { ctx in
                         let x = Self.offset(at: ctx.date.timeIntervalSince(start), natural: natural, box: box,
                                             velocity: velocity, initialDelay: initialDelay, repeatDelay: repeatDelay)
                         HStack(spacing: Self.spacing(box)) { line.fixedSize(); line.fixedSize() }

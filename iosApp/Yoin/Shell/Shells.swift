@@ -113,7 +113,7 @@ struct PhoneShell: View {
                     // Memories (pulled down over Home) takes the whole screen; scrolling Home hides it smoothly.
                     .modifier(MemoriesBarRetreat(presentation: model.memories,
                                                  active: model.section == .home && model.path.isEmpty,
-                                                 scrollHide: model.section == .home && model.path.isEmpty ? model.barScrollHide.fraction : 0,
+                                                 scrollHideController: model.section == .home && model.path.isEmpty ? model.barScrollHide : nil,
                                                  edit: model.section == .home && model.path.isEmpty ? model.homeEdit : nil))
                     .onChange(of: phoneScrollHideEnabled, initial: true) { _, on in
                         model.barScrollHide.enabled = on
@@ -190,7 +190,6 @@ struct PhoneShell: View {
             try? await Task.sleep(for: .seconds(1))
             model.setNowPlaying(expanded: !model.npExpanded)
         }
-        .task { QAProbe.start(model) }
         #if DEBUG
         .task { await NowPlayingMorphDebug.run(model) }
         #endif
@@ -206,6 +205,9 @@ struct MemoriesBarRetreat: ViewModifier {
     let presentation: MemoriesPresentation
     var active: Bool
     var scrollHide: CGFloat = 0
+    /// Optional scroll-hide controller: observed inside this modifier so scroll frames
+    /// never invalidate the enclosing shell (`PhoneShell` / `PadDock`).
+    var scrollHideController: ShellBarScrollHide? = nil
     /// Home's edit mode: the bar (and on iPad the mini player) steps away on its progress P (the stage-settle
     /// spring), so only the edit chrome (Undo / Done in the header) is left, and comes back the same way on
     /// exit (Android hides its nav bar group while Home is edited). Read here, so P's frames re-render this alone.
@@ -216,8 +218,9 @@ struct MemoriesBarRetreat: ViewModifier {
 
     func body(content: Content) -> some View {
         let memoriesHide = active ? min(1, max(0, 1 - presentation.fraction)) : 0
+        let liveScrollHide = scrollHideController?.fraction ?? scrollHide
         let editHide = edit.map { Self.editHide($0.progress) } ?? 0
-        let hide = min(1, max(memoriesHide, max(0, scrollHide), editHide))
+        let hide = min(1, max(memoriesHide, max(0, liveScrollHide), editHide))
         // Gone for good once Memories is all the way open: an empty bar slot. The safe-area bar's own
         // container keeps taking touches in its band even with its content's hit testing off, and Memories'
         // Diary / Go to album sit in that band, so with the bar merely hidden they never got a tap

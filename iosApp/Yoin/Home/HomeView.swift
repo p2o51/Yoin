@@ -26,7 +26,9 @@ struct HomeView: View {
     /// How far the window runs past Home's frame (status bar above, bottom bar below): Memories covers it.
     @State private var pageBleed = EdgeInsets()
     /// The header avatar's target in the window: the account card grows out of it.
-    @State private var accountFrame: CGRect = .zero
+    /// Kept in a non-observed box so global-frame updates during scroll never invalidate `HomeView.body`.
+    @State private var accountFrameBox = FrameBox()
+    private final class FrameBox { var rect: CGRect = .zero }
     #if DEBUG
     /// The live Home's avatar target for `-accountCardOpen`: the hook runs on the first Home, which launch
     /// rebuilds, so that instance's own `accountFrame` stays .zero (the card would grow out of the corner).
@@ -132,7 +134,10 @@ struct HomeView: View {
             if abs(top - pageBleed.top) > 0.5 || abs(bottom - pageBleed.bottom) > 0.5 {
                 pageBleed = EdgeInsets(top: top, leading: 0, bottom: bottom, trailing: 0)
             }
-            memories.containerHeight = frame.height + top + bottom
+            let nextHeight = frame.height + top + bottom
+            if abs(nextHeight - memories.containerHeight) > 0.5 {
+                memories.containerHeight = nextHeight
+            }
         }
         .environment(\.homeScheme, scheme)
         .environment(\.homeEdit, edit)
@@ -267,7 +272,7 @@ struct HomeView: View {
 
     private func openAccountCard() {
         let edit = edit
-        model.openAccountCard(avatarTarget: accountFrame, reduced: reduceMotion) { edit.enter() }
+        model.openAccountCard(avatarTarget: accountFrameBox.rect, reduced: reduceMotion) { edit.enter() }
     }
 
     private var feedScroll: some View {
@@ -584,13 +589,13 @@ struct HomeView: View {
                 Text(s.placeholder).homeType(Tokens.type.bodyMedium).foregroundStyle(scheme.onSurfaceVariant)
             }
             .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
-            .homeGridBox(cell.units, height: cell.height)
+            .homeGridBox(cell.units, height: cell.height, half: cell.half)
         } else if let units = cell.units {
             // Two columns: the section's own layout on the grid, exactly its row's units tall (HomeFeedRows.swift).
             gridSection(s, feed, cell, units: units)
                 .environment(\.homeGridCell, cell)
                 .environment(\.homeMargin, cell.bleed)
-                .homeGridBox(units, height: cell.height)
+                .homeGridBox(units, height: cell.height, half: cell.half)
         } else {
             switch s {
             case .activities: activities(feed.activities, preset: edit.rowsOf(.activities), cell)
@@ -700,7 +705,15 @@ struct HomeView: View {
             // The bubble takes the title's place when it speaks.
             .modifier(BubbleTitleShift(bubble: bubble))
             // Where the title rests (outside the shift, so the bubble's own push doesn't move it).
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { bubble.titleFrame = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                let prev = bubble.titleFrame
+                let nearTop = scroll.scrolled < 60 || bubble.composed || prev == .zero
+                guard nearTop else { return }
+                if abs(prev.minX - rect.minX) > 0.5 || abs(prev.minY - rect.minY) > 0.5
+                    || abs(prev.width - rect.width) > 0.5 || abs(prev.height - rect.height) > 0.5 {
+                    bubble.titleFrame = rect
+                }
+            }
             .padding(.trailing, Tokens.home.HEADER_TITLE_BREATHING.cg)
             Spacer(minLength: 0)
             if spotifyElsewhereUp, let e = spotifyElsewhere.shown {
@@ -728,7 +741,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain).pointerHighlight()
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
-                    accountFrame = $0
+                    accountFrameBox.rect = $0
                     #if DEBUG
                     Self.liveAccountFrame = $0
                     #endif
@@ -738,7 +751,9 @@ struct HomeView: View {
                 // Hold and slide onto another account (Android #162).
                 .accountQuickSwitch(accounts: model.quickSwitchAccounts, shapes: model.profiles.avatarShapes) { model.quickSwitch(to: $0) }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { bubble.freeEnd = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { x in
+                if abs(bubble.freeEnd - x) > 0.5 { bubble.freeEnd = x }
+            }
         }
         .frame(minHeight: 48)
         .padding(.top, 12)

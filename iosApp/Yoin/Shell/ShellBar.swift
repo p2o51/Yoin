@@ -573,15 +573,20 @@ struct PillContent: View {
                 }
             VStack(alignment: .leading, spacing: 1) {
                 // A long title or artist scrolls (Android pill basicMarquee, parity C-U9).
+                let marqueePaused = np?.mounted == true || SheetRise.shared.progress > 0.01
                 ExplicitTitle(text: s.title, explicit: s.explicit, fontSize: 15,
                               color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant) {
-                    MarqueeText(text: s.title, font: .gsf(15, .semibold), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink)
+                    MarqueeText(text: s.title, font: .gsf(15, .semibold),
+                                color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer : Yoin.ink,
+                                paused: marqueePaused)
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
                             if let np, !model.searchActive { np.pillMeasured(.title, r) }
                         }
                 }
                     .opacity(showTitle ? 1 : 0)
-                MarqueeText(text: s.artist, font: .gsf(13), color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant)
+                MarqueeText(text: s.artist, font: .gsf(13),
+                            color: GlassLab.solidSurfaces ? scheme.onPrimaryContainer.opacity(0.78) : Yoin.inkVariant,
+                            paused: marqueePaused)
             }
             .lineLimit(1)
             .labContrast("miniPlayer")
@@ -608,7 +613,7 @@ struct PillContent: View {
             if showWash, np?.mounted != true {
                 PlaybackPosition { position, duration in
                     PillWash(positionSec: position, durationSec: duration,
-                             playing: p.isPlaying && !p.isBuffering && SheetRise.shared.progress < 0.5,
+                             playing: p.isPlaying && !p.isBuffering && SheetRise.shared.progress < 0.01,
                              color: scheme.primary.opacity(lab.extra("washOpacity")),
                              amplitude: lab.extra("washAmplitude"))
                 }
@@ -673,7 +678,7 @@ struct PillWash: View {
     @State private var front = WashFront()
 
     var body: some View {
-        TimelineView(.animation(paused: !playing)) { ctx in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { ctx in
             let phase = ctx.date.timeIntervalSinceReferenceDate * 2 * Double.pi
             let progress = front.at(positionSec, of: durationSec, playing: playing, now: ctx.date)
             Canvas { gc, size in

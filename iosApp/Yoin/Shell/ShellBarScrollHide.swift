@@ -64,7 +64,10 @@ final class ShellBarScrollHide {
     func scrolled(by hideDelta: CGFloat, timestamp: CFTimeInterval? = nil) {
         guard enabled, hideDelta != 0 else { return }
         runner.stop()
-        fraction = min(max(fraction + hideDelta / Self.hideDistance, 0), 1)
+        let next = min(max(fraction + hideDelta / Self.hideDistance, 0), 1)
+        if abs(next - fraction) > 0.0001 || (next == 0 && fraction != 0) || (next == 1 && fraction != 1) {
+            fraction = next
+        }
 
         let now = timestamp ?? CACurrentMediaTime()
         if let prev = lastScrollTime {
@@ -158,7 +161,7 @@ final class ShellBarScrollHide {
     func showUnseen() {
         runner.stop()
         resetGesture()
-        fraction = 0
+        if fraction != 0 { fraction = 0 }
     }
 
     private func resetGesture() {
@@ -170,7 +173,7 @@ final class ShellBarScrollHide {
         let clamped = min(max(target, 0), 1)
         if abs(fraction - clamped) < 0.0005 {
             runner.stop()
-            fraction = clamped
+            if fraction != clamped { fraction = clamped }
             return
         }
         let current = fraction
@@ -180,7 +183,11 @@ final class ShellBarScrollHide {
             velocity: velocity,
             spring: spring
         ) { [weak self] value in
-            self?.fraction = min(max(value, 0), 1)
+            guard let self else { return }
+            let next = min(max(value, 0), 1)
+            if abs(next - self.fraction) > 0.0001 || (next == 0 && self.fraction != 0) || (next == 1 && self.fraction != 1) {
+                self.fraction = next
+            }
         }
     }
 }
