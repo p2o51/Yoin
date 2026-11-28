@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -356,8 +357,20 @@ internal fun HomeEditBlock(
                 if (size.width > 0f && size.height > 0f) {
                     transformOrigin = TransformOrigin(pivotX / size.width, pivotY / size.height)
                 }
-                // The list's cover on/off, not its progress: every block's layer re-runs on the flip, not each frame.
-                alpha = if (engine.feedHidden) 0f else motion.hideAlpha(section)
+                // The pinched list on its way in or out: the block's cards sink and fade under the strip
+                // folding out of its plate (HomeEditList.kt). Off the list this reads only the list's
+                // shown / cover flips, so every block's layer re-runs on those, not each frame.
+                val fold = engine.feedFold(blockTop(), deps.specs.reduced)
+                if (fold > 0f) {
+                    val sink = lerp(1f, HomeEditListTokens.MorphFeedScale, fold)
+                    scaleX *= sink
+                    scaleY *= sink
+                }
+                alpha = if (engine.feedHidden) {
+                    0f
+                } else {
+                    motion.hideAlpha(section) * (1f - smoothstep(0f, HomeEditListTokens.MorphFeedOut, fold))
+                }
             }
             .then(wiggle)
             .hoverable(hoverSource)

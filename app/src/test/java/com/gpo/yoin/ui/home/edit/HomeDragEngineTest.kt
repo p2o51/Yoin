@@ -255,21 +255,22 @@ class HomeDragEngineTest {
 
     @Test
     fun should_pairWithNoRow_andKeepBlockUnderFingerOnContent_while_edgeScrollCarriesRowsPast() = runEditClockTest { scope ->
-        // Eight full rows, 100..400, 418..718, …; the bottom edge band is 1856..2000. Activities is
-        // dragged with the finger 95% across, to the bottom band: the scroll carries the rows below
-        // up under the finger, each one's middle in the pairing zone (> 0.70) as it passes.
+        // Eight full rows, 100..400, 418..718, …; the bottom edge band is 1808..2000. Activities is
+        // dragged with the finger 95% across, into the bottom band (the bottom quarter of the row under
+        // it, so nothing pairs before the scroll starts): the scroll carries the rows below up under the
+        // finger, each one's middle in the pairing zone (> 0.70) as it passes.
         val order = listOf(Activities, JumpBackIn, MadeForYou, MemoryGrid, RecentlyAdded, RecentlyPlayed, YourPlaylists, Rediscover, OtherProfiles)
         val host = FakeHost(twoColumn = true, order = order)
         val rig = Rig(scope, this, host, specs)
         rig.lift(Activities, x = 950f, y = 250f)
-        rig.moveTo(950f, 1950f)
+        rig.moveTo(950f, 1930f)
         var passed = 0
         repeat(90) {
             frames(1)
             val live = rig.engine.arrangement ?: error("dragging")
             // No pair while the rows scroll past: the block never turns half under the finger.
             assertEquals(emptyMap<HomeSection, HomeSection>(), live.pairs)
-            if (host.visibleRows().any { it.key != Activities && 1950f in it.top..it.bottom }) passed++
+            if (host.visibleRows().any { it.key != Activities && 1930f in it.top..it.bottom }) passed++
             // Drawn at any width its spring passes through, the block holds the finger and stays on the content.
             for (width in listOf(1000f, 745f, 490f)) {
                 val left = rig.engine.translation(Activities, inList = false, width = width).x
@@ -278,7 +279,8 @@ class HomeDragEngineTest {
             }
         }
         assertTrue(host.scrolls.isNotEmpty())
-        assertTrue("rows passed under the finger: $passed", passed > 10)
+        // At today's speeds (up to 1400dp/s, owner 2026-11-27) the last rows go by in a few frames.
+        assertTrue("rows passed under the finger: $passed", passed > 5)
 
         // Out of the band, the scroll stops: over a full row's middle at the side it pairs again.
         val row = host.visibleRows().first { it.key != Activities && it.top > 300f && it.bottom < 1800f }
@@ -384,13 +386,13 @@ class HomeDragEngineTest {
 
     @Test
     fun should_notScroll_when_liftedInEdgeBand_untilPushedTowardEdge() = runEditClockTest { scope ->
-        // The bottom band is 1856..2000 (72dp at density 2); a push is 16px.
+        // The bottom band is 1808..2000 (96dp at density 2); a push is 8px (4dp), a rest 120ms.
         val host = FakeHost(twoColumn = false, order = listOf(Activities, MadeForYou, MemoryGrid, RecentlyAdded))
         val rig = Rig(scope, this, host, specs)
         rig.lift(Activities, x = 500f, y = 1950f)
-        frames(5)
+        frames(4)
         assertTrue(host.scrolls.isEmpty())
-        rig.moveTo(500f, 1960f)
+        rig.moveTo(500f, 1956f)
         frames(2)
         assertTrue(host.scrolls.isEmpty())
         rig.moveTo(500f, 1970f)

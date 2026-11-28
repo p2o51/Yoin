@@ -13,6 +13,8 @@
 /// home_drag_core.dart drives it. Replayed against home-drag.json.
 library;
 
+import 'dart:math' as math;
+
 import 'home_catalog.dart';
 import 'home_edit_rules.dart';
 
@@ -43,19 +45,22 @@ abstract final class HomeDragRuleTokens {
 /// Numbers of the in-place drag (dp unless noted).
 abstract final class HomeDragTokens {
   /// The list scrolls while the finger is this close to the bar (or the status tide)…
-  static const double autoScrollEdge = 72;
+  static const double autoScrollEdge = 96;
+
+  /// …but a band never takes more than this fraction of the scroll area (a short window keeps its middle).
+  static const double autoScrollEdgeMaxFraction = .25;
 
   /// …from this many dp/s where the band starts…
-  static const double autoScrollMin = 120;
+  static const double autoScrollMin = 200;
 
   /// …easing in (depth squared) to this many at the edge.
-  static const double autoScrollMax = 900;
+  static const double autoScrollMax = 1400;
 
   /// Lifted with the finger already in a band, it scrolls once the finger pushes this much further…
-  static const double edgeStartPush = 8;
+  static const double edgeStartPush = 4;
 
   /// …or rests there this long, ms.
-  static const double edgeStartDwellMs = 180;
+  static const double edgeStartDwellMs = 120;
 
   /// A change waits for this much finger (or scroll) travel since the last one.
   static const double changeTravel = 12;
@@ -393,6 +398,15 @@ int dragEdgeOf(double y, double top, double bottom, double edge) {
   if (inTop && (!inBottom || y < (top + bottom) / 2)) return -1;
   if (inBottom) return 1;
   return 0;
+}
+
+/// The edge band's depth for an [edgePx] token over the scroll area [top]..[bottom]: the token, but never
+/// more than [HomeDragTokens.autoScrollEdgeMaxFraction] of the area (a landscape phone keeps its middle half
+/// free of edge scroll). Pure.
+double dragEdgeBand(double edgePx, double top, double bottom) {
+  final area = bottom - top;
+  if (area <= 0) return edgePx;
+  return math.min(edgePx, area * HomeDragTokens.autoScrollEdgeMaxFraction);
 }
 
 /// The feed's scroll speed (px/s, + = toward the end) for a finger at [y]: 0 outside the edge bands;

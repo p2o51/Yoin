@@ -148,7 +148,7 @@ class HomeDragCore(density: Float) {
         origin = before
         travel = 0f
         edgeScrolling = false
-        edgeGuard = dragEdgeOf(fingerY, areaTop, areaBottom, edgePx)
+        edgeGuard = dragEdgeOf(fingerY, areaTop, areaBottom, dragEdgeBand(edgePx, areaTop, areaBottom))
         edgeGuardY = fingerY
         edgeGuardMs = 0f
         arrangement = before
@@ -193,9 +193,10 @@ class HomeDragCore(density: Float) {
                 return HomeDragFrame.Step(step.arrangement, step.side)
             }
         }
+        val edge = dragEdgeBand(edgePx, view.areaTop, view.areaBottom)
         if (edgeGuard != 0) {
             edgeGuardMs += dtSeconds * 1000f
-            val inBand = dragEdgeOf(fingerY, view.areaTop, view.areaBottom, edgePx) == edgeGuard
+            val inBand = dragEdgeOf(fingerY, view.areaTop, view.areaBottom, edge) == edgeGuard
             val holds = dragEdgeGuardHolds(edgeGuard, edgeGuardY, fingerY, edgeGuardMs, pushPx, HomeDragTokens.EdgeStartDwellMs)
             if (!inBand || !holds) {
                 edgeGuard = 0
@@ -204,7 +205,7 @@ class HomeDragCore(density: Float) {
                 return HomeDragFrame.None
             }
         }
-        val speed = dragAutoScrollSpeed(fingerY, view.areaTop, view.areaBottom, edgePx, minSpeedPx, maxSpeedPx)
+        val speed = dragAutoScrollSpeed(fingerY, view.areaTop, view.areaBottom, edge, minSpeedPx, maxSpeedPx)
         if (speed == 0f) {
             edgeScrolling = false
         } else if (dtSeconds > 0f) {

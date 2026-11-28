@@ -4,7 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,6 +29,8 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -52,11 +55,12 @@ import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 
 /*
- * Home's header title (owner 2026-10-09, prototype artifact GWEBwdavGiwS1ngqmcqTyF):
- * two lines — a small greeting for the time of day over a "Home" one size
- * smaller than before, both in the rounded cut of Google Sans Flex. On a cold
- * start the Yoin mark blooms where the title sits, then spins away and the
- * two lines rise in behind it. Returning to Home never replays it.
+ * Home's header title (owner 2026-10-09, prototype artifact GWEBwdavGiwS1ngqmcqTyF;
+ * one row since 2026-11-27): "Home" on the left, the small greeting for the
+ * time of day on the right of the same row (right-aligned, two lines at most),
+ * both in the rounded cut of Google Sans Flex. On a cold start the Yoin mark
+ * blooms where the title sits, then spins away; "Home" rises in behind it and
+ * the greeting follows a beat later. Returning to Home never replays it.
  */
 
 /** The four greetings, by the hour. */
@@ -97,7 +101,7 @@ internal val HomeIntroRunning = mutableStateOf(false)
 
 /** The intro's values, all 0 → 1. At rest (played, or reduced motion) everything is 1. */
 @Stable
-private class HomeIntro(atRest: Boolean) {
+internal class HomeIntro(atRest: Boolean) {
     val arms = List(3) { Animatable(if (atRest) 1f else 0f) }
     val exit = Animatable(if (atRest) 1f else 0f)
     val fade = Animatable(if (atRest) 1f else 0f)
@@ -109,8 +113,8 @@ private class HomeIntro(atRest: Boolean) {
 // The bloom: each arm springs open a beat after the last, with a little overshoot.
 private const val ArmStaggerMs = 70L
 private const val ExitAtMs = 950L
-private const val GreetingAfterExitMs = 100L
-private const val TitleAfterGreetingMs = 80L
+private const val TitleAfterExitMs = 100L
+private const val GreetingAfterTitleMs = 80L
 private val BloomSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 260f)
 
 // Home reports loading as motion pressure (AdaptiveReduced) and clears it a frame
@@ -149,7 +153,7 @@ private suspend fun playHomeIntro(
             snapshotFlow { profile() }.first { it == MotionProfile.Full }
         }
         if (full == null) {
-            // Reduce motion (low RAM, power saver): the two lines are simply there.
+            // Reduce motion (low RAM, power saver): the title and the greeting are simply there.
             (intro.arms + listOf(intro.exit, intro.fade, intro.greeting, intro.title)).forEach { it.snapTo(1f) }
             intro.markShown = false
             return
@@ -164,14 +168,17 @@ private suspend fun playHomeIntro(
             delay(ExitAtMs)
             launch { intro.exit.animateTo(1f, spatial) }
             launch { intro.fade.animateTo(1f, effects) }
-            delay(GreetingAfterExitMs)
-            launch { intro.greeting.animateTo(1f, spatial) }
-            delay(TitleAfterGreetingMs)
-            intro.title.animateTo(1f, spatial)
+            delay(TitleAfterExitMs)
+            launch { intro.title.animateTo(1f, spatial) }
+            delay(GreetingAfterTitleMs)
+            intro.greeting.animateTo(1f, spatial)
         }
         intro.markShown = false
     }
 }
+
+/** A greeting that stands in for the time-of-day / on-device one: previews and review renders only. */
+internal val LocalHomeGreetingOverride = staticCompositionLocalOf<String?> { null }
 
 /** Maps Home's four day parts onto the three pre-generated on-device greeting slots. */
 internal fun HomeDayPart.toGreetingSlot(): HomeGreetingSlot = when (this) {
@@ -180,18 +187,17 @@ internal fun HomeDayPart.toGreetingSlot(): HomeGreetingSlot = when (this) {
     HomeDayPart.Evening -> HomeGreetingSlot.EVENING
 }
 
+/** The header's greeting and the cold-start intro both halves of the row play. */
+@Stable
+internal class HomeGreeting internal constructor(internal val intro: HomeIntro, val text: String)
+
 /**
- * The greeting over "Home" (and "Edit Home" over it through edit mode's P, via
- * [HomeEditHeaderTitle]); the greeting fades out with the header icons.
+ * The greeting for now: an on-device one cached for this time of day and
+ * account when the owner turned them on, else the plain time-of-day line.
+ * Holds the cold-start intro the title and the greeting share.
  */
 @Composable
-internal fun HomeGreetingTitle(
-    editProgress: () -> Float,
-    onEnterEdit: () -> Unit,
-    modifier: Modifier = Modifier,
-    // Landscape handset: one step smaller again.
-    compact: Boolean = false,
-) {
+internal fun rememberHomeGreeting(): HomeGreeting {
     val intro = rememberHomeIntro()
     val dayPart = rememberHomeDayPart()
     val staticGreeting = when (dayPart) {
@@ -208,7 +214,10 @@ internal fun HomeGreetingTitle(
     val greetingsEnabled = container?.lyricHighlightProcessor?.greetingsEnabled?.collectAsState()?.value == true
     val cachedGreetings = container?.homeGreetingStore?.greetings?.collectAsState()?.value
     val activeProfileId = container?.profileManager?.activeProfileId?.collectAsState()?.value
-    val greeting = if (greetingsEnabled && !cachedGreetings.isNullOrEmpty()) {
+    val override = LocalHomeGreetingOverride.current
+    val text = if (override != null) {
+        override
+    } else if (greetingsEnabled && !cachedGreetings.isNullOrEmpty()) {
         container.homeGreetingStore.cachedFor(
             slot = dayPart.toGreetingSlot(),
             profileId = activeProfileId,
@@ -217,36 +226,36 @@ internal fun HomeGreetingTitle(
     } else {
         staticGreeting
     }
+    return remember(intro, text) { HomeGreeting(intro, text) }
+}
+
+/**
+ * The row's left end: "Home" ("Edit Home" over it through edit mode's P, via
+ * [HomeEditHeaderTitle]), where the Yoin mark blooms on a cold start.
+ */
+@Composable
+internal fun HomeGreetingTitle(
+    greeting: HomeGreeting,
+    editProgress: () -> Float,
+    onEnterEdit: () -> Unit,
+    modifier: Modifier = Modifier,
+    // Landscape handset: one step smaller again.
+    compact: Boolean = false,
+) {
+    val intro = greeting.intro
     val typography = MaterialTheme.typography
     val titleStyle = (if (compact) typography.headlineSmall else typography.headlineMedium).rounded()
-    val greetingStyle = typography.titleMedium.rounded()
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
-        Column {
-            Text(
-                text = greeting,
-                style = greetingStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .homeEditHeaderIcon(editProgress)
-                    .graphicsLayer {
-                        val p = intro.greeting.value
-                        alpha = p
-                        translationY = (1f - p) * 12.dp.toPx()
-                    },
-            )
-            HomeEditHeaderTitle(
-                progress = editProgress,
-                style = titleStyle,
-                onEnterEdit = onEnterEdit,
-                modifier = Modifier.graphicsLayer {
-                    val p = intro.title.value
-                    alpha = p
-                    translationY = (1f - p) * 16.dp.toPx()
-                },
-            )
-        }
+        HomeEditHeaderTitle(
+            progress = editProgress,
+            style = titleStyle,
+            onEnterEdit = onEnterEdit,
+            modifier = Modifier.graphicsLayer {
+                val p = intro.title.value
+                alpha = p
+                translationY = (1f - p) * 16.dp.toPx()
+            },
+        )
         if (intro.markShown) {
             val scheme = MaterialTheme.colorScheme
             YoinMark(
@@ -273,6 +282,42 @@ internal fun HomeGreetingTitle(
     }
 }
 
+/**
+ * The row's right side: the greeting, right-aligned against the account
+ * button, on two lines at most (then an ellipsis). It fades out with the
+ * header icons in edit mode ("Edit Home" overhangs into its place) and gives
+ * way to whatever stands in the same span ([away], 0–1: the Memories bubble
+ * unrolling, Spotify's pill).
+ */
+@Composable
+internal fun HomeGreetingLine(
+    greeting: HomeGreeting,
+    editProgress: () -> Float,
+    modifier: Modifier = Modifier,
+    away: () -> Float = { 0f },
+) {
+    val intro = greeting.intro
+    Text(
+        text = greeting.text,
+        // Balanced lines when it wraps: two even halves, not a long line over a word.
+        style = MaterialTheme.typography.titleMedium.rounded().copy(lineBreak = LineBreak.Heading),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.End,
+        maxLines = HomeGreetingMaxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+            .homeEditHeaderIcon(editProgress)
+            .graphicsLayer {
+                val p = intro.greeting.value
+                alpha = p * (1f - away().coerceIn(0f, 1f))
+                translationY = (1f - p) * 12.dp.toPx()
+            },
+    )
+}
+
+/** The greeting wraps to this many lines at most beside "Home". */
+internal const val HomeGreetingMaxLines = 2
+
 private val HomeIntroMarkSize = 56.dp
 
 private fun TextStyle.rounded() = copy(fontFamily = GoogleSansFlexRounded, fontWeight = FontWeight.Medium)
@@ -281,6 +326,10 @@ private fun TextStyle.rounded() = copy(fontFamily = GoogleSansFlexRounded, fontW
 @Composable
 private fun HomeGreetingTitlePreview() {
     YoinTheme {
-        HomeGreetingTitle(editProgress = { 0f }, onEnterEdit = {})
+        val greeting = rememberHomeGreeting()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            HomeGreetingTitle(greeting = greeting, editProgress = { 0f }, onEnterEdit = {})
+            HomeGreetingLine(greeting = greeting, editProgress = { 0f }, modifier = Modifier.weight(1f))
+        }
     }
 }

@@ -49,9 +49,11 @@ internal object HomeDragTimelines {
         val finger = v.getValue("finger").jsonArray.map { float(it) }
 
         val core = HomeDragCore(density)
-        var scrolled = 0f
+        // The list's scroll, summed in Double: a long edge scroll's Float sum drifts past the replays' 1e-4
+        // (HarmonyOS sums in double).
+        var scrolled = 0.0
         fun bands(a: DragArrangement): List<DragItemBand> {
-            var y = top - scrolled
+            var y = top - scrolled.toFloat()
             return dragRows(a.ids, a.pairs, twoColumn).map { row -> DragItemBand(row.first, y, y + rowHeight).also { y += rowHeight + gap } }
         }
         fun view(a: DragArrangement) = HomeDragView(bands(a), 0f, width, areaTop, areaBottom, twoColumn)
@@ -75,7 +77,7 @@ internal object HomeDragTimelines {
                 HomeDragFrame.None -> obj("kind" to str("None"))
                 is HomeDragFrame.Step -> obj("kind" to str("Step"), "arrangement" to HomeDragGolden.arrangementJson(r.arrangement), "side" to str(r.side?.name))
                 is HomeDragFrame.Scroll -> {
-                    val consumed = r.px.coerceIn(-scrolled, scrollMax - scrolled)
+                    val consumed = r.px.coerceIn((-scrolled).toFloat(), (scrollMax - scrolled).toFloat())
                     scrolled += consumed
                     core.scrolled(consumed)
                     obj("kind" to str("Scroll"), "px" to num(r.px), "consumed" to num(consumed))
@@ -102,7 +104,7 @@ internal object HomeDragTimelines {
             "write" to (write?.let(HomeDragGolden::arrangementJson) ?: JsonNull),
             "arrangement" to (core.arrangement?.let(HomeDragGolden::arrangementJson) ?: JsonNull),
             "side" to str(core.side?.name),
-            "scrolled" to num(scrolled),
+            "scrolled" to num(scrolled.toFloat()),
         )
         core.end()
         return obj("started" to started, "decisions" to JsonArray(decisions), "result" to result)
@@ -233,7 +235,8 @@ internal object HomeDragTimelines {
             eight,
             "activities",
             950f to 250f,
-            frames(950f to 1950f, count = 40) + frames(950f to 1100f, null, null, first = false) + frames(990f to 1150f, null, null, first = false),
+            // 24 frames carry two rows past at today's speeds (96dp bands, up to 1400dp/s; owner 2026-11-27).
+            frames(950f to 1950f, count = 24) + frames(950f to 1100f, null, null, first = false) + frames(990f to 1150f, null, null, first = false),
             release(),
         ),
         timeline(
@@ -255,7 +258,7 @@ internal object HomeDragTimelines {
             release(move = 900f to 250f),
         ),
         timeline(
-            "lifted in the bottom band: the start guard holds until 180ms rest",
+            "lifted in the bottom band: the start guard holds until 120ms rest",
             false,
             eight,
             "recently_added",
@@ -264,12 +267,12 @@ internal object HomeDragTimelines {
             release(),
         ),
         timeline(
-            "lifted in the bottom band: the start guard lets go after an 8dp push",
+            "lifted in the bottom band: the start guard lets go after a 4dp push",
             false,
             eight,
             "recently_added",
             500f to 1950f,
-            frames(null, 500f to 1960f, null, 500f to 1967f, null, null),
+            frames(null, 500f to 1956f, null, 500f to 1967f, null, null),
             release(),
         ),
         timeline(

@@ -176,7 +176,7 @@ class HomeDragCore {
     _origin = before;
     _travel = 0;
     _edgeScrolling = false;
-    _edgeGuard = dragEdgeOf(fingerY, areaTop, areaBottom, _edgePx);
+    _edgeGuard = dragEdgeOf(fingerY, areaTop, areaBottom, dragEdgeBand(_edgePx, areaTop, areaBottom));
     _edgeGuardY = fingerY;
     _edgeGuardMs = 0;
     _arrangement = before;
@@ -220,9 +220,10 @@ class HomeDragCore {
         return HomeDragFrameStep(step.arrangement, step.side);
       }
     }
+    final edge = dragEdgeBand(_edgePx, view.areaTop, view.areaBottom);
     if (_edgeGuard != 0) {
       _edgeGuardMs += dtSeconds * 1000;
-      final inBand = dragEdgeOf(_fingerY, view.areaTop, view.areaBottom, _edgePx) == _edgeGuard;
+      final inBand = dragEdgeOf(_fingerY, view.areaTop, view.areaBottom, edge) == _edgeGuard;
       final holds = dragEdgeGuardHolds(
         _edgeGuard,
         _edgeGuardY,
@@ -238,7 +239,7 @@ class HomeDragCore {
         return const HomeDragFrameNone();
       }
     }
-    final speed = dragAutoScrollSpeed(_fingerY, view.areaTop, view.areaBottom, _edgePx, _minSpeedPx, _maxSpeedPx);
+    final speed = dragAutoScrollSpeed(_fingerY, view.areaTop, view.areaBottom, edge, _minSpeedPx, _maxSpeedPx);
     if (speed == 0) {
       _edgeScrolling = false;
     } else if (dtSeconds > 0) {

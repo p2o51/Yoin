@@ -42,20 +42,27 @@ object HomeDragRuleTokens {
 
 /** Numbers of the in-place drag (dp unless noted). */
 object HomeDragTokens {
+    // Quicker edge scroll (owner 2026-11-27, 「更灵敏：更早开始、加速更快」): the band was narrower than
+    // a fingertip and a half over the bar, the first half of it crawled (120–330dp/s), and a block lifted
+    // near the edge sat still for 180ms.
+
     /** The list scrolls while the finger is this close to the bar (or the status tide)… */
-    const val AutoScrollEdge = 72f
+    const val AutoScrollEdge = 96f
+
+    /** …but a band never takes more than this fraction of the scroll area: a short window keeps its middle half. */
+    const val AutoScrollEdgeMaxFraction = .25f
 
     /** …from this many dp/s where the band starts… */
-    const val AutoScrollMin = 120f
+    const val AutoScrollMin = 200f
 
     /** …easing in (depth squared) to this many at the edge. */
-    const val AutoScrollMax = 900f
+    const val AutoScrollMax = 1400f
 
     /** Lifted with the finger already in a band, it scrolls once the finger pushes this much further toward the edge… */
-    const val EdgeStartPush = 8f
+    const val EdgeStartPush = 4f
 
     /** …or rests there this long, ms. */
-    const val EdgeStartDwellMs = 180f
+    const val EdgeStartDwellMs = 120f
 
     /** A change waits for this much finger (or scroll) travel since the last one. */
     const val ChangeTravel = 12f
@@ -366,6 +373,17 @@ fun dragEdgeOf(y: Float, top: Float, bottom: Float, edge: Float): Int {
         inBottom -> 1
         else -> 0
     }
+}
+
+/**
+ * The edge band's depth for an [edgePx] token over the scroll area [top]..[bottom]: the token, but never
+ * more than [HomeDragTokens.AutoScrollEdgeMaxFraction] of the area (a landscape phone keeps its middle half
+ * free of edge scroll). Pure.
+ */
+fun dragEdgeBand(edgePx: Float, top: Float, bottom: Float): Float {
+    val area = bottom - top
+    if (area <= 0f) return edgePx
+    return minOf(edgePx, area * HomeDragTokens.AutoScrollEdgeMaxFraction)
 }
 
 /**

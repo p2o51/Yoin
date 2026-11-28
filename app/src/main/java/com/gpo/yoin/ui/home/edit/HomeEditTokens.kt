@@ -213,7 +213,10 @@ internal class HomeEditSpecs(
     val reduced: Boolean,
     /** P (stageSettle). */
     val stage: FiniteAnimationSpec<Float>,
-    /** Feed ⇄ the pinched list. */
+    /**
+     * Feed ⇄ the pinched list: the slow spatial spring (owner 2026-11-27, 「更重、更有表现力」), the
+     * blocks folding into their strips one after another (HomeEditList.kt, [homeListMorph]).
+     */
     val fold: FiniteAnimationSpec<Float>,
     val settlePx: FiniteAnimationSpec<Float>,
     val chargeUp: FiniteAnimationSpec<Float>,
@@ -268,7 +271,7 @@ internal class HomeEditSpecs(
                 HomeEditSpecs(
                     reduced = reduced,
                     stage = homeEditStageSpec(reduced),
-                    fold = defaultSpatial.withThreshold(FoldThreshold),
+                    fold = slowSpatial.withThreshold(FoldThreshold),
                     settlePx = defaultSpatial.withThreshold(SettlePxThreshold),
                     chargeUp = slowSpatial.withThreshold(UnitThreshold),
                     chargeDown = fastSpatial.withThreshold(UnitThreshold),

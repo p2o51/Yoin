@@ -619,6 +619,9 @@ internal object HomeDragTokens {
     /** The list scrolls while the finger is this close to the bar (or the status tide)… */
     val AutoScrollEdge = SharedDragTokens.AutoScrollEdge.dp
 
+    /** …but never more than this fraction of the scroll area (:shared's dragEdgeBand). */
+    const val AutoScrollEdgeMaxFraction = SharedDragTokens.AutoScrollEdgeMaxFraction
+
     /** …from this many dp/s where the band starts… */
     val AutoScrollMin = SharedDragTokens.AutoScrollMin.dp
 

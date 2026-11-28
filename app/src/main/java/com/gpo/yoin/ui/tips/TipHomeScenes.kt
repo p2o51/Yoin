@@ -57,7 +57,10 @@ import com.gpo.yoin.ui.experience.topBarsPadding
 import com.gpo.yoin.ui.home.HomeAccountButton
 import com.gpo.yoin.ui.home.HomeAccountFanState
 import com.gpo.yoin.ui.home.HomeAccountQuickSwitch
+import com.gpo.yoin.ui.home.HomeGreetingLine
 import com.gpo.yoin.ui.home.HomeGreetingTitle
+import com.gpo.yoin.ui.home.greetingAway
+import com.gpo.yoin.ui.home.rememberHomeGreeting
 import com.gpo.yoin.ui.home.HomeHeaderTitleBreathing
 import com.gpo.yoin.ui.home.HomeLyricHighlight
 import com.gpo.yoin.ui.home.HomeSection
@@ -643,14 +646,26 @@ private fun BoxScope.DemoHomePage(
                     .demoTarget("header"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val greeting = rememberHomeGreeting()
                 HomeGreetingTitle(
+                    greeting = greeting,
                     editProgress = editProgress,
                     onEnterEdit = onEnterEdit,
                     modifier = Modifier
                         .memoryBubbleTitle(bubble)
                         .padding(end = HomeHeaderTitleBreathing),
                 )
-                Box(modifier = Modifier.weight(1f).memoryBubbleFreeSpan(bubble))
+                Box(
+                    modifier = Modifier.weight(1f).memoryBubbleFreeSpan(bubble),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    HomeGreetingLine(
+                        greeting = greeting,
+                        editProgress = editProgress,
+                        away = { bubble.greetingAway() },
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                }
                 Spacer(modifier = Modifier.width(2.dp))
                 if (headerAction != null) {
                     headerAction()
