@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
@@ -195,6 +198,69 @@ class NoteWriteBarTest {
         // The words scroll inside the line instead of pushing them out.
         val words = field().getUnclippedBoundsInRoot()
         assertTrue(words.bottom <= 60.dp)
+    }
+
+    /**
+     * The filled capsule (Now Playing's Note page) turns back to the light card as it opens; its words
+     * colour springs with it. Every frame of that spring used to hand the field a new output
+     * transformation, and each one restarted the field's input session — hiding and re-showing the
+     * keyboard several times while it rose, so the bar's "keyboard went down over an empty draft" rule
+     * closed it again (owner, 0.6.4 (36)). Opening must start ONE input session and keep it.
+     */
+    @OptIn(ExperimentalComposeUiApi::class)
+    @Test
+    fun should_keepOneInputSession_when_filledCapsuleOpens() {
+        // Variations: one tap or a fast double tap; an unbound draft or one already following the song.
+        val cases = listOf(false, true).flatMap { tapTwice ->
+            listOf(NoteDraft(), NoteDraft(anchorMs = 4_000L, target = songA)).map { tapTwice to it }
+        }
+        val bars = cases.map { (_, draft) -> NoteWriteBarState(NoteDraftState(draft)) }
+        var index by mutableStateOf(0)
+        var sessions = 0
+        var playhead by mutableStateOf(0L)
+        rule.setContent {
+            InterceptPlatformTextInput(
+                interceptor = { request, next ->
+                    sessions++
+                    next.startInputMethod(request)
+                },
+            ) {
+                key(index) {
+                    Box(modifier = Modifier.width(360.dp)) {
+                        NoteWriteBar(
+                            state = bars[index],
+                            current = songA,
+                            positionMs = { playhead },
+                            onSave = {},
+                            filledAtRest = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+        cases.forEachIndexed { i, (tapTwice, draft) ->
+            rule.runOnIdle { index = i }
+            rule.waitForIdle()
+            sessions = 0
+            rule.mainClock.autoAdvance = false
+
+            field().performClick()
+            if (tapTwice) field().performClick()
+            // Through the colour spring and the card's reshape, frame by frame, the playhead ticking.
+            repeat(90) { frame ->
+                if (frame % 30 == 0) playhead = frame * 1_000L / 30
+                rule.mainClock.advanceTimeByFrame()
+            }
+            rule.mainClock.autoAdvance = true
+            rule.waitForIdle()
+
+            val case = "tapTwice=$tapTwice draft=$draft"
+            val bar = bars[i]
+            assertTrue("focused ($case)", bar.focused)
+            assertTrue("open ($case)", bar.open)
+            assertEquals("input sessions ($case)", 1, sessions)
+        }
     }
 
     @Composable
