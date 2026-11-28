@@ -260,7 +260,8 @@ export default class YoinStoragePlugin implements FlutterPlugin, MethodCallHandl
   }
 }
 
-function chunkAlias(key: string, index: number): string {
+/** The Asset Store alias of chunk [index] of a long secret (also read by a personal build's Apple Music player). */
+export function chunkAlias(key: string, index: number): string {
   return `${key}::chunk:${index}`;
 }
 

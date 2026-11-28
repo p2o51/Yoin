@@ -155,6 +155,20 @@ final class ChannelPlaybackEngine implements QueuePlaybackEngine, RemoteSessionM
     return map == null ? null : EngineSnapshot.fromMap(map);
   }
 
+  /// Whether the native engine has a player for URIs of [scheme] besides
+  /// AVPlayer. Only a personal build registers one (`yoin-am`, Apple Music,
+  /// docs/applemusic.md), and only once its native library loaded; an engine
+  /// that doesn't know the call answers false.
+  Future<bool> hasPlayer(String scheme) async {
+    try {
+      return await _methods.invokeMethod<bool>('hasPlayer', {'scheme': scheme}) ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   @override
   Future<void> play() => _methods.invokeMethod<void>('play');
 

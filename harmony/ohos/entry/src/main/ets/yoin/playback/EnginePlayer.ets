@@ -258,13 +258,43 @@ function readNumber(value: Object | undefined): number {
 
 /**
  * Players for URI schemes AVPlayer doesn't play. Nothing is registered in a normal build; a
- * personal build registers its own (e.g. `yoin-am` for Apple Music, docs/applemusic.md).
+ * personal build registers its own (e.g. `yoin-am` for Apple Music, docs/applemusic.md,
+ * through PersonalPlayers.ets).
  */
 export class EnginePlayers {
   private static external: Map<string, EnginePlayerFactory> = new Map();
+  /** Registrations still waiting for their player's library to load ([registerWhen]). */
+  private static pending: Set<Promise<void>> = new Set();
 
   static register(scheme: string, factory: EnginePlayerFactory): void {
     EnginePlayers.external.set(scheme, factory);
+  }
+
+  /**
+   * Registers [factory] for [scheme] once [ready] resolves true (its native library loaded). False or a
+   * failure leaves the scheme unregistered, so its URIs stay AVPlayer's and Dart keeps refusing them.
+   */
+  static registerWhen(scheme: string, ready: Promise<boolean>, factory: EnginePlayerFactory): void {
+    const settled: Promise<void> = ready
+      .then((ok: boolean) => {
+        if (ok) {
+          EnginePlayers.register(scheme, factory);
+        }
+      })
+      .catch(() => {
+      })
+      .finally(() => {
+        EnginePlayers.pending.delete(settled);
+      });
+    EnginePlayers.pending.add(settled);
+  }
+
+  /** Whether [scheme] has a player, once every pending registration has settled (Dart's `hasPlayer`). */
+  static async has(scheme: string): Promise<boolean> {
+    if (EnginePlayers.pending.size > 0) {
+      await Promise.all(Array.from(EnginePlayers.pending));
+    }
+    return EnginePlayers.external.has(scheme);
   }
 
   /** The registered scheme of [uri], or '' (AVPlayer). */

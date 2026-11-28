@@ -11,6 +11,7 @@ import {
   StreamHandler
 } from '@ohos/flutter_ohos';
 import { common } from '@kit.AbilityKit';
+import { EnginePlayers } from './EnginePlayer';
 import { EngineRepeat } from './PlaybackEngine';
 import { YoinPlaybackHost } from './PlaybackHost';
 import { QueueItem, StreamCacheEpoch } from './QueueItem';
@@ -103,6 +104,14 @@ export default class YoinPlaybackPlugin implements FlutterPlugin, MethodCallHand
         case 'getSnapshot':
           result.success(host.snapshotMap());
           return;
+        case 'hasPlayer': {
+          // A personal build's player for a URI scheme (`yoin-am`, docs/applemusic.md); a normal build has none.
+          const scheme: Any = call.argument('scheme');
+          EnginePlayers.has(typeof scheme === 'string' ? scheme as string : '')
+            .then((has: boolean) => result.success(has))
+            .catch(() => result.success(false));
+          return;
+        }
         case 'play':
           engine.play();
           break;

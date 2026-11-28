@@ -22,6 +22,7 @@ import 'neodb/neodb_providers.dart';
 import 'nowplaying/haptics.dart';
 import 'offline/offline_providers.dart';
 import 'platform/motion/system_motion.dart';
+import 'platform/playback/channel_playback_engine.dart';
 import 'platform/posture/display_posture.dart';
 import 'platform/window/window_caption.dart';
 import 'platform/yoin_platform.dart';
@@ -88,6 +89,11 @@ Future<void> main() async {
                 () => ref.read(keyValueStoreProvider),
                 credentials,
               ),
+              // Personal builds only (YOIN_AM_PLAYBACK): songs play once the native player loaded.
+              nativePlayerReady: switch (platform.playbackEngine) {
+                final ChannelPlaybackEngine engine => () => engine.hasPlayer(appleMusicPlayerScheme),
+                _ => null,
+              },
             ),
           },
         ),

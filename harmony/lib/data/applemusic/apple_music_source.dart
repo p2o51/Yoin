@@ -40,11 +40,18 @@ final class AppleMusicSource implements MusicSource {
   /// [nameRegion] is the account's [AppleMusicNameRegion] (Android
   /// AppleMusicSource.nameRegion), read as each list is named; null keeps the
   /// names Apple shows.
+  ///
+  /// Songs play only in a personal build: [nativePlayback] (the build's
+  /// `YOIN_AM_PLAYBACK` switch) is on and [nativePlayerReady] says the native
+  /// `yoin-am` player loaded (docs/applemusic.md, "Personal builds"). Any
+  /// other build refuses every song, as before.
   factory AppleMusicSource(
     AppleMusicCredentials credentials, {
     http.Client? client,
     Uri? apiBaseUrl,
     Future<AppleMusicNameRegion> Function()? nameRegion,
+    bool nativePlayback = appleMusicNativePlayback,
+    Future<bool> Function()? nativePlayerReady,
   }) {
     final transport = client ?? http.Client();
     final tokens = AppleMusicDeveloperTokenProvider(credentials.endpoint, client: transport);
@@ -55,12 +62,16 @@ final class AppleMusicSource implements MusicSource {
       baseUrl: apiBaseUrl,
       onDeveloperTokenRejected: tokens.invalidate,
     );
-    return AppleMusicSource._(api, nameRegion);
+    return AppleMusicSource._(
+      api,
+      nameRegion,
+      nativePlayback && nativePlayerReady != null ? nativePlayerReady : null,
+    );
   }
 
-  AppleMusicSource._(this._api, [this._nameRegion]) {
+  AppleMusicSource._(this._api, [this._nameRegion, Future<bool> Function()? nativePlayerReady]) {
     _library = _AppleMusicLibrary(this);
-    _playback = _AppleMusicPlayback(this);
+    _playback = _AppleMusicPlayback(this, nativePlayerReady);
     _metadata = _AppleMusicMetadata(this);
   }
 
@@ -1166,23 +1177,32 @@ final class _AppleMusicWriteActions implements MusicWriteActions, MusicPlaylistW
 }
 
 /// The personal-build switch for Apple Music playback (see [_AppleMusicPlayback.handleFor]).
+/// Off unless the build passes `--dart-define=YOIN_AM_PLAYBACK=true`
+/// (harmony/scripts/build_personal_am.sh does).
 const bool appleMusicNativePlayback = bool.fromEnvironment('YOIN_AM_PLAYBACK');
 
+/// The URI scheme of the personal build's native Apple Music player (ArkTS `EnginePlayers`).
+const String appleMusicPlayerScheme = 'yoin-am';
+
 final class _AppleMusicPlayback implements MusicPlayback {
-  _AppleMusicPlayback(this._s);
+  _AppleMusicPlayback(this._s, this._nativePlayerReady);
   final AppleMusicSource _s;
 
+  /// Set only when the build's switch is on: whether the native player loaded.
+  final Future<bool> Function()? _nativePlayerReady;
+
   /// Android hands MusicKit the catalogue id (`ExternalController(APPLE_MUSIC_KIT, id)`).
-  /// HarmonyOS has no Apple Music player yet, and [ExternalControllerType]
-  /// has no Apple member, so this checks the song the same way and then
-  /// refuses: an import or an unavailable song with Android's reason, any
-  /// other song as unsupported playback.
+  /// This checks the song the same way (an import or an unavailable song is
+  /// refused with Android's reason). A personal build whose native player
+  /// loaded then plays `yoin-am:<catalogId>`; every other build refuses the
+  /// song as unsupported playback, so Apple Music stays browse-only.
   @override
   Future<PlaybackHandle> handleFor(Track track) async {
     final catalogId = _s.catalogIdForPlayback(track);
-    // Personal builds only (--dart-define=YOIN_AM_PLAYBACK=true): the native player behind the
-    // `yoin-am:` scheme (docs/applemusic.md, Phase 3). Off by default, so no distributed build plays.
-    if (appleMusicNativePlayback) return DirectStream('yoin-am:$catalogId');
+    // Personal builds only (--dart-define=YOIN_AM_PLAYBACK=true plus the local player module,
+    // docs/applemusic.md "Personal builds"). Off by default, so no distributed build plays.
+    final ready = _nativePlayerReady;
+    if (ready != null && await ready()) return DirectStream('$appleMusicPlayerScheme:$catalogId');
     throw const UnsupportedSourceOperation('Apple Music playback is not available on HarmonyOS yet');
   }
 

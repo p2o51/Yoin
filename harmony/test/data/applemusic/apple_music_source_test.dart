@@ -43,7 +43,13 @@ final class _Server {
     };
   });
 
-  AppleMusicSource source() => AppleMusicSource(_creds, client: client);
+  AppleMusicSource source({bool nativePlayback = false, Future<bool> Function()? nativePlayerReady}) =>
+      AppleMusicSource(
+        _creds,
+        client: client,
+        nativePlayback: nativePlayback,
+        nativePlayerReady: nativePlayerReady,
+      );
 }
 
 http.Response _json(String body, [int status = 200]) =>
@@ -409,6 +415,52 @@ void main() {
 
       expect(source.catalogIdForPlayback(song), '11');
       await expectLater(source.playback.handleFor(song), throwsA(isA<UnsupportedSourceOperation>()));
+    });
+
+    test('should_playThroughTheNativePlayer_when_personalBuildsPlayerLoaded', () async {
+      final server = _Server(_withStorefront({'/v1/catalog/jp/search': fx.search}));
+      final source = server.source(nativePlayback: true, nativePlayerReady: () async => true);
+      final song = (await source.library.search('x')).tracks.first;
+
+      final handle = await source.playback.handleFor(song);
+
+      expect(handle, isA<DirectStream>().having((h) => h.uri, 'uri', 'yoin-am:11'));
+    });
+
+    test('should_refuse_when_switchIsOnButTheNativePlayerDidNotLoad', () async {
+      final server = _Server(_withStorefront({'/v1/catalog/jp/search': fx.search}));
+      final source = server.source(nativePlayback: true, nativePlayerReady: () async => false);
+      final song = (await source.library.search('x')).tracks.first;
+
+      await expectLater(source.playback.handleFor(song), throwsA(isA<UnsupportedSourceOperation>()));
+    });
+
+    test('should_refuseWithoutAskingTheEngine_when_switchIsOff', () async {
+      final server = _Server(_withStorefront({'/v1/catalog/jp/search': fx.search}));
+      var asked = 0;
+      final source = server.source(nativePlayerReady: () async {
+        asked++;
+        return true;
+      });
+      final song = (await source.library.search('x')).tracks.first;
+
+      await expectLater(source.playback.handleFor(song), throwsA(isA<UnsupportedSourceOperation>()));
+      expect(asked, 0);
+    });
+
+    test('should_keepAndroidsReason_when_importIsPlayedInAPersonalBuild', () async {
+      final source = _Server({}).source(nativePlayback: true, nativePlayerReady: () async => true);
+      final import = Track(id: MediaId(MediaId.providerAppleMusic, 'library:i.IMP1'));
+
+      await expectLater(
+        source.playback.handleFor(import),
+        throwsA(isA<UnsupportedSourceOperation>().having((e) => e.operation, 'operation', contains('catalog version'))),
+      );
+    });
+
+    test('should_beOff_when_buildDoesNotDefineTheSwitch', () {
+      // `flutter test` passes no YOIN_AM_PLAYBACK, like every distributed build.
+      expect(appleMusicNativePlayback, isFalse);
     });
 
     test('should_refuseWithReason_when_songIsAnImport', () async {
