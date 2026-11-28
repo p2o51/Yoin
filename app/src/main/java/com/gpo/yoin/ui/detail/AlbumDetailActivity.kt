@@ -297,6 +297,10 @@ class AlbumDetailActivity : ComponentActivity() {
                             )
                         }
                     },
+                    onOpenArtistPage = { artistId ->
+                        YoinPerf.detailClick("artist", artistId, via = "push")
+                        launchChildDetail(ArtistDetailActivity.intent(this@AlbumDetailActivity, artistId))
+                    },
                     isPlaying = isPlaying,
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     nowPlayingOpen = nowPlayingOpen,

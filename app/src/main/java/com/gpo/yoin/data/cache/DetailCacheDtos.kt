@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.cache
 
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.ArtistCredit
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.ContentRating
@@ -185,6 +186,8 @@ internal data class AlbumDto(
      * [formatVersion] reads as [DetailCacheFormat.DATED] when [dated] says so.
      */
     val format: Int = 0,
+    /** [Album.artistCredits]; empty on rows from before it (the header links [artistId] alone). */
+    val artistCredits: List<ArtistCreditDto> = emptyList(),
 ) {
     /** The row's format: [format], or for a row from before it was kept, what [dated] says. */
     val formatVersion: Int
@@ -210,6 +213,7 @@ internal data class AlbumDto(
         originalReleaseDate = originalReleaseDate?.toDomain(),
         editorialNotes = editorialNotes,
         contentRating = ContentRating.fromStorage(contentRating),
+        artistCredits = artistCredits.map(ArtistCreditDto::toDomain),
     )
 
     companion object {
@@ -237,7 +241,18 @@ internal data class AlbumDto(
             credited = true,
             contentRating = a.contentRating?.name,
             format = DetailCacheFormat.CURRENT,
+            artistCredits = a.artistCredits.map(ArtistCreditDto::from),
         )
+    }
+}
+
+/** [ArtistCredit] on disk: the name and the `provider:rawId` of its page, if any. */
+@Serializable
+internal data class ArtistCreditDto(val name: String, val id: String? = null) {
+    fun toDomain(): ArtistCredit = ArtistCredit(name, MediaId.parseOrNull(id))
+
+    companion object {
+        fun from(c: ArtistCredit): ArtistCreditDto = ArtistCreditDto(c.name, c.id?.toString())
     }
 }
 

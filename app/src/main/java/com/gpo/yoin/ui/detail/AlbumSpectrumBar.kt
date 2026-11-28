@@ -136,9 +136,30 @@ private val AlbumBarStampEndInset = 16.dp
 internal fun albumHeroCoverSidePx(width: Float, density: Density): Float =
     min(width * 0.74f, with(density) { 300.dp.toPx() })
 
-/** Compact hero band: the cover plus the 56dp band behind it. */
+/**
+ * Compact hero band: the cover plus 28dp above and below it, the box the resting butterfly is
+ * scaled and placed in (centred on the cover). Not the cover's slot: see [AlbumHeroCoverTopGap].
+ */
 internal fun albumHeroBandPx(width: Float, density: Density): Float =
-    albumHeroCoverSidePx(width, density) + with(density) { 56.dp.toPx() }
+    albumHeroCoverSidePx(width, density) + with(density) { (AlbumHeroBandMargin * 2).toPx() }
+
+private val AlbumHeroBandMargin = 28.dp
+
+/**
+ * Compact: from the header's foot to the cover's top. The page dots' 20dp cell and the header's
+ * 6dp bottom padding put the dot 12dp above the header's foot, so the cover clears the dots by
+ * ≈16dp, as the meta line's baseline above does (owner 2026-11-27: the cover sat 40dp under the
+ * dots, the dots ≈16dp under the meta — "the two dots should have equal space above and below").
+ * Was the band's 28dp half, which centred the cover in its band.
+ */
+internal val AlbumHeroCoverTopGap = 4.dp
+
+/** Compact: under the cover, before the hero's score and comment row (the band's lower half). */
+internal val AlbumHeroCoverBottomGap = AlbumHeroBandMargin
+
+/** The Compact hero's slot in the page, in dp: the gap above the cover, the cover, the gap below. */
+internal fun albumHeroSlotDp(coverSideDp: Float): Float =
+    AlbumHeroCoverTopGap.value + coverSideDp + AlbumHeroCoverBottomGap.value
 
 // Short portrait (cover beside the meta): the cover starts on the titles' 16dp
 // line, takes over 60% of the width, and sits under the header like landscape.
@@ -174,11 +195,11 @@ private const val AlbumPortraitTextReserveDp = 250f
  *
  * Not a size-class line: the Compact hero's height grows with its width (the
  * cover is 0.74 × width, capped at 300), so what decides is the height left
- * once the cover band is taken. 390 × 844 keeps 499dp (portrait); a near-3:2
- * outer screen such as Fold 8's (~420 × 640) keeps ~284dp (short).
+ * once the cover's slot ([albumHeroSlotDp]) is taken. 390 × 844 keeps 523dp (portrait); a
+ * near-3:2 outer screen such as Fold 8's (~420 × 640) keeps ~308dp (short).
  */
 internal fun albumHeroFitsPortrait(widthDp: Float, heightDp: Float, fontScale: Float = 1f): Boolean {
-    val band = min(widthDp * 0.74f, 300f) + 56f
+    val band = albumHeroSlotDp(min(widthDp * 0.74f, 300f))
     val needed = AlbumPortraitChromeReserveDp + AlbumPortraitTextReserveDp * fontScale
     return heightDp - band >= needed
 }
@@ -217,11 +238,12 @@ internal fun albumBarGeometry(
             coverSide = albumHeroCoverSidePx(width, density)
             val band = albumHeroBandPx(width, density)
             coverStart = (width - coverSide) / 2f
-            coverTop = headerHeight + (band - coverSide) / 2f
+            coverTop = headerHeight + AlbumHeroCoverTopGap.toPx()
             fromPose = if (pageEdgesAreScreenEdges) {
                 MarkPose(
                     left = 0f,
-                    top = headerHeight,
+                    // The band stays centred on the cover, so the butterfly keeps its place behind it.
+                    top = coverTop - (band - coverSide) / 2f,
                     width = width,
                     height = band,
                     scale = CompactArrowScale,

@@ -245,6 +245,7 @@ internal fun AlbumPaneEntry(
         onShare = share,
         menu = menu,
         onOpenArtist = artistId?.let { id -> { onOpenArtist(id) } },
+        onOpenArtistPage = { id -> onOpenArtist(id) },
         isPlaying = playback.isPlaying,
         modifier = Modifier.fillMaxSize(),
     )

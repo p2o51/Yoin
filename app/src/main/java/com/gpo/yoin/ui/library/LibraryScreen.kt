@@ -158,6 +158,7 @@ import com.gpo.yoin.ui.component.ExpressiveSegmentRow
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.durationMetaGroup
 import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.TrackLibraryButton
@@ -2491,15 +2492,13 @@ private fun PlaylistMeta(playlist: Playlist, modifier: Modifier = Modifier) {
             )
         }
         playlist.durationSec?.takeIf { it > 0 }?.let { seconds ->
-            val totalMinutes = seconds / 60
-            val hours = totalMinutes / 60
-            val minutes = totalMinutes % 60
-            if (hours > 0) {
-                add(MetaGroup.Stat(hours.toString(), stringResource(R.string.library_duration_hour_unit)))
-            }
-            if (minutes > 0 || hours == 0) {
-                add(MetaGroup.Stat(minutes.toString(), stringResource(R.string.library_duration_minute_unit)))
-            }
+            add(
+                durationMetaGroup(
+                    seconds = seconds,
+                    hourUnit = stringResource(R.string.library_duration_hour_unit),
+                    minuteUnit = stringResource(R.string.library_duration_minute_unit),
+                ),
+            )
         }
     }
     if (groups.isEmpty()) {

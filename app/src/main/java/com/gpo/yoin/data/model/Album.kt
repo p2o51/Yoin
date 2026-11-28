@@ -60,6 +60,13 @@ data class Album(
      * derived from the tracks, [ContentRating.fromTracks]); null = unknown.
      */
     val contentRating: ContentRating? = null,
+    /**
+     * Every artist the service credits the release to, each with the page it opens when the service
+     * names one (Spotify album `artists`, Apple Music's `artists` relationship, OpenSubsonic `artists`),
+     * in the service's order; [artist] / [artistId] are the first. Empty where the service names only
+     * [artist]. The album header's artist link offers each ([albumArtistLinks]).
+     */
+    val artistCredits: List<ArtistCredit> = emptyList(),
 ) {
     /** The service marks the release explicit: it wears the "E" badge after its name. */
     val isExplicit: Boolean

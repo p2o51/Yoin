@@ -1,10 +1,16 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.takeOrElse
@@ -12,8 +18,10 @@ import androidx.compose.ui.layout.AlignmentLine
 import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
@@ -26,12 +34,48 @@ sealed interface MetaGroup {
     /** A count or measure: the number emphasised, the unit muted ("12" + "tracks"). */
     data class Stat(val value: String, val unit: String = "") : MetaGroup
 
-    /** Plain text at the line's normal emphasis. [muted] draws it at 60%. */
-    data class Plain(val text: String, val muted: Boolean = false) : MetaGroup
+    /**
+     * Plain text at the line's normal emphasis. [muted] draws it at 60%. With [onClick] it is a link (the album
+     * header's artist): no ripple, underlined while pressed like the flowing track titles; [onClickLabel] is
+     * what TalkBack says it does.
+     */
+    data class Plain(
+        val text: String,
+        val muted: Boolean = false,
+        val onClick: (() -> Unit)? = null,
+        val onClickLabel: String? = null,
+    ) : MetaGroup
 
     /** A kind label (Album, Single), at the line's size. [accent] uses the theme accent; otherwise muted. */
     data class Kind(val text: String, val accent: Boolean = false) : MetaGroup
+
+    /**
+     * Several measures read as one group, a word space apart: a length ("1h 16min", "1 小时 16 分钟").
+     * [flush] sets each unit against its number with no gap (the compact Latin h / min, owner 2026-11-27:
+     * "1 h 16 min" read as four words); a unit in words keeps its gap.
+     */
+    data class Stats(val parts: List<Stat>, val flush: Boolean = false) : MetaGroup
 }
+
+/**
+ * A length as one [MetaGroup.Stats]: hours and minutes ("1h 16min"; the minutes left out on the hour, "2h"),
+ * or minutes alone under an hour ("44min", "0min" under a minute). Seconds are dropped. The units sit flush
+ * when both are Latin abbreviations ([unitSetsFlush]); 小时 / 分钟 keep the gap ("1 小时 16 分钟").
+ */
+fun durationMetaGroup(seconds: Int, hourUnit: String, minuteUnit: String): MetaGroup.Stats {
+    val totalMinutes = seconds.coerceAtLeast(0) / 60
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    val parts = buildList {
+        if (hours > 0) add(MetaGroup.Stat(hours.toString(), hourUnit))
+        if (minutes > 0 || hours == 0) add(MetaGroup.Stat(minutes.toString(), minuteUnit))
+    }
+    return MetaGroup.Stats(parts, flush = unitSetsFlush(hourUnit) && unitSetsFlush(minuteUnit))
+}
+
+/** A unit that sits against its number: an abbreviation in Latin letters ("h", "min"), not a word in another script. */
+internal fun unitSetsFlush(unit: String): Boolean =
+    unit.isNotEmpty() && unit.all { it in 'a'..'z' || it in 'A'..'Z' }
 
 /**
  * How many leading groups fit in [maxWidth]. Groups are dropped from the end,
@@ -65,6 +109,9 @@ enum class MetaOverflow { DropTrailing, Share }
 
 private val MetaGroupGap = 12.dp
 private val MetaInnerGap = 4.dp
+
+// A flush unit: no gap beyond the digits' own side bearing ("16min").
+private val MetaFlushGap = 0.dp
 
 /** In [MetaOverflow.Share], the narrowest a later group is drawn before it drops. */
 internal val MetaShareMinWidth = 40.dp
@@ -284,16 +331,59 @@ private fun MetaGroupText(
                 )
             }
         }
-        is MetaGroup.Plain -> Text(
-            text = group.text,
-            style = style,
-            color = if (group.muted) ink.copy(alpha = ink.alpha * 0.6f) else ink,
-            maxLines = maxLines,
-            softWrap = false,
-            // Only shows when the line holds the group narrower than its text (MetaOverflow).
-            overflow = TextOverflow.Ellipsis,
-            modifier = modifier,
-        )
+        is MetaGroup.Stats -> Row(modifier = modifier) {
+            group.parts.forEachIndexed { index, part ->
+                // A word space between the measures; none (flush) or the Stat gap inside one.
+                val lead = if (index == 0) 0.dp else MetaInnerGap
+                Text(
+                    text = part.value,
+                    style = style.copy(fontWeight = FontWeight.Medium).withTabularFigures(),
+                    color = ink,
+                    maxLines = maxLines,
+                    softWrap = false,
+                    modifier = Modifier.alignByBaseline().padding(start = lead),
+                )
+                if (part.unit.isNotEmpty()) {
+                    Text(
+                        text = part.unit,
+                        style = style.copy(fontWeight = FontWeight.Normal),
+                        color = ink.copy(alpha = ink.alpha * 0.6f),
+                        maxLines = maxLines,
+                        softWrap = false,
+                        modifier = Modifier
+                            .alignByBaseline()
+                            .padding(start = if (group.flush) MetaFlushGap else MetaInnerGap),
+                    )
+                }
+            }
+        }
+        is MetaGroup.Plain -> {
+            val onClick = group.onClick
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            Text(
+                text = group.text,
+                style = if (pressed) style.copy(textDecoration = TextDecoration.Underline) else style,
+                color = if (group.muted) ink.copy(alpha = ink.alpha * 0.6f) else ink,
+                maxLines = maxLines,
+                softWrap = false,
+                // Only shows when the line holds the group narrower than its text (MetaOverflow).
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (onClick == null) {
+                    modifier
+                } else {
+                    modifier
+                        .handPointer()
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                            role = Role.Button,
+                            onClickLabel = group.onClickLabel,
+                            onClick = onClick,
+                        )
+                },
+            )
+        }
         // The line's own size (a fixed labelSmall read a size smaller than the
         // artist and year beside it, owner 2026-10-15); the colour and the
         // label weight set it apart.
@@ -322,7 +412,7 @@ private fun MetaLinePreview() {
             groups = listOf(
                 MetaGroup.Plain("2024"),
                 MetaGroup.Stat("12", "tracks"),
-                MetaGroup.Stat("44", "min"),
+                durationMetaGroup(76 * 60, "h", "min"),
             ),
         )
     }

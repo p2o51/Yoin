@@ -2,6 +2,7 @@ package com.gpo.yoin.data.source.subsonic
 
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.ArtistCredit
 import com.gpo.yoin.data.model.AudioFormat
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
@@ -133,6 +134,8 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     recordLabels = recordLabels.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }.distinct(),
     originalReleaseDate = originalReleaseDate?.toReleaseDate(),
     contentRating = ContentRating.fromOpenSubsonic(explicitStatus),
+    artistCredits = artists.filter { it.name.isNotBlank() }
+        .map { ArtistCredit(it.name, it.id?.takeIf(String::isNotBlank)?.let(MediaId::subsonic)) },
 )
 
 /**
