@@ -100,6 +100,8 @@ struct NowPlayingView: View, Equatable {
     @FocusState private var askFieldFocused: Bool
     /// The page's geometry before the keyboard came up (see `page`).
     @State private var frozenGeometry: PageGeometry?
+    /// Latest pre-keyboard geometry kept off the render path so morph frames don't invalidate `body`.
+    @State private var restGeometry = GeometryBox()
     @State private var keyboardHeight: CGFloat = 0
     @State private var spotifyDevicesOpen = false
     private var spotifySong: Bool { engineTrack?.provider == SpotifyMapping.provider && model.store.spotify != nil }
@@ -136,6 +138,8 @@ struct NowPlayingView: View, Equatable {
     /// Two-column focus's edge band: where the cover and the lyrics sit (global), and a tick per lyric line.
     @State private var bandCover: CGPoint = .zero
     @State private var bandLyrics: CGPoint?
+    /// Latest global anchors kept off the render path outside Focus so open/close morph stays equatable.
+    @State private var bandBox = BandAnchorBox()
     @State private var bandLineTick = 0
     /// Android focus at ease (PR #185): in two-column focus, FocusIdleMs
     /// without a touch while synced lyrics play; the transport's buttons and
@@ -233,14 +237,31 @@ struct NowPlayingView: View, Equatable {
                     if demo == nil {
                         let token = backToken
                         model.npStageBack[slot] = NowPlayingStageBack(token: token) { keyboardStageBack() }
+                        model.npKeyCommands[slot] = NowPlayingKeyCommandTarget(
+                            token: token,
+                            toggleFocus: { toggleFocusFromKeyboard() },
+                            toggleLyrics: { toggleLyricsFromKeyboard() }
+                        )
+                        if let pending = model.pendingNPKeyCommand {
+                            model.pendingNPKeyCommand = nil
+                            switch pending {
+                            case .focus: toggleFocusFromKeyboard()
+                            case .lyrics: toggleLyricsFromKeyboard()
+                            }
+                        }
                     }
                 } else if mounted == false {
                     if model.npStageBack[slot]?.token == backToken { model.npStageBack[slot] = nil }
+                    if model.npKeyCommands[slot]?.token == backToken { model.npKeyCommands[slot] = nil }
                     glow.stopAll()
                     var t = Transaction()
                     t.disablesAnimations = true
                     withTransaction(t) {
-                        if !wide, stage != .compact { stage = .compact }
+                        if wide {
+                            if stage != .expanded { stage = .expanded }
+                        } else if stage != .compact {
+                            stage = .compact
+                        }
                         expandedFromFocus = false
                         shortFocus = false
                         if tab != NowPlayingDetailPage.lyrics.rawValue { tab = NowPlayingDetailPage.lyrics.rawValue }
@@ -695,9 +716,12 @@ struct NowPlayingView: View, Equatable {
                 // With the keyboard up the shell hands this page a shorter
                 // frame (and drops its top inset); the page keeps the
                 // geometry it had before the keyboard, pinned to the screen.
+                // Avoid reading `.frame(in: .global)` while the keyboard is down so
+                // 120 Hz open/close morph transforms don't re-evaluate `GeometryReader`.
+                let liveMinY: CGFloat = keyboardOwned ? geo.frame(in: .global).minY : 0
                 let live = PageGeometry(size: geo.size, top: geo.safeAreaInsets.top,
-                                        bottom: geo.safeAreaInsets.bottom, minY: geo.frame(in: .global).minY)
-                let g = keyboardOwned ? (frozenGeometry ?? live) : live
+                                        bottom: geo.safeAreaInsets.bottom, minY: liveMinY)
+                let g = keyboardOwned ? (frozenGeometry ?? restGeometry.value ?? live) : live
                 // iPad Full: the window's size picks the frame (Android
                 // NowPlayingPresentation) — two columns when Wide, else the
                 // enlarged phone column. The side panel is the phone column.
@@ -741,10 +765,24 @@ struct NowPlayingView: View, Equatable {
                         .padding(.leading, column?.x ?? 0)
                         .padding(.trailing, column.map { g.size.width - $0.x - $0.width } ?? 0)
                     }
-                    .offset(y: g.minY - live.minY)
-                    .onChange(of: live, initial: true) { _, now in
-                        if !keyboardOwned { frozenGeometry = now }
-                    }
+                    .offset(y: keyboardOwned ? g.minY - liveMinY : 0)
+            }
+            .background {
+                Color.clear.onGeometryChange(for: PageGeometry.self) { proxy in
+                    PageGeometry(size: proxy.size, top: proxy.safeAreaInsets.top,
+                                 bottom: proxy.safeAreaInsets.bottom, minY: proxy.frame(in: .global).minY)
+                } action: { now in
+                    if !keyboardOwned { restGeometry.value = now }
+                }
+            }
+            .onChange(of: keyboardOwned) { _, owned in
+                frozenGeometry = owned ? restGeometry.value : nil
+            }
+            .onChange(of: stage == .focus) { _, focused in
+                if focused {
+                    bandCover = bandBox.cover
+                    bandLyrics = bandBox.lyrics
+                }
             }
         }
     }
@@ -754,6 +792,15 @@ struct NowPlayingView: View, Equatable {
         var top: CGFloat
         var bottom: CGFloat
         var minY: CGFloat
+    }
+
+    private final class GeometryBox {
+        var value: PageGeometry?
+    }
+
+    private final class BandAnchorBox {
+        var cover: CGPoint = .zero
+        var lyrics: CGPoint?
     }
 
     /// iPad Full in a Wide window (≥ 840 wide, ≥ 480 tall, the window's own
@@ -3940,7 +3987,13 @@ extension NowPlayingView {
                         // The cover's centre (its square sits at the slot's top-left).
                         let f = proxy.frame(in: .global)
                         return CGPoint(x: f.minX + pose.cover / 2, y: f.minY + pose.cover / 2)
-                    } action: { bandCover = $0 }
+                    } action: { pt in
+                        bandBox.cover = pt
+                        if inFocus && npMorph?.inFlight != true && npMorph?.mounted != false,
+                           abs(pt.x - bandCover.x) > 0.5 || abs(pt.y - bandCover.y) > 0.5 {
+                            bandCover = pt
+                        }
+                    }
                     .zIndex(1)
                     Spacer().frame(height: pose.coverToTransport)
                     transport(p, atEase: atEase)
@@ -3980,7 +4033,15 @@ extension NowPlayingView {
                     .onGeometryChange(for: CGPoint.self) { proxy in
                         let f = proxy.frame(in: .global)
                         return CGPoint(x: f.midX, y: f.midY)
-                    } action: { bandLyrics = $0 }
+                    } action: { pt in
+                        bandBox.lyrics = pt
+                        if inFocus && npMorph?.inFlight != true && npMorph?.mounted != false {
+                            let prev = bandLyrics
+                            if prev == nil || abs(pt.x - prev!.x) > 0.5 || abs(pt.y - prev!.y) > 0.5 {
+                                bandLyrics = pt
+                            }
+                        }
+                    }
                     .glowAnchor(.lyrics, glow)
                     .clipped()
                     // The page fades at its sides instead of a hard cut while it swipes.

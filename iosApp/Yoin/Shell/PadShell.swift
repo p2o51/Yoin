@@ -11,6 +11,9 @@ struct PadShell: View {
     @Namespace private var npNS
     /// Search's surface is built on its first visit and kept (its query and results).
     @State private var searchBuilt = false
+    /// Kept resident after first mount/prewarm (matching PhoneShell) so reopening Full Now Playing
+    /// skips rebuilding the NowPlayingView hierarchy from scratch.
+    @State private var npResident = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 
@@ -58,7 +61,7 @@ struct PadShell: View {
                         }
                         // Where Full grows out of when the panel goes Full (and folds back into).
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { r in
-                            model.np.panelFrame = r
+                            if !r.nearlyMatches(model.np.panelFrame) { model.np.panelFrame = r }
                         }
                         // Android OverlayPlayerVisibility: in and out by its own width, no fade, on the
                         // spring the columns give way on.
@@ -74,11 +77,19 @@ struct PadShell: View {
         .overlay {
             // Full Now Playing grows out of the mini player in the bottom-trailing corner and folds back
             // into it (Android #190 on a tablet), on the phone's one progress: ⌄, the drag and back all move it.
-            if model.np.mounted {
+            // Kept resident once warmed (matching PhoneShell) so subsequent opens skip rebuilding the hierarchy.
+            if (npResident && !model.isIdle) || model.np.mounted {
                 NowPlayingMorph(npNamespace: npNS)
                     .modifier(WorldRecede(layer: .nowPlaying))
+                    .opacity(model.np.mounted ? 1 : 0)
+                    .allowsHitTesting(model.np.mounted)
+                    .accessibilityHidden(!model.np.mounted)
+                    .zIndex(model.np.mounted ? 1 : -1)
                     .transition(.identity)
             }
+        }
+        .onChange(of: model.np.mounted, initial: true) { _, on in
+            if on && !npResident { npResident = true }
         }
         .onChange(of: model.npExpanded) { _, open in
             // Full opened from the panel goes back to the panel (Android's Full → Panel → Closed), whatever
@@ -91,6 +102,7 @@ struct PadShell: View {
         }
         .onChange(of: model.isIdle) { _, idle in
             if idle {
+                npResident = false
                 if model.npExpanded { model.setNowPlaying(expanded: false) }
                 if model.npPanel { withAnimation(Yoin.spatial) { model.npPanel = false } }
             }
@@ -186,17 +198,35 @@ private struct PadDock: View {
         .accessibilityHidden(model.settingsSplitShown)
         .animation(Yoin.spatial, value: model.settingsSplitShown)
         // Memories (pulled down over Home) takes the whole window, as on the phone: the dock leaves on
-        // the pull itself.
-        .modifier(MemoriesBarRetreat(presentation: model.memories,
-                                     active: model.section == .home && !model.searchActive,
-                                     scrollHide: model.section == .home && !model.searchActive ? model.barScrollHide.fraction : 0,
-                                     edit: model.section == .home && !model.searchActive ? model.homeEdit : nil))
+        // the pull itself. Isolates `barScrollHide.fraction` inside `PadDockRetreat` so scrolling Home
+        // does not recompute `PadDock.body` or its `ShellBar` children.
+        .modifier(PadDockRetreat(presentation: model.memories,
+                                 active: model.section == .home && !model.searchActive,
+                                 scrollHide: model.barScrollHide,
+                                 edit: model.section == .home && !model.searchActive ? model.homeEdit : nil))
         .onChange(of: padScrollHideEnabled, initial: true) { _, on in
             model.barScrollHide.enabled = on
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
         .ignoresSafeArea(.container, edges: .bottom)
         .ignoresSafeArea(.keyboard)
+    }
+}
+
+/// Observes `barScrollHide.fraction` at the modifier leaf instead of inside `PadDock.body`.
+private struct PadDockRetreat: ViewModifier {
+    let presentation: MemoriesPresentation
+    let active: Bool
+    let scrollHide: ShellBarScrollHide
+    let edit: HomeEditController?
+
+    func body(content: Content) -> some View {
+        content.modifier(MemoriesBarRetreat(
+            presentation: presentation,
+            active: active,
+            scrollHide: active ? scrollHide.fraction : 0,
+            edit: edit
+        ))
     }
 }
 
